@@ -1,9 +1,10 @@
-"""Keep `status:*` labels in step with the issue lifecycle.
+"""Keep `status:*` labels in step with the issue and PR lifecycle.
 
 Runs from `.github/workflows/unblock-ready.yml`. Native blocked_by edges record
-a block but never flip the status label, and closing or reopening an issue never
-touches its status either, so without this labels drift from reality.
+a block but never flip the status label, and closing, reopening or opening a PR
+never touches an issue's status either, so without this labels drift.
 
+Issue events:
 - `closed`: strip the closed issue's `status:*` labels (a closed issue has no
   work status; `status:hardware-*` belongs to the hardware lifecycle), then
   promote every issue it was blocking whose last open blocker it was.
@@ -11,7 +12,13 @@ touches its status either, so without this labels drift from reality.
   when nothing holds it (open blocker, `needs-*`, another status).
 - `unlabeled` (a `needs-*` label): an issue skipped for an open `needs-*`
   question is re-evaluated once that question is answered.
-- `sweep` (manual dispatch): one-off cleanup of `status:*` on closed issues.
+
+PR events (issues the PR closes via `Closes #N`, same repo only):
+- opened / reopened / ready for review / edited: the issues move to review.
+- closed without merge: the issues go back as if reopened, unless another
+  open PR still closes them. A merge needs nothing here: it closes the issue.
+
+`sweep` (manual dispatch): one-off cleanup of `status:*` on closed issues.
 
 Stdlib only: the job needs no dependency install.
 """
@@ -22,16 +29,33 @@ import urllib.parse
 import urllib.request
 
 READY = "status:ready"
+REVIEW = "status:review"
 # Status labels that may coexist with ready; any other `status:*` means the
 # issue already moved past ready and must not be overwritten.
 COEXISTS_WITH_READY = {READY, "status:owner-queue"}
-# Statuses of work that was under way when the issue closed; stale on reopen.
-IN_FLIGHT = {"status:in-progress", "status:review", "status:rework-in-progress"}
+# Statuses of work under way; stale once the issue is reopened or its PR dropped.
+IN_FLIGHT = {"status:in-progress", REVIEW, "status:rework-in-progress"}
 # Set by a hardware lifecycle workflow on close/reopen; not ours to touch.
 HARDWARE_PREFIX = "status:hardware-"
 # `needs-grill`, `needs-triage`, `needs-safety-review`, ...: an open question
 # that must be answered before the issue is ready.
 NEEDS_PREFIX = "needs-"
+
+LINKED_ISSUES_QUERY = """
+query($owner: String!, $name: String!, $pr: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $pr) {
+      closingIssuesReferences(first: 50) {
+        nodes {
+          number
+          repository { nameWithOwner }
+          closedByPullRequestsReferences(first: 1, includeClosedPrs: false) { nodes { number } }
+        }
+      }
+    }
+  }
+}
+"""
 
 
 def _names(issue):
@@ -62,12 +86,8 @@ def plan_close(issue):
     """Strip work statuses from a closed issue."""
     if issue.get("state") != "closed":
         return [], []
-    names = _names(issue)
-    return [], sorted(
-        n
-        for n in names
-        if n.startswith("status:") and not n.startswith(HARDWARE_PREFIX)
-    )
+    status = {n for n in _names(issue) if n.startswith("status:")}
+    return [], sorted(n for n in status if not n.startswith(HARDWARE_PREFIX))
 
 
 def plan_reopen(issue):
@@ -80,15 +100,38 @@ def plan_reopen(issue):
     return add, sorted(labels & IN_FLIGHT)
 
 
+def plan_review(issue):
+    """A PR that closes the issue is up: ready / in-progress give way to review."""
+    labels = _names(issue)
+    if issue.get("state") != "open" or any(n.startswith(HARDWARE_PREFIX) for n in labels):
+        return [], []
+    stale = labels & (IN_FLIGHT | {READY}) - {REVIEW}
+    return ([] if REVIEW in labels else [REVIEW]), sorted(stale)
+
+
+def pr_issue_numbers(nodes, repo, dropped):
+    """Same-repo issue numbers a PR closes.
+
+    `dropped` (PR closed unmerged): skip issues another open PR still closes,
+    their work is still in flight.
+    """
+    numbers = []
+    for node in nodes:
+        if node["repository"]["nameWithOwner"].lower() != repo.lower():
+            continue
+        if dropped and node["closedByPullRequestsReferences"]["nodes"]:
+            continue
+        numbers.append(node["number"])
+    return numbers
+
+
 def was_blocked(issue):
     """True if the issue ever had a native blocker.
 
     Only such issues are this workflow's to promote: an issue that never had a
     blocker gets its status from triage, not from a `needs-*` label going away.
     """
-    return (issue.get("issue_dependencies_summary") or {}).get(
-        "total_blocked_by", 0
-    ) > 0
+    return (issue.get("issue_dependencies_summary") or {}).get("total_blocked_by", 0) > 0
 
 
 def dependent_repo(dep, repo):
@@ -134,8 +177,7 @@ def promote_dependents(repo, closed):
     page = 1
     while True:
         batch = _api(
-            "GET",
-            f"repos/{repo}/issues/{closed}/dependencies/blocking?per_page=100&page={page}",
+            "GET", f"repos/{repo}/issues/{closed}/dependencies/blocking?per_page=100&page={page}"
         )
         for dep in batch:
             if dependent_repo(dep, repo) is None:
@@ -146,6 +188,20 @@ def promote_dependents(repo, closed):
         if len(batch) < 100:
             break
         page += 1
+
+
+def sync_pr_issues(repo, pr, action, merged):
+    if action == "closed" and merged:
+        print(f"PR #{pr} merged: its issues close on their own")
+        return
+    dropped = action == "closed"
+    owner, name = repo.split("/")
+    variables = {"owner": owner, "name": name, "pr": int(pr)}
+    data = _api("POST", "graphql", {"query": LINKED_ISSUES_QUERY, "variables": variables})
+    nodes = data["data"]["repository"]["pullRequest"]["closingIssuesReferences"]["nodes"]
+    for number in pr_issue_numbers(nodes, repo, dropped):
+        issue = _api("GET", f"repos/{repo}/issues/{number}")
+        apply(repo, issue, plan_reopen if dropped else plan_review)
 
 
 def sweep_closed(repo):
@@ -169,9 +225,13 @@ def sweep_closed(repo):
 
 def main():
     repo = os.environ["GITHUB_REPOSITORY"]
+    event = os.environ.get("EVENT_NAME", "issues")
     action = os.environ.get("EVENT_ACTION", "closed")
-    if action == "sweep":
+    if event == "workflow_dispatch":
         sweep_closed(repo)
+        return
+    if event == "pull_request":
+        sync_pr_issues(repo, os.environ["PR_NUMBER"], action, os.environ.get("PR_MERGED") == "true")
         return
     number = os.environ["ISSUE_NUMBER"]
     issue = _api("GET", f"repos/{repo}/issues/{number}")
