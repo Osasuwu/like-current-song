@@ -3,8 +3,12 @@
 import importlib.util
 from pathlib import Path
 
-_root = next(p for p in Path(__file__).resolve().parents if (p / ".github" / "scripts").is_dir())
-_spec = importlib.util.spec_from_file_location("unblock_ready", _root / ".github" / "scripts" / "unblock_ready.py")
+_root = next(
+    p for p in Path(__file__).resolve().parents if (p / ".github" / "scripts").is_dir()
+)
+_spec = importlib.util.spec_from_file_location(
+    "unblock_ready", _root / ".github" / "scripts" / "unblock_ready.py"
+)
 unblock_ready = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(unblock_ready)
 
@@ -13,7 +17,10 @@ def _issue(labels=(), open_blockers=0, state="open"):
     return {
         "state": state,
         "labels": [{"name": n} for n in labels],
-        "issue_dependencies_summary": {"blocked_by": open_blockers, "total_blocked_by": open_blockers + 1},
+        "issue_dependencies_summary": {
+            "blocked_by": open_blockers,
+            "total_blocked_by": open_blockers + 1,
+        },
     }
 
 
@@ -34,7 +41,10 @@ def test_issue_past_ready_is_not_overwritten():
 
 
 def test_blocked_label_is_swapped_for_ready():
-    assert unblock_ready.plan(_issue(["status:blocked"])) == (["status:ready"], ["status:blocked"])
+    assert unblock_ready.plan(_issue(["status:blocked"])) == (
+        ["status:ready"],
+        ["status:blocked"],
+    )
 
 
 def test_owner_queue_issue_still_gets_ready():

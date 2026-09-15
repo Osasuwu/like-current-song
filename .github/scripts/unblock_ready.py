@@ -55,7 +55,10 @@ def main():
     closed = os.environ["ISSUE_NUMBER"]
     page = 1
     while True:
-        batch = _api("GET", f"repos/{repo}/issues/{closed}/dependencies/blocking?per_page=100&page={page}")
+        batch = _api(
+            "GET",
+            f"repos/{repo}/issues/{closed}/dependencies/blocking?per_page=100&page={page}",
+        )
         for dep in batch:
             # Re-fetch: the dependency summary is the source of truth for open blockers.
             issue = _api("GET", f"repos/{repo}/issues/{dep['number']}")
@@ -64,7 +67,10 @@ def main():
             if add:
                 _api("POST", f"repos/{repo}/issues/{num}/labels", {"labels": add})
             for name in remove:
-                _api("DELETE", f"repos/{repo}/issues/{num}/labels/{urllib.parse.quote(name)}")
+                _api(
+                    "DELETE",
+                    f"repos/{repo}/issues/{num}/labels/{urllib.parse.quote(name)}",
+                )
             print(f"#{num}: add={add} remove={remove}")
         if len(batch) < 100:
             break
