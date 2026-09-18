@@ -61,6 +61,16 @@ flutter build apk --release --dart-define-from-file=.env
 
 Install the APK, connect Spotify in the app, enable the listener service.
 
+> **Play Protect / "restricted settings" block on install?** The app declares
+> `BIND_NOTIFICATION_LISTENER_SERVICE` (needed for the notification-based
+> playback fallback), which Android treats as sensitive for sideloaded APKs.
+> On Android 13+, installing via a browser or file manager can get the app
+> blocked or its settings greyed out. Fix: install with
+> `adb install app-release.apk` (a trusted source, so the restriction doesn't
+> apply), or after installing go to **Settings → Apps → Like Spotify → ⋮ (top
+> right) → Allow restricted settings**, then enable notification access from
+> the app's Permissions screen.
+
 ### 3. Desktop
 
 The desktop side ships as a pluggable Python package (`like_spotify/`) —
