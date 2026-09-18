@@ -10,6 +10,13 @@ Spotify/Supabase credentials (see [README](README.md)).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Android: silent feedback failures now logged.** `FeedbackPlayer` swallowed
+  tone/vibration errors with no trace anywhere, so a broken sound/haptic
+  response on a given device was undiagnosable — it now reports a `failure`
+  entry (visible in the in-app Logs screen) when either fails.
+
 ## [1.0.3] - 2026-09-01
 
 ### Fixed
