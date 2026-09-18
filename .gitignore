@@ -50,6 +50,9 @@ app.*.map.json
 
 # Secrets
 .env
+android/key.properties
+*.jks
+*.keystore
 
 # Python / PyInstaller (like_spotify desktop package)
 __pycache__/

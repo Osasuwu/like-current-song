@@ -1,0 +1,19 @@
+# Copy to android/key.properties (gitignored — never commit the real file
+# or the keystore itself) to give release builds a stable signing identity.
+#
+# Generate the keystore locally (keep it somewhere outside the repo, e.g.
+# ~/keystores/), never in an ephemeral/cloud build environment — losing it
+# means you can never again install an update over an existing install
+# signed with it:
+#
+#   keytool -genkey -v -keystore ~/keystores/like-spotify-release.jks \
+#     -keyalg RSA -keysize 2048 -validity 10000 -alias like_spotify
+#
+# Back the .jks file up somewhere durable (password manager attachment,
+# offline backup) — it's a plain file, not a secret Android can recover for
+# you.
+
+storeFile=/absolute/path/to/like-spotify-release.jks
+storePassword=changeme
+keyAlias=like_spotify
+keyPassword=changeme

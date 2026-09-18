@@ -71,6 +71,31 @@ Install the APK, connect Spotify in the app, enable the listener service.
 > right) → Allow restricted settings**, then enable notification access from
 > the app's Permissions screen.
 
+**Reinstalling gets "App not installed" with no explanation?** Without a
+release keystore (see below), the release build type falls back to the
+ambient debug keystore — which is regenerated per machine, so a rebuild from
+a different machine/environment silently signs the APK with a different key.
+Android then refuses to install over the existing app (signature mismatch)
+and often shows no reason at all. Either `adb uninstall com.osasuwu.like_spotify`
+before reinstalling, or set up a stable release keystore so this stops
+happening:
+
+```bash
+# Generate once, keep the .jks outside the repo, back it up somewhere durable —
+# losing it means you can never again install an update over an existing install
+keytool -genkey -v -keystore ~/keystores/like-spotify-release.jks \
+  -keyalg RSA -keysize 2048 -validity 10000 -alias like_spotify
+
+cp android/key.properties.example android/key.properties
+# Edit android/key.properties — set storeFile to the .jks path above, and the
+# passwords/alias you used. This file is gitignored; never commit it.
+```
+
+`flutter build apk --release` then automatically picks up `android/key.properties`
+and signs with it. If the file is absent it falls back to the debug keystore
+as before, so builds without a release key still work — just with the
+per-machine signature instability described above.
+
 ### 3. Desktop
 
 The desktop side ships as a pluggable Python package (`like_spotify/`) —

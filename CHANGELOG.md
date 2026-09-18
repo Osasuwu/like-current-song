@@ -10,6 +10,16 @@ Spotify/Supabase credentials (see [README](README.md)).
 
 ## [Unreleased]
 
+### Added
+
+- **Android: opt-in stable release signing.** `android/key.properties`
+  (gitignored, template at `key.properties.example`) lets a release build use
+  a real keystore instead of the ambient per-machine debug keystore. Without
+  it, rebuilding on a different machine silently re-signs the APK with a
+  different key, and reinstalling over an existing install then fails with an
+  unexplained "App not installed" (signature mismatch). Behavior is unchanged
+  when the file is absent.
+
 ### Fixed
 
 - **Android: silent feedback failures now logged.** `FeedbackPlayer` swallowed
