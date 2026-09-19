@@ -127,6 +127,13 @@ archive playlist name in `--setup`; if it collides with the like hotkey
 it's skipped. Audio feedback is audible through the default sound device
 and distinct per action (like / remove / error).
 
+**YouTube Music (beta, Windows).** Choose `ytmusic` at the "Music service"
+prompt in `--setup`. The hotkey then likes the song playing in the YT Music
+browser tab or desktop app, and it lands in YT Music's *Liked music*. You need
+your own free Google OAuth client with the YouTube Data API enabled; the steps
+are in [`extensions/ytmusic/README.md`](like_spotify/extensions/ytmusic/README.md).
+The playlist actions (archive-remove, best-of, follow-artist) are Spotify-only.
+
 **Single-file `.exe`** (for users without Python): build via
 `tools\build.bat` → `dist\LikeSpotify.exe`.
 
@@ -209,6 +216,8 @@ Android (Flutter + Kotlin)          Desktop (Python framework)
 | Trigger pattern / hotkey | In-app UI | `~/.like_spotify/config.json` → `trigger.hotkey` (default `Ctrl+Shift+Alt+W`) |
 | Remove-from-archive hotkey | n/a (one trigger on headphones) | `~/.like_spotify/config.json` → `trigger.remove_hotkey` (default `Ctrl+Shift+Alt+Q`) |
 | Archive playlist name | In-app UI | `~/.like_spotify/config.json` → `actions.archive_remove.playlist_name` (blank = archive-remove disabled) |
+| Music service | Spotify | `~/.like_spotify/config.json` → `music.provider` (`spotify` / `ytmusic`, default `spotify`) |
+| YouTube Music tokens | n/a (planned) | `~/.like_spotify/youtube_token.json` (refreshed automatically) |
 | Spotify client_id | `.env` (`SPOTIFY_CLIENT_ID`) | `like-spotify --setup` → `~/.like_spotify/config.json` |
 | Spotify tokens | `FlutterSecureStorage` | `~/.like_spotify/spotify_token.json` |
 | Storage backend | (Supabase only) | `~/.like_spotify/config.json` → `storage.backend` (`supabase` / `sheets` / `none`) |

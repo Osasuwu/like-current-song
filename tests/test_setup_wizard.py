@@ -31,6 +31,7 @@ def tmp_paths(tmp_path, monkeypatch) -> Iterator[Path]:
     monkeypatch.setattr(_common, "CONFIG_FILE", cfg)
     monkeypatch.setattr(_common, "SPOTIFY_TOKEN_FILE", spotify)
     monkeypatch.setattr(_common, "GOOGLE_TOKEN_FILE", google)
+    monkeypatch.setattr(_common, "YOUTUBE_TOKEN_FILE", tmp_path / "youtube_token.json")
     yield tmp_path
 
 
@@ -80,6 +81,7 @@ def test_setup_supabase_writes_config_and_runs_oauth(
     tmp_paths, fake_provider, monkeypatch
 ) -> None:
     answers = [
+        "",                    # music service — default spotify
         "abc123client",        # Spotify Client ID
         "supabase",            # Storage backend
         "https://x.supabase.co",  # Supabase URL
@@ -107,6 +109,7 @@ def test_setup_skips_spotify_oauth_when_tokens_present(
     fp = _FakeProvider(has_tokens=True)
     monkeypatch.setattr(_common, "make_provider", lambda _cid: fp)
     monkeypatch.setattr("builtins.input", _scripted_input([
+        "",  # music service — default spotify
         "abc123client",
         "none",
         "",  # [3/4] archive — skip
@@ -124,6 +127,7 @@ def test_setup_reauth_forces_oauth_even_with_tokens(
     fp = _FakeProvider(has_tokens=True)
     monkeypatch.setattr(_common, "make_provider", lambda _cid: fp)
     monkeypatch.setattr("builtins.input", _scripted_input([
+        "",  # music service — default spotify
         "abc123client",
         "none",
         "",  # [3/4] archive — skip
@@ -138,7 +142,7 @@ def test_setup_reauth_forces_oauth_even_with_tokens(
 def test_setup_aborts_when_client_id_missing(
     tmp_paths, fake_provider, monkeypatch, capsys
 ) -> None:
-    monkeypatch.setattr("builtins.input", _scripted_input([""]))
+    monkeypatch.setattr("builtins.input", _scripted_input(["", ""]))  # service default, blank client id
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
     rc = _setup.do_setup(reauth=False)
@@ -151,6 +155,7 @@ def test_setup_storage_none_writes_backend_marker(
     tmp_paths, fake_provider, monkeypatch
 ) -> None:
     monkeypatch.setattr("builtins.input", _scripted_input([
+        "",  # music service — default spotify
         "abc123client",
         "none",
         "",  # [3/4] archive — skip
@@ -172,6 +177,7 @@ def test_setup_archive_writes_playlist_and_remove_hotkey(
     """[3/4]: a playlist name + remove hotkey land in config so the
     archive PostLikeAction AND the remove-without-like trigger both wire."""
     monkeypatch.setattr("builtins.input", _scripted_input([
+        "",  # music service — default spotify
         "abc123client",
         "none",
         "Discover Weekly Archive",  # [3/4] archive playlist name
@@ -198,6 +204,7 @@ def test_setup_archive_blank_disables_previously_set_name(
         "actions": {"archive_remove": {"playlist_name": "Old", "enabled": True}},
     })
     monkeypatch.setattr("builtins.input", _scripted_input([
+        "",  # music service — default spotify
         "abc123client",
         "none",
         "-",  # [3/4] archive — '-' turns it off (blank would KEEP it)
@@ -220,6 +227,7 @@ def test_setup_archive_overwrites_existing_name(
         "actions": {"archive_remove": {"playlist_name": "Old", "enabled": True}},
     })
     monkeypatch.setattr("builtins.input", _scripted_input([
+        "",  # music service — default spotify
         "abc123client",
         "none",
         "New Archive",        # [3/4] archive — rename
@@ -241,6 +249,7 @@ def test_setup_archive_dash_when_nothing_configured_disables_cleanly(
     """'-' with no prior name is idempotent: feature stays off and the
     message acknowledges the explicit off-switch rather than 'Skipped'."""
     monkeypatch.setattr("builtins.input", _scripted_input([
+        "",  # music service — default spotify
         "abc123client",
         "none",
         "-",  # [3/4] archive — explicit off with nothing set
@@ -260,6 +269,7 @@ def test_setup_aborts_when_supabase_creds_blank(
     tmp_paths, fake_provider, monkeypatch, capsys
 ) -> None:
     monkeypatch.setattr("builtins.input", _scripted_input([
+        "",  # music service — default spotify
         "abc123client",
         "supabase",
         "",  # empty URL
@@ -276,6 +286,7 @@ def test_setup_sheets_branch_runs_google_oauth(
     tmp_paths, fake_provider, monkeypatch
 ) -> None:
     monkeypatch.setattr("builtins.input", _scripted_input([
+        "",  # music service — default spotify
         "abc123client",
         "sheets",
         "spreadsheet-id-xyz",
@@ -319,6 +330,7 @@ def test_setup_sheets_skips_google_oauth_when_refresh_token_present(
     )
 
     monkeypatch.setattr("builtins.input", _scripted_input([
+        "",  # music service — default spotify
         "abc123client",
         "sheets",
         "spreadsheet-id-xyz",
@@ -457,3 +469,72 @@ def test_print_config_paths_includes_google_token(tmp_paths, capsys) -> None:
     assert "Config:" in out
     assert "Spotify token:" in out
     assert "Google token:" in out
+
+
+# ── YouTube Music provider branch ──────────────────────────────────────
+
+
+class _FakeYtProvider:
+    def __init__(self, has_tokens: bool = False) -> None:
+        self._has = has_tokens
+        self.authorized_with: tuple[str, str] | None = None
+
+    @property
+    def has_tokens(self) -> bool:
+        return self._has
+
+    def authorize(self, client_id: str, client_secret: str) -> None:
+        self.authorized_with = (client_id, client_secret)
+        self._has = True
+
+
+def test_setup_ytmusic_runs_google_oauth_and_skips_archive(
+    tmp_paths, fake_provider, monkeypatch
+) -> None:
+    yt = _FakeYtProvider()
+    monkeypatch.setattr(_common, "make_ytmusic", lambda: yt)
+    monkeypatch.setattr("builtins.input", _scripted_input([
+        "ytmusic",      # music service
+        "g-client",     # Google OAuth client id
+        "g-secret",     # Google OAuth client secret
+        "none",         # storage — no archive prompt follows for ytmusic
+    ]))
+    monkeypatch.setattr(_common.sys, "platform", "linux")
+
+    assert _setup.do_setup(reauth=False) == 0
+    assert yt.authorized_with == ("g-client", "g-secret")
+    assert fake_provider.authorize_calls == 0  # Spotify untouched
+    cfg = _common.load_config()
+    assert cfg["music"]["provider"] == "ytmusic"
+    assert "spotify" not in cfg
+
+
+def test_setup_ytmusic_aborts_without_google_client(
+    tmp_paths, monkeypatch, capsys
+) -> None:
+    monkeypatch.setattr(_common, "make_ytmusic", lambda: _FakeYtProvider())
+    monkeypatch.setattr("builtins.input", _scripted_input(["ytmusic", "", ""]))
+    monkeypatch.setattr(_common.sys, "platform", "linux")
+
+    assert _setup.do_setup(reauth=False) == 2
+    assert "client id + secret" in capsys.readouterr().err
+
+
+# ── build_provider dispatch ────────────────────────────────────────────
+
+
+def test_build_provider_defaults_to_spotify(monkeypatch) -> None:
+    monkeypatch.delenv("SPOTIFY_CLIENT_ID", raising=False)
+    monkeypatch.setattr(_common, "make_provider", lambda cid: ("spotify", cid))
+    assert _common.build_provider({"spotify": {"client_id": "abc"}}) == ("spotify", "abc")
+    assert _common.build_provider({}) is None  # no client id → not configured
+
+
+def test_build_provider_selects_ytmusic(monkeypatch) -> None:
+    sentinel = object()
+    monkeypatch.setattr(_common, "make_ytmusic", lambda: sentinel)
+    assert _common.build_provider({"music": {"provider": "ytmusic"}}) is sentinel
+
+
+def test_build_provider_unknown_name_is_not_configured() -> None:
+    assert _common.build_provider({"music": {"provider": "napster"}}) is None

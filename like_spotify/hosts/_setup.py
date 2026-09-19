@@ -80,9 +80,14 @@ def do_setup(reauth: bool = False) -> int:
     print("--------------------------------")
     cfg = _common.load_config()
     try:
-        _setup_spotify(cfg, reauth=reauth)
+        if _choose_provider(cfg) == "ytmusic":
+            _setup_ytmusic(cfg, reauth=reauth)
+        else:
+            _setup_spotify(cfg, reauth=reauth)
         _setup_storage(cfg, reauth=reauth)
-        _setup_archive(cfg)
+        if _common.resolve_provider_name(cfg) == "spotify":
+            # Playlist clean-up needs Spotify playlists; YT Music has none here.
+            _setup_archive(cfg)
         _setup_autostart()
     except _SetupAbort as e:
         print(f"Aborted: {e}", file=sys.stderr)
@@ -98,6 +103,51 @@ def do_setup(reauth: bool = False) -> int:
 
 
 # ── Wizard steps ───────────────────────────────────────────────────────
+
+
+def _choose_provider(cfg: dict) -> str:
+    current = _common.resolve_provider_name(cfg)
+    provider = _prompt_choice(
+        "Music service", choices=list(_common.PROVIDER_BUILDERS), default=current
+    )
+    cfg.setdefault("music", {})["provider"] = provider
+    return provider
+
+
+def _setup_ytmusic(cfg: dict, *, reauth: bool) -> None:
+    print("\n[1/4] YouTube Music")
+    cfg.setdefault("trigger", {}).setdefault("hotkey", DEFAULT_HOTKEY)
+    # Persist now so a later step's failure doesn't lose the provider choice.
+    _common.save_config(cfg)
+
+    provider = _common.make_ytmusic()
+    if provider.has_tokens and not reauth:
+        print("  ✓ YouTube tokens already saved — skipping browser auth")
+        print("    (use --reauth to force a re-login)")
+        return
+    tokens = google_auth.load_tokens(_common.YOUTUBE_TOKEN_FILE)
+    print(
+        "  Needs your own Google OAuth client (Desktop app) with the\n"
+        "  YouTube Data API v3 enabled. Steps:\n"
+        "  https://github.com/Osasuwu/like-current-song/blob/main/like_spotify/extensions/ytmusic/README.md\n"
+        "  Publish the consent screen ('In production'), or Google\n"
+        "  expires the login after 7 days."
+    )
+    client_id = _prompt_secret(
+        "  Google OAuth Client ID", current=tokens.get("client_id", "")
+    )
+    client_secret = _prompt_secret(
+        "  Google OAuth Client Secret", current=tokens.get("client_secret", "")
+    )
+    if not client_id or not client_secret:
+        raise _SetupAbort(
+            "google client id + secret are both required "
+            "(create a Desktop OAuth client at "
+            "https://console.cloud.google.com/apis/credentials)"
+        )
+    print("  Opening browser for Google (YouTube) authorization…")
+    provider.authorize(client_id=client_id, client_secret=client_secret)
+    print(f"  ✓ Tokens saved: {_common.YOUTUBE_TOKEN_FILE}")
 
 
 def _setup_spotify(cfg: dict, *, reauth: bool) -> None:

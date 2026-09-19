@@ -24,6 +24,7 @@ like_spotify/
 ├── core/                 # Pure interfaces — no I/O, no platform code.
 ├── extensions/           # Pluggable implementations.
 │   ├── spotify/                  # Spotify Web API provider (default).
+│   ├── ytmusic/                  # YouTube Music provider (beta, Windows).
 │   ├── tray_hotkey_trigger/      # Global-hotkey trigger (Windows).
 │   ├── one_shot_cli_trigger/     # Per-invocation trigger (every OS).
 │   ├── supabase_storage/         # Default counter backend.
@@ -254,10 +255,12 @@ class MusicProvider(ABC):
     async def user_id(self) -> str: ...
 ```
 
-Most second providers won't ship in Phase 1 (Spotify owns the world for
-this app), but the seam is wide enough to wrap YouTube Music, Tidal,
-or local Mopidy. Adding one is the second-implementation moment for
-this interface — refactoring around it is welcomed.
+`extensions/ytmusic/` is the second implementation: it reads now-playing
+from the OS media session instead of the service's API, which is the
+pattern to copy for services without a "currently playing" endpoint.
+A provider is selected by `music.provider` in `config.json`; register a
+builder in `PROVIDER_BUILDERS` (`hosts/_common.py`) to make yours
+selectable in `--setup`. Tidal or local Mopidy would fit the same seam.
 
 OAuth flows belong inside the extension. See `extensions/spotify/`
 for a PKCE example (~70 LOC) and `like_spotify/auth/google.py` for an

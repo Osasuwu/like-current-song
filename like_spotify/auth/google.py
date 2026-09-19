@@ -45,9 +45,14 @@ REDIRECT_PORT = 8794  # +1 vs the Spotify port so both can run in parallel.
 REDIRECT_URI = f"http://127.0.0.1:{REDIRECT_PORT}/callback"
 
 
-def authorize(client_id: str, client_secret: str, token_path: Path) -> dict:
+def authorize(
+    client_id: str, client_secret: str, token_path: Path, scope: str = SCOPE
+) -> dict:
     """Run the installed-app OAuth flow once. Persists + returns the
     token bundle (`access_token`, `refresh_token`, `expires_at`).
+
+    `scope` defaults to Sheets; the YouTube Music provider passes its own
+    and keeps its tokens in a separate file, so the two grants never mix.
 
     Raises `AuthError` if the user cancels / the callback times out.
     """
@@ -67,7 +72,7 @@ def authorize(client_id: str, client_secret: str, token_path: Path) -> dict:
         "client_id": client_id,
         "response_type": "code",
         "redirect_uri": REDIRECT_URI,
-        "scope": SCOPE,
+        "scope": scope,
         "code_challenge_method": "S256",
         "code_challenge": challenge,
         "state": state,

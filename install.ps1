@@ -89,7 +89,9 @@ if (-not $hasPipx) {
 # ── like-spotify ───────────────────────────────────────────────────────
 
 Write-Step "Installing like-spotify from '$Source'"
-& pipx install --force $Source
+# The ytmusic extra only pulls small winrt wheels for the Windows media
+# session, so install it up front: switching service in --setup then just works.
+& pipx install --force "${Source}[ytmusic]"
 if ($LASTEXITCODE -ne 0) { throw "pipx install of like-spotify failed" }
 Write-Ok "like-spotify on PATH"
 

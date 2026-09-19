@@ -71,15 +71,14 @@ class CliFeedback:
 def _resolved_provider_or_hint():
     """(provider, None, cfg) when ready, else (None, exit_code, cfg)."""
     cfg = _common.load_config()
-    client_id = _common.resolve_client_id(cfg)
-    if not client_id:
+    provider = _common.build_provider(cfg)
+    if provider is None:
         _common.msgbox(
             "Not configured. Run:\n\n    like-spotify --setup\n",
             title="Like Spotify — setup required",
         )
         return None, 2, cfg
 
-    provider = _common.make_provider(client_id)
     if not provider.has_tokens:
         _common.msgbox(
             "Not authenticated. Run:\n\n    like-spotify --setup\n",

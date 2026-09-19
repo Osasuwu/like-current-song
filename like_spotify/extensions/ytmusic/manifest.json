@@ -1,0 +1,15 @@
+{
+  "domain": "ytmusic",
+  "extension_point": "music_provider",
+  "name": "YouTube Music",
+  "description": "Reads now-playing from the OS media session (Windows SMTC) and likes via the YouTube Data API (videos.rate). Likes land in YT Music's Liked music.",
+  "codeowners": ["@Osasuwu"],
+  "requirements": [
+    "requests>=2.31",
+    "winrt-Windows.Media.Control>=3.0; sys_platform == 'win32'",
+    "winrt-Windows.Foundation>=3.0; sys_platform == 'win32'",
+    "winrt-Windows.Foundation.Collections>=3.0; sys_platform == 'win32'"
+  ],
+  "documentation": "https://github.com/Osasuwu/like-current-song/blob/main/like_spotify/extensions/ytmusic/README.md",
+  "stage": "beta"
+}

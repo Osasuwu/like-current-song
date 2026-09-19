@@ -58,14 +58,13 @@ def _resolved_provider_or_hint():
     hint box. Mirrors the `_stub.py` copy — cfg is returned either way so the
     caller can build the pipeline without reloading config."""
     cfg = _common.load_config()
-    client_id = _common.resolve_client_id(cfg)
-    if not client_id:
+    provider = _common.build_provider(cfg)
+    if provider is None:
         _msgbox(
             "Not configured. Run from a terminal:\n\n    like-spotify --setup\n",
             title="Like Spotify — setup required",
         )
         return None, 2, cfg
-    provider = _common.make_provider(client_id)
     if not provider.has_tokens:
         _msgbox(
             "Not authenticated. Run from a terminal:\n\n    like-spotify --setup\n",
@@ -227,8 +226,8 @@ def main(argv: list[str] | None = None) -> int:
 
 def _run_resident_host() -> int:
     cfg = _common.load_config()
-    client_id = _common.resolve_client_id(cfg)
-    if not client_id:
+    provider = _common.build_provider(cfg)
+    if provider is None:
         _msgbox(
             "Not configured. Run from a terminal:\n\n    like-spotify --setup\n",
             title="Like Spotify — setup required",
@@ -238,7 +237,6 @@ def _run_resident_host() -> int:
     _ensure_single_instance()
     hotkey = cfg.get("trigger", {}).get("hotkey", DEFAULT_HOTKEY)
 
-    provider = _common.make_provider(client_id)
     if not provider.has_tokens:
         _msgbox(
             "Not authenticated. Run from a terminal:\n\n    like-spotify --setup\n",

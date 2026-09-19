@@ -10,6 +10,17 @@ Spotify/Supabase credentials (see [README](README.md)).
 
 ## [Unreleased]
 
+### Added
+
+- **Desktop: YouTube Music support (beta, Windows).** Pick "Music service" →
+  `ytmusic` in `like-spotify --setup`. The hotkey likes whatever is playing in
+  the YT Music tab or app: now-playing comes from the Windows media session, the
+  song is matched through the YouTube Data API, and the like lands in YT Music's
+  Liked music. You bring your own Google OAuth client; see
+  [the extension README](like_spotify/extensions/ytmusic/README.md). The
+  Windows installer now includes the `ytmusic` extra. Playlist actions
+  (archive-remove, best-of, follow-artist) stay Spotify-only.
+
 ### Fixed
 
 - **Android: the listener survives swiping the app out of recents.** Some OEM
