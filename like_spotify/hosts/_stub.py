@@ -129,6 +129,10 @@ def main(argv: list[str] | None = None) -> int:
         return _common.print_config_paths()
     if args.setup:
         return _setup.do_setup(reauth=args.reauth)
+    if args.settings:
+        from .settings import run as run_settings  # lazy: tkinter may be absent
+
+        return run_settings(from_tray=args.from_tray)
 
     if args.command == "like-once":
         return _run_like_once()

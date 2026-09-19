@@ -28,6 +28,11 @@ a = Analysis(
         "like_spotify.extensions.spotify",
         "like_spotify.extensions.tray_hotkey_trigger",
         "like_spotify.hosts.windows",
+        # Settings window (#100): imported lazily, so name it explicitly.
+        # tkinter itself is bundled by PyInstaller's standard hook.
+        "like_spotify.hosts.settings.window",
+        "tkinter",
+        "tkinter.ttk",
     ],
     hookspath=[],
     hooksconfig={},

@@ -4,6 +4,9 @@ Split out of `hosts/windows.py` in #55. Owns process-level concerns: the
 single-instance mutex, `like-once`/`remove-once` one-shot subcommands, the
 login-time startup log + shell-readiness wait, and `_run_resident_host`
 (wires `Pipeline` + `Trigger` + the tray icon built by `tray.build_icon`).
+Since #100 the wiring is rebuildable (`_build_wiring` / `_HostRuntime.reload`)
+so a save in the settings window — spawned as a child process by
+`_SettingsLauncher` — applies live, with a restart offer as the fallback.
 This is the module's entry point — `main()` lives here.
 """
 
@@ -12,9 +15,11 @@ from __future__ import annotations
 import asyncio
 import ctypes
 import os
+import subprocess
 import sys
 import threading
 import time
+from dataclasses import dataclass
 
 from like_spotify.core.pipeline import Pipeline
 from like_spotify.extensions.tray_hotkey_trigger import (
@@ -31,11 +36,23 @@ from .feedback import TrayFeedback
 # ── Single-instance guard ──────────────────────────────────────────────
 
 
-def _ensure_single_instance() -> None:
+def _ensure_single_instance():
+    """Take the named mutex or exit. Returns the handle so a restart can
+    release it before launching the replacement process."""
     kernel32 = ctypes.windll.kernel32
-    kernel32.CreateMutexW(None, True, "LikeSpotify_SingleInstance")
+    handle = kernel32.CreateMutexW(None, True, "LikeSpotify_SingleInstance")
     if kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
         sys.exit(0)
+    return handle
+
+
+def _release_single_instance(handle) -> None:
+    try:
+        kernel32 = ctypes.windll.kernel32
+        kernel32.ReleaseMutex(handle)
+        kernel32.CloseHandle(handle)
+    except Exception:
+        pass
 
 
 # ── Error reporting ────────────────────────────────────────────────────
@@ -200,6 +217,10 @@ def main(argv: list[str] | None = None) -> int:
         return _common.print_config_paths()
     if args.setup:
         return _setup.do_setup(reauth=args.reauth)
+    if args.settings:
+        from ..settings import run as run_settings  # lazy: keeps tkinter out of the tray
+
+        return run_settings(from_tray=args.from_tray)
     if args.command == "like-once":
         return _run_like_once()
     if args.command == "remove-once":
@@ -224,29 +245,39 @@ def main(argv: list[str] | None = None) -> int:
         raise
 
 
-def _run_resident_host() -> int:
-    cfg = _common.load_config()
+# ── Wiring (rebuildable, so a settings save applies live) ──────────────
+
+
+class _NotReady(Exception):
+    """Config can't drive the tray yet (no provider / not signed in)."""
+
+
+@dataclass
+class _Wiring:
+    """Everything built from one config snapshot. No side effects until
+    `_HostRuntime` starts `trigger` / `remove_trigger`."""
+
+    hotkey: str
+    remove_hotkey: str
+    volume: float
+    pipeline: Pipeline
+    remove_pipeline: Pipeline | None
+    trigger: object
+    remove_trigger: object | None
+
+    @property
+    def remove_enabled(self) -> bool:
+        return self.remove_trigger is not None
+
+
+def _build_wiring(cfg: dict, feedback, *, make_trigger=make_tray_hotkey_trigger) -> _Wiring:
     provider = _common.build_provider(cfg)
     if provider is None:
-        _msgbox(
-            "Not configured. Run from a terminal:\n\n    like-spotify --setup\n",
-            title="Like Spotify — setup required",
-        )
-        return 2
-
-    _ensure_single_instance()
-    hotkey = cfg.get("trigger", {}).get("hotkey", DEFAULT_HOTKEY)
-
+        raise _NotReady("the music service isn't configured")
     if not provider.has_tokens:
-        _msgbox(
-            "Not authenticated. Run from a terminal:\n\n    like-spotify --setup\n",
-            title="Like Spotify — auth required",
-        )
-        return 2
+        raise _NotReady("you're not signed in to the music service")
 
-    feedback = TrayFeedback(
-        hotkey=hotkey, volume=_common.resolve_feedback_volume(cfg)
-    )
+    hotkey = cfg.get("trigger", {}).get("hotkey", DEFAULT_HOTKEY)
     storage = _common.build_storage(cfg)
     pre_actions, post_actions = _common.build_action_chains(cfg, storage)
     pipeline = Pipeline(
@@ -256,7 +287,6 @@ def _run_resident_host() -> int:
         pre_like_actions=pre_actions,
         post_like_actions=post_actions,
     )
-    trigger = make_tray_hotkey_trigger(hotkey=hotkey)
 
     # ── Second hotkey: remove-without-like (only when an archive is set) ──
     # Skip when no archive playlist is configured (nothing to remove from)
@@ -265,31 +295,273 @@ def _run_resident_host() -> int:
     remove_hotkey = _common.resolve_remove_hotkey(cfg)
     remove_pipeline = _common.build_remove_pipeline(cfg, provider, feedback)
     remove_enabled = remove_pipeline is not None and remove_hotkey != hotkey
-    remove_trigger = (
-        make_tray_hotkey_trigger(hotkey=remove_hotkey) if remove_enabled else None
+    return _Wiring(
+        hotkey=hotkey,
+        remove_hotkey=remove_hotkey,
+        volume=_common.resolve_feedback_volume(cfg),
+        pipeline=pipeline,
+        remove_pipeline=remove_pipeline if remove_enabled else None,
+        trigger=make_trigger(hotkey=hotkey),
+        remove_trigger=make_trigger(hotkey=remove_hotkey) if remove_enabled else None,
     )
 
+
+class _HostRuntime:
+    """The live tray state: event loop + current `_Wiring`.
+
+    `reload(cfg)` swaps the wiring in place: build the new one first (a
+    config that can't run leaves the old one untouched), stop the old
+    hotkeys, start the new ones, and roll back to the old hotkeys if the
+    new ones won't register. Trigger callbacks read `self.wiring` at call
+    time, so nothing needs re-binding.
+    """
+
+    def __init__(self, loop, feedback, wiring: _Wiring, *, make_trigger=make_tray_hotkey_trigger):
+        self.loop = loop
+        self.feedback = feedback
+        self.wiring = wiring
+        self._make_trigger = make_trigger
+        self._lock = threading.Lock()
+
+    def _call(self, coro, timeout: float = 5.0):
+        return asyncio.run_coroutine_threadsafe(coro, self.loop).result(timeout=timeout)
+
+    async def _emit_like(self) -> None:
+        await self.wiring.pipeline.run_once()
+
+    async def _emit_remove(self) -> None:
+        if self.wiring.remove_pipeline is not None:
+            await self.wiring.remove_pipeline.run_once()
+
+    def _start_triggers(self, w: _Wiring) -> None:
+        started = []
+        try:
+            self._call(w.trigger.start(self._emit_like))
+            started.append(w.trigger)
+            if w.remove_trigger is not None:
+                self._call(w.remove_trigger.start(self._emit_remove))
+                started.append(w.remove_trigger)
+        except BaseException:
+            for t in started:
+                self._stop_trigger(t)
+            raise
+
+    def _stop_trigger(self, t) -> None:
+        try:
+            self._call(t.stop(), timeout=2)
+        except Exception:
+            pass
+
+    def _stop_triggers(self, w: _Wiring) -> None:
+        for t in (w.trigger, w.remove_trigger):
+            if t is not None:
+                self._stop_trigger(t)
+
+    def start(self) -> None:
+        self._start_triggers(self.wiring)
+
+    def stop(self) -> None:
+        self._stop_triggers(self.wiring)
+
+    def like(self) -> None:
+        asyncio.run_coroutine_threadsafe(self._emit_like(), self.loop)
+
+    def remove(self) -> None:
+        asyncio.run_coroutine_threadsafe(self._emit_remove(), self.loop)
+
+    def state(self) -> tuple[str, bool, str | None]:
+        w = self.wiring
+        return w.hotkey, w.remove_enabled, w.remove_hotkey
+
+    def reload(self, cfg: dict) -> None:
+        """Apply `cfg` live. Raises `_NotReady` (nothing changed) or the
+        trigger's error (old hotkeys restored)."""
+        with self._lock:
+            new = _build_wiring(cfg, self.feedback, make_trigger=self._make_trigger)
+            old = self.wiring
+            self._stop_triggers(old)
+            self.wiring = new
+            try:
+                self._start_triggers(new)
+            except BaseException:
+                self.wiring = old
+                try:
+                    self._start_triggers(old)
+                except Exception:
+                    _log("could not restore previous hotkeys after a failed reload")
+                raise
+            set_volume = getattr(self.feedback, "set_volume", None)
+            if set_volume is not None:
+                set_volume(new.volume)
+
+
+# ── Settings window + restart ──────────────────────────────────────────
+#
+# The window runs as a CHILD PROCESS, not a thread. pystray owns the main
+# thread's Win32 message loop and Tk wants its own thread-affine
+# interpreter + mainloop; running Tk on a side thread of this process
+# invites "Tcl_AsyncDelete: async handler deleted by the wrong thread"
+# crashes, and a Tk crash would take the hotkeys down with it. A separate
+# process can't block or crash the tray, keeps the keyboard hooks
+# untouched, and needs no Tk in the resident process at all. The tray
+# learns about a save by comparing config.json before/after.
+
+
+def _self_command(*args: str) -> list[str]:
+    """argv that re-launches this app (frozen .exe or `-m like_spotify`)."""
+    if getattr(sys, "frozen", False):
+        return [sys.executable, *args]
+    return [sys.executable, "-m", "like_spotify", *args]
+
+
+def _spawn(argv: list[str]) -> subprocess.Popen:
+    return subprocess.Popen(
+        argv, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), close_fds=True
+    )
+
+
+def _config_snapshot() -> bytes | None:
+    try:
+        return _common.CONFIG_FILE.read_bytes()
+    except OSError:
+        return None
+
+
+class _SettingsLauncher:
+    """One settings window at a time; calls `on_saved()` after a save."""
+
+    def __init__(self, on_saved, *, spawn=_spawn) -> None:
+        self._on_saved = on_saved
+        self._spawn = spawn
+        self._proc = None
+        self._lock = threading.Lock()
+
+    def open(self) -> bool:
+        """Launch the window. False if one is already open."""
+        with self._lock:
+            if self._proc is not None and self._proc.poll() is None:
+                return False
+            before = _config_snapshot()
+            self._proc = self._spawn(_self_command("--settings", "--from-tray"))
+            proc = self._proc
+        threading.Thread(target=self._watch, args=(proc, before), daemon=True).start()
+        return True
+
+    def _watch(self, proc, before) -> None:
+        proc.wait()
+        if _config_snapshot() != before:
+            self._on_saved()
+
+
+def _ask_yes_no(text: str, title: str = "Like Spotify") -> bool:
+    MB_YESNO, MB_ICONWARNING, IDYES = 0x04, 0x30, 6
+    try:
+        return ctypes.windll.user32.MessageBoxW(0, text, title, MB_YESNO | MB_ICONWARNING) == IDYES
+    except Exception:
+        return False
+
+
+def _offer_settings(problem: str, title: str) -> bool:
+    """First-run path: offer the window instead of only pointing at --setup.
+    Returns True if the window was shown (the caller re-reads config)."""
+    if not _ask_yes_no(
+        f"{problem}\n\nOpen Settings now?\n\n(Or run `like-spotify --setup` from a terminal.)",
+        title,
+    ):
+        return False
+    from ..settings import run as run_settings
+
+    return run_settings() == 0
+
+
+# ── Resident host ──────────────────────────────────────────────────────
+
+
+def _run_resident_host() -> int:
+    feedback = None
+    while True:
+        cfg = _common.load_config()
+        if feedback is None:
+            feedback = TrayFeedback(
+                hotkey=cfg.get("trigger", {}).get("hotkey", DEFAULT_HOTKEY),
+                volume=_common.resolve_feedback_volume(cfg),
+            )
+        try:
+            wiring = _build_wiring(cfg, feedback)
+            break
+        except _NotReady as e:
+            configured = _common.build_provider(cfg) is not None
+            title = "Like Spotify — " + ("sign-in required" if configured else "setup required")
+            before = _config_snapshot()
+            if not _offer_settings(f"Like Spotify can't start: {e}.", title):
+                return 2
+            if _config_snapshot() == before and not configured:
+                return 2  # window closed without saving — don't loop forever
+
+    mutex = _ensure_single_instance()
+    feedback.set_volume(wiring.volume)
+
     loop = asyncio.new_event_loop()
-    loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
-    loop_thread.start()
+    threading.Thread(target=loop.run_forever, daemon=True).start()
+    runtime = _HostRuntime(loop, feedback, wiring)
+    runtime.start()
+    icon = None  # built below; callbacks only fire once it runs
 
-    async def emit() -> None:
-        await pipeline.run_once()
+    def shutdown() -> None:
+        runtime.stop()
+        loop.call_soon_threadsafe(loop.stop)
+        icon.stop()
 
-    async def emit_remove() -> None:
-        await remove_pipeline.run_once()
+    def restart() -> None:
+        runtime.stop()
+        _release_single_instance(mutex)  # let the new process take the mutex
+        try:
+            _spawn(_self_command())
+        except OSError as e:
+            _msgbox(f"Couldn't restart Like Spotify: {e}\n\nStart it again from the Start menu.")
+        loop.call_soon_threadsafe(loop.stop)
+        icon.stop()
 
-    asyncio.run_coroutine_threadsafe(trigger.start(emit), loop).result()
-    if remove_trigger is not None:
-        asyncio.run_coroutine_threadsafe(
-            remove_trigger.start(emit_remove), loop
-        ).result()
+    def on_settings_saved() -> None:
+        try:
+            runtime.reload(_common.load_config())
+        except _NotReady as e:
+            _msgbox(
+                f"Settings saved, but {e} yet, so the tray keeps using the "
+                "previous settings. Connect your account in Settings… to "
+                "switch over.",
+                title="Like Spotify — settings",
+                icon=0x40,
+            )
+            return
+        except Exception as e:
+            import traceback
 
-    def on_like(_icon, _item):
-        asyncio.run_coroutine_threadsafe(pipeline.run_once(), loop)
+            _log("live settings reload failed:\n" + traceback.format_exc())
+            if _ask_yes_no(
+                "Settings saved, but the running tray couldn't switch to them "
+                f"({e}).\n\nA restart is needed. Restart Like Spotify now?",
+                title="Like Spotify — restart needed",
+            ):
+                restart()
+            return
+        icon.title = tray.icon_title(runtime.wiring.hotkey)
+        icon.update_menu()
+        try:
+            icon.notify(
+                f"Settings applied. Like: {runtime.wiring.hotkey.upper()}", "Like Spotify"
+            )
+        except Exception:
+            pass
 
-    def on_remove(_icon, _item):
-        asyncio.run_coroutine_threadsafe(remove_pipeline.run_once(), loop)
+    settings = _SettingsLauncher(on_settings_saved)
+
+    def on_settings(_icon, _item):
+        if not settings.open():
+            try:
+                icon.notify("Settings is already open", "Like Spotify")
+            except Exception:
+                pass
 
     def on_toggle_autostart(icon, _item):
         _autostart_set(not _autostart_enabled())
@@ -302,31 +574,20 @@ def _run_resident_host() -> int:
         except OSError:
             _msgbox(f"No log file yet:\n\n{log_file}", title="Like Spotify — log")
 
-    def on_quit(icon, _item):
-        for t in (trigger, remove_trigger):
-            if t is None:
-                continue
-            try:
-                asyncio.run_coroutine_threadsafe(t.stop(), loop).result(timeout=2)
-            except Exception:
-                pass
-        loop.call_soon_threadsafe(loop.stop)
-        icon.stop()
-
     icon = tray.build_icon(
         feedback=feedback,
-        hotkey=hotkey,
-        remove_enabled=remove_enabled,
-        remove_hotkey=remove_hotkey,
-        on_like=on_like,
-        on_remove=on_remove,
+        state=runtime.state,
+        on_like=lambda _icon, _item: runtime.like(),
+        on_remove=lambda _icon, _item: runtime.remove(),
+        on_settings=on_settings,
         on_toggle_autostart=on_toggle_autostart,
         on_open_log=on_open_log,
-        on_quit=on_quit,
+        on_quit=lambda _icon, _item: shutdown(),
     )
 
     def _startup_notify():
         time.sleep(0.5)
+        hotkey, remove_enabled, remove_hotkey = runtime.state()
         msg = f"Press {hotkey.upper()} to like the current track"
         if remove_enabled:
             msg += f"\n{remove_hotkey.upper()} removes it from the archive"
@@ -350,3 +611,5 @@ def _run_resident_host() -> int:
     threading.Thread(target=_startup_notify, daemon=True).start()
     icon.run()
     return 0
+
+

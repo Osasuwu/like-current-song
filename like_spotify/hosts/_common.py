@@ -446,6 +446,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     Flags (back-compat with the original tray launcher):
         --setup    — interactive Client ID + browser OAuth.
         --config   — print config / token paths and exit.
+        --settings — open the settings window (tkinter; see hosts/settings).
     """
     p = argparse.ArgumentParser(prog="like-spotify")
     p.add_argument(
@@ -470,6 +471,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         ),
     )
     p.add_argument("--config", action="store_true", help="Print config / token paths.")
+    p.add_argument(
+        "--settings",
+        action="store_true",
+        help="Open the settings window (a GUI over everything --setup configures).",
+    )
+    # Internal: set when the tray spawns the window, so the window knows the
+    # running tray will pick up the save and doesn't tell the user to restart.
+    p.add_argument("--from-tray", action="store_true", help=argparse.SUPPRESS)
     return p.parse_args(argv)
 
 
