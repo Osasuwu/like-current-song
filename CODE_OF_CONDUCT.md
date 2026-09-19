@@ -60,7 +60,7 @@ representative at an online or offline event.
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the maintainer, [@Osasuwu](https://github.com/Osasuwu), through a
-[GitHub private security advisory](https://github.com/Osasuwu/like_spotify_mobile_app/security/advisories/new)
+[GitHub private security advisory](https://github.com/Osasuwu/like-current-song/security/advisories/new)
 — it is the private channel this project uses for anything that should not be
 discussed in a public issue. All complaints will be reviewed and investigated
 promptly and fairly.

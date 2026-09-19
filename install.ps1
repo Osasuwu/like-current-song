@@ -9,7 +9,7 @@
     passed.
 
 .EXAMPLE
-    iwr https://raw.githubusercontent.com/Osasuwu/like_spotify_mobile_app/main/install.ps1 -OutFile install.ps1
+    iwr https://raw.githubusercontent.com/Osasuwu/like-current-song/main/install.ps1 -OutFile install.ps1
     .\install.ps1
 
 .EXAMPLE

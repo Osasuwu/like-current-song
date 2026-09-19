@@ -1,11 +1,11 @@
 blank_issues_enabled: false
 contact_links:
   - name: "Search existing issues"
-    url: https://github.com/Osasuwu/like_spotify_mobile_app/issues
+    url: https://github.com/Osasuwu/like-current-song/issues
     about: "Check existing issues before creating a new one"
   - name: "Contributor guide"
-    url: https://github.com/Osasuwu/like_spotify_mobile_app/blob/main/CONTRIBUTING.md
+    url: https://github.com/Osasuwu/like-current-song/blob/main/CONTRIBUTING.md
     about: "Plugin-author guide, repo layout, how to run the tests"
   - name: "Report a security vulnerability"
-    url: https://github.com/Osasuwu/like_spotify_mobile_app/security/advisories/new
+    url: https://github.com/Osasuwu/like-current-song/security/advisories/new
     about: "Do NOT file a public issue for security problems — use this private channel"

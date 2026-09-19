@@ -5,6 +5,6 @@
   "description": "Auto-follow an artist when the user crosses a configured distinct-tracks-liked threshold (Spotify-only).",
   "codeowners": ["@Osasuwu"],
   "requirements": ["requests>=2.31"],
-  "documentation": "https://github.com/Osasuwu/like_spotify_mobile_app/blob/main/like_spotify/extensions/follow_artist/README.md",
+  "documentation": "https://github.com/Osasuwu/like-current-song/blob/main/like_spotify/extensions/follow_artist/README.md",
   "stage": "stable"
 }
