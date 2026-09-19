@@ -61,15 +61,14 @@ void main() {
         expect(state.authState.refreshToken, isNull);
       });
 
-      test('sets default rule config', () {
+      test('sets default rule config with extra actions off', () {
         final state = AppState.initial(testConfig);
 
-        expect(state.ruleConfig.archivePlaylistName,
-            equals('Discover Weekly Archive'));
-        expect(
-          state.ruleConfig.bestOfPlaylistName,
-          equals('Botbotb(Best of the best of the best)'),
-        );
+        expect(state.ruleConfig.archiveRemoveEnabled, isFalse);
+        expect(state.ruleConfig.archivePlaylistName, isEmpty);
+        expect(state.ruleConfig.bestOfEnabled, isFalse);
+        expect(state.ruleConfig.bestOfPlaylistName, isEmpty);
+        expect(state.ruleConfig.followArtistEnabled, isFalse);
       });
 
       test('initializes with empty logs', () {

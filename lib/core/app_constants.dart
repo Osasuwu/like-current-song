@@ -7,8 +7,13 @@ class AppConstants {
   static const defaultWindowMs = 1000;
   static const defaultDebounceMs = 650;
   static const defaultFeedbackVolume = 100;
-  static const defaultArchivePlaylistName = 'Discover Weekly Archive';
-  static const defaultBestOfPlaylistName = 'Botbotb(Best of the best of the best)';
+  /// Playlist names the extra actions used out of the box up to v1.0.3.
+  /// Fresh installs start with empty names; these are kept only so older
+  /// installs upgrade without a behaviour change (see RuleConfig.legacyDefaults).
+  static const legacyArchivePlaylistName = 'Discover Weekly Archive';
+  static const legacyBestOfPlaylistName = 'Botbotb(Best of the best of the best)';
+  static const defaultBestOfThreshold = 3;
+  static const defaultFollowArtistThreshold = 5;
   static const defaultLikeCooldownMinutes = 10;
 
   static const serviceMethodChannel = 'like_spotify_mobile_app/service';
