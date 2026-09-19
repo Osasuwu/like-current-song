@@ -225,7 +225,7 @@ class YouTubeMusicServiceRepository
             interval += _slowDownStep;
             continue;
           case DevicePollGranted(:final tokens):
-            return _completeSignIn(tokens, credentials);
+            return await _completeSignIn(tokens, credentials);
         }
       }
     } finally {
