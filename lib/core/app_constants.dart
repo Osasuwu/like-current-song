@@ -6,7 +6,7 @@ class AppConstants {
   static const defaultPattern = 'pause,play';
   static const defaultWindowMs = 1000;
   static const defaultDebounceMs = 650;
-  static const defaultFeedbackVolume = 25;
+  static const defaultFeedbackVolume = 100;
   static const defaultArchivePlaylistName = 'Discover Weekly Archive';
   static const defaultBestOfPlaylistName = 'Botbotb(Best of the best of the best)';
   static const defaultLikeCooldownMinutes = 10;

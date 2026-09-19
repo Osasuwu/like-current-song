@@ -8,7 +8,7 @@ class TriggerConfig {
     required this.pattern,
     required this.windowMs,
     required this.debounceMs,
-    this.feedbackVolume = 25,
+    this.feedbackVolume = 100,
   });
 
   List<String> get events =>

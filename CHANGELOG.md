@@ -10,6 +10,20 @@ Spotify/Supabase credentials (see [README](README.md)).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Android: like feedback tone and vibration are back on HyperOS 3 / Android 16.**
+  The tone was released immediately after starting, which the newer audio stack
+  cuts to its first ~20 ms buffer; it now plays in full. The vibration is tagged
+  as media feedback, so it is no longer dropped when system touch haptics are
+  off.
+
+### Changed
+
+- **Android: feedback sound volume defaults to 100%** (was 25%, about −37 dB
+  below media volume and inaudible over music). Existing installs keep their
+  saved value.
+
 ## [1.0.3] - 2026-09-01
 
 ### Fixed
