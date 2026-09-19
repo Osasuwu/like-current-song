@@ -18,8 +18,16 @@ Spotify/Supabase credentials (see [README](README.md)).
   song is matched through the YouTube Data API, and the like lands in YT Music's
   Liked music. You bring your own Google OAuth client; see
   [the extension README](like_spotify/extensions/ytmusic/README.md). The
-  Windows installer now includes the `ytmusic` extra. Playlist actions
-  (archive-remove, best-of, follow-artist) stay Spotify-only.
+  Windows installer now includes the `ytmusic` extra.
+- **Desktop: playlist actions work with YouTube Music.** Archive-remove (and
+  the remove-without-like hotkey), promote-to-best-of and follow-artist now run
+  under the `ytmusic` provider as well as Spotify. Playlists are your ordinary
+  YouTube playlists. Follow-artist subscribes to the artist's channel, but only
+  when the matched song came from the artist's own "Topic" channel or a channel
+  named after them. `--setup` now offers the playlist clean-up step for
+  YT Music too. Each write costs about 50 units of the daily YouTube API quota.
+  The `youtube` scope already granted covers the writes, so no re-login is
+  needed.
 - **Android: Music service picker.** Connected services now lets you choose
   Spotify (the default) or YouTube Music; the ids match desktop's
   `music.provider`. The choice also decides which app's playback the listener
@@ -38,6 +46,13 @@ Spotify/Supabase credentials (see [README](README.md)).
 
 ### Changed
 
+- **Desktop: `PlaylistCapableProvider` gained `find_or_create_playlist` and
+  `add_track_to_playlist`.** Promote-to-best-of now checks the protocol
+  instead of `SpotifyMusicProvider`, so any provider that implements all six
+  methods gets every playlist action. A third-party provider that implemented
+  only the old four methods no longer matches the protocol, and all three
+  actions go quiet for it until it adds the two new methods.
+
 - **README leads with the problem it solves**: liking a Spotify song with the
   phone screen off (headphone pause-play) or with a global hotkey on Windows.
   Adds an FAQ, a short Russian summary, and BeatBind / Spotikey / SpotiLike-GUI
@@ -46,6 +61,15 @@ Spotify/Supabase credentials (see [README](README.md)).
   so the name covers more than one music service once YouTube Music support
   lands. Old URLs redirect. The `like-spotify` package and CLI names are
   unchanged for now.
+- **Android: extra actions are opt-in and live in a collapsed "Extra actions"
+  section.** Archive-remove, best-of promotion and artist auto-follow moved out
+  of the main trigger settings. Each has a one-line hint saying what it does
+  and what to fill in. On a fresh install all three are **off** with empty
+  playlist names (they used to be on, pointed at "Discover Weekly Archive" and
+  "Botbotb(Best of the best of the best)"). Existing installs keep what they
+  had, including the old all-on behaviour if the rules were never touched.
+  An action that is off, or has no playlist name, is skipped by the background
+  worker too.
 - **Android: feedback sound volume defaults to 100%** (was 25%, about −37 dB
   below media volume and inaudible over music). Existing installs keep their
   saved value.

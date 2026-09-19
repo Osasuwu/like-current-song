@@ -9,8 +9,9 @@ twice with the same triple).
 Triggers ONLY when the post-record count EQUALS the threshold, so a
 6th, 7th… liked track from the same artist does NOT re-follow.
 
-Spotify-specific (uses `follow_artist` on the provider); non-Spotify
-providers are a silent no-op. Storage absence is also a silent no-op
+Runs against any `PlaylistCapableProvider` (Spotify follows the artist,
+YouTube Music subscribes to the artist's channel); other providers are a
+silent no-op. Storage absence is also a silent no-op
 — without a persistent counter we have no idempotency guarantee.
 """
 
