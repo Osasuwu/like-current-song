@@ -146,6 +146,10 @@ class TrayFeedback:
     def attach(self, icon) -> None:
         self._icon = icon
 
+    def set_volume(self, volume: float) -> None:
+        """Re-synthesize the tones — the tray applies a settings save live."""
+        self._tones = _synth_tones(volume)
+
     def __call__(
         self, success: bool, title: str, message: str, *, kind: str = "like"
     ) -> None:

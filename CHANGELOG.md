@@ -12,6 +12,18 @@ Spotify/Supabase credentials (see [README](README.md)).
 
 ### Added
 
+- **Desktop: settings window** ([#100](https://github.com/Osasuwu/like-current-song/issues/100)).
+  `like-spotify --settings`, or **Settings…** in the Windows tray menu, opens
+  a window that covers everything `--setup` does. That includes the music
+  service and account sign-in, hotkeys, sound volume, counter storage and
+  autostart. A collapsed **Extra actions** section holds archive clean-up,
+  best-of, follow artist and like cooldown, each with a one-line hint and
+  off on a fresh install. Saves from the tray apply live, with no restart.
+  If the new config isn't ready yet, the old settings stay active; if a
+  change can't be applied live, the tray offers a restart. Unknown keys in
+  `config.json` are preserved. A first launch with no config now offers to
+  open the window instead of only pointing at `--setup`. Built on the
+  standard-library tkinter, so there's no new dependency.
 - **Desktop: YouTube Music support (beta, Windows).** Pick "Music service" →
   `ytmusic` in `like-spotify --setup`. The hotkey likes whatever is playing in
   the YT Music tab or app: now-playing comes from the Windows media session, the

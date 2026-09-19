@@ -166,6 +166,10 @@ def test_autostart_target_routes_through_wscript(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
         autostart, "_resident_launch_plan", lambda: ('"py.exe" -m like_spotify', None)
     )
+    # An editable dev install puts like-spotify-gui.exe next to the venv's
+    # python, which `_autostart_target` prefers. Hide it so this test covers
+    # the VBScript branch regardless of how the test env was installed.
+    monkeypatch.setattr(autostart, "_gui_script_path", lambda: None)
 
     target = autostart._autostart_target()
 
