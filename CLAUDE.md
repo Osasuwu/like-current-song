@@ -13,7 +13,7 @@ Two halves that share Spotify state and a cross-device like counter:
   convention. Default flavor: Windows tray host + global hotkey; `_stub.py` CLI
   fallback on macOS/Linux.
 
-Repo: `Osasuwu/like_spotify_mobile_app` — **public**. Public repo = production
+Repo: `Osasuwu/like-current-song` — **public**. Public repo = production
 quality: no local hacks, no "works for me".
 
 **Status**: feature-complete through v1.0.3, maintenance mode — lower priority

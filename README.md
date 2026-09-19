@@ -1,7 +1,7 @@
-# Like Spotify — save the song you're hearing without touching your phone
+# Like Current Song — save the Spotify song you're hearing without touching your phone
 
-[![CI](https://github.com/Osasuwu/like_spotify_mobile_app/actions/workflows/ci.yml/badge.svg)](https://github.com/Osasuwu/like_spotify_mobile_app/actions/workflows/ci.yml)
-[![Latest release](https://img.shields.io/github/v/release/Osasuwu/like_spotify_mobile_app)](https://github.com/Osasuwu/like_spotify_mobile_app/releases)
+[![CI](https://github.com/Osasuwu/like-current-song/actions/workflows/ci.yml/badge.svg)](https://github.com/Osasuwu/like-current-song/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/Osasuwu/like-current-song)](https://github.com/Osasuwu/like-current-song/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](CONTRIBUTING.md)
@@ -78,8 +78,8 @@ Several desktop hotkey tools can like the current Spotify song. We haven't found
 
 ```bash
 # Clone and setup
-git clone https://github.com/Osasuwu/like_spotify_mobile_app.git
-cd like_spotify_mobile_app
+git clone https://github.com/Osasuwu/like-current-song.git
+cd like-current-song
 
 # Configure
 cp .env.example .env
@@ -103,15 +103,15 @@ Sheets).
 
 ```powershell
 # Windows (PowerShell)
-git clone https://github.com/Osasuwu/like_spotify_mobile_app.git
-cd like_spotify_mobile_app
+git clone https://github.com/Osasuwu/like-current-song.git
+cd like-current-song
 .\install.ps1
 ```
 
 ```bash
 # macOS / Linux
-git clone https://github.com/Osasuwu/like_spotify_mobile_app.git
-cd like_spotify_mobile_app
+git clone https://github.com/Osasuwu/like-current-song.git
+cd like-current-song
 ./install.sh
 ```
 
@@ -254,8 +254,8 @@ that other people's triggers, providers, storages, and actions can live in it.
 - [**CONTRIBUTING.md**](CONTRIBUTING.md) — repo layout, the five extension
   points with code, the add-an-extension checklist, and how to run the tests.
   It also lists what's known to be easy to land.
-- [**Good first issues**](https://github.com/Osasuwu/like_spotify_mobile_app/labels/good%20first%20issue)
-  · [**Help wanted**](https://github.com/Osasuwu/like_spotify_mobile_app/labels/help%20wanted)
+- [**Good first issues**](https://github.com/Osasuwu/like-current-song/labels/good%20first%20issue)
+  · [**Help wanted**](https://github.com/Osasuwu/like-current-song/labels/help%20wanted)
 - [**CODE_OF_CONDUCT.md**](CODE_OF_CONDUCT.md)
 - [**SECURITY.md**](SECURITY.md) — please report vulnerabilities privately, not
   as a public issue.

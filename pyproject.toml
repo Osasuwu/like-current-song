@@ -49,10 +49,10 @@ like-spotify = "like_spotify.hosts:main"
 like-spotify-gui = "like_spotify.hosts:main"
 
 [project.urls]
-Repository = "https://github.com/Osasuwu/like_spotify_mobile_app"
-Issues    = "https://github.com/Osasuwu/like_spotify_mobile_app/issues"
-Changelog = "https://github.com/Osasuwu/like_spotify_mobile_app/blob/main/CHANGELOG.md"
-Contributing = "https://github.com/Osasuwu/like_spotify_mobile_app/blob/main/CONTRIBUTING.md"
+Repository = "https://github.com/Osasuwu/like-current-song"
+Issues    = "https://github.com/Osasuwu/like-current-song/issues"
+Changelog = "https://github.com/Osasuwu/like-current-song/blob/main/CHANGELOG.md"
+Contributing = "https://github.com/Osasuwu/like-current-song/blob/main/CONTRIBUTING.md"
 
 [tool.setuptools.packages.find]
 include = ["like_spotify*"]

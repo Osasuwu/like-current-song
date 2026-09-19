@@ -16,6 +16,10 @@ Spotify/Supabase credentials (see [README](README.md)).
   phone screen off (headphone pause-play) or with a global hotkey on Windows.
   Adds an FAQ, a short Russian summary, and BeatBind / Spotikey / SpotiLike-GUI
   to the comparison table.
+- **Repository renamed to `like-current-song`** (was `like_spotify_mobile_app`),
+  so the name covers more than one music service once YouTube Music support
+  lands. Old URLs redirect. The `like-spotify` package and CLI names are
+  unchanged for now.
 
 ### Fixed
 
@@ -37,18 +41,18 @@ Spotify/Supabase credentials (see [README](README.md)).
 
 - **Desktop: no more console flashes.** The packaged entry point is now a
   windowed `gui-scripts` entry, so the tray host no longer spawns a visible
-  console window on launch or on each hotkey press ([#68](https://github.com/Osasuwu/like_spotify_mobile_app/issues/68)).
+  console window on launch or on each hotkey press ([#68](https://github.com/Osasuwu/like-current-song/issues/68)).
 
 ### Changed
 
 - Repo baseline synced — CI workflows, PR body check, and owner-queue guard
-  brought in line with the shared template ([#65](https://github.com/Osasuwu/like_spotify_mobile_app/pull/65)).
+  brought in line with the shared template ([#65](https://github.com/Osasuwu/like-current-song/pull/65)).
 
 ### Documentation
 
 - Added `CODE_OF_CONDUCT.md`, `SECURITY.md`, this changelog, a feature-request
   issue template, and README status badges; corrected a stale CI claim in
-  `CONTRIBUTING.md` ([#70](https://github.com/Osasuwu/like_spotify_mobile_app/issues/70)).
+  `CONTRIBUTING.md` ([#70](https://github.com/Osasuwu/like-current-song/issues/70)).
 
 ## [1.0.2] - 2026-08-13
 
@@ -63,26 +67,26 @@ No user-facing behavior changes beyond the crash fix.
   `SND_ASYNC` flag — `_beep` already runs on its own daemon thread.
 - Like-cooldown gate and recorder now share one store, removing a fragile
   pre/post-action coupling that risked silent desync between the dedup check and
-  the record write ([#57](https://github.com/Osasuwu/like_spotify_mobile_app/issues/57)).
+  the record write ([#57](https://github.com/Osasuwu/like-current-song/issues/57)).
 
 ### Changed
 
 - `hosts/windows.py` split into a package — tray feedback, tone synthesis,
   autostart, and resident wiring each got their own module instead of one
-  687-line grab-bag ([#55](https://github.com/Osasuwu/like_spotify_mobile_app/issues/55)).
+  687-line grab-bag ([#55](https://github.com/Osasuwu/like-current-song/issues/55)).
 - `hosts/_common.py` decomposed into a builder registry; the interactive
   `--setup` wizard extracted to its own module. Adding an extension is now one
   function plus one registry entry, not a new `if`/`elif` branch
-  ([#58](https://github.com/Osasuwu/like_spotify_mobile_app/issues/58)).
+  ([#58](https://github.com/Osasuwu/like-current-song/issues/58)).
 - `PlaylistCapableProvider` protocol replaces three independent duck-typing
   checks with one structural-typing `Protocol`, applied consistently across the
   remove-from-playlist pipeline, archive-remove action, and follow-artist action
-  ([#59](https://github.com/Osasuwu/like_spotify_mobile_app/issues/59)).
+  ([#59](https://github.com/Osasuwu/like-current-song/issues/59)).
 
 ### Added
 
 - Regression tests for `TrayFeedback._beep` / `_synth_tone`, covering the crash
-  above ([#56](https://github.com/Osasuwu/like_spotify_mobile_app/issues/56)).
+  above ([#56](https://github.com/Osasuwu/like-current-song/issues/56)).
 
 ## [1.0.1] - 2026-08-06
 
@@ -111,8 +115,8 @@ First tagged release.
   via `trigger.feedback_volume` in `~/.like_spotify/config.json`.
 - Matching Android feedback-volume setting in the Trigger configuration screen.
 
-[Unreleased]: https://github.com/Osasuwu/like_spotify_mobile_app/compare/v1.0.3...HEAD
-[1.0.3]: https://github.com/Osasuwu/like_spotify_mobile_app/compare/v1.0.2...v1.0.3
-[1.0.2]: https://github.com/Osasuwu/like_spotify_mobile_app/compare/v1.0.1...v1.0.2
-[1.0.1]: https://github.com/Osasuwu/like_spotify_mobile_app/compare/v1.0.0...v1.0.1
-[1.0.0]: https://github.com/Osasuwu/like_spotify_mobile_app/releases/tag/v1.0.0
+[Unreleased]: https://github.com/Osasuwu/like-current-song/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/Osasuwu/like-current-song/compare/v1.0.2...v1.0.3
+[1.0.2]: https://github.com/Osasuwu/like-current-song/compare/v1.0.1...v1.0.2
+[1.0.1]: https://github.com/Osasuwu/like-current-song/compare/v1.0.0...v1.0.1
+[1.0.0]: https://github.com/Osasuwu/like-current-song/releases/tag/v1.0.0
