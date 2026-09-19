@@ -1,7 +1,7 @@
-"""Interactive `--setup` wizard — Spotify OAuth, storage, archive, autostart.
+"""Interactive `--setup` wizard — music service + OAuth, storage, archive, autostart.
 
 Split out of `hosts/_common.py` in #58: the wizard (prompts, `do_setup`,
-the four `_setup_*` steps) was one of five unrelated concerns living in that
+the `_setup_*` steps) was one of five unrelated concerns living in that
 module alongside config I/O and the storage/action-chain builders. Every
 host (`_stub.py`, `windows/resident.py`) calls `do_setup(reauth=...)` here
 directly instead of going through `_common`.
@@ -69,9 +69,10 @@ class _SetupAbort(Exception):
 
 
 def do_setup(reauth: bool = False) -> int:
-    """Interactive wizard: Spotify OAuth → storage choice → autostart.
+    """Interactive wizard: music service → its OAuth (Spotify or YouTube)
+    → storage choice → archive playlist (Spotify only) → autostart.
 
-    Re-runnable. Existing OAuth tokens (Spotify, Google) are kept unless
+    Re-runnable. Existing OAuth tokens (Spotify, YouTube, Google) are kept unless
     `reauth=True` is passed — switching storage backend does NOT
     invalidate the other backend's tokens, so a user can flip
     supabase ↔ sheets without redoing OAuth.

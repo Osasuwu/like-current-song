@@ -76,6 +76,7 @@ exclude = ["tests*", ".venv-build*"]
 "like_spotify.extensions.supabase_storage" = ["manifest.json"]
 "like_spotify.extensions.tray_hotkey_trigger" = ["manifest.json"]
 "like_spotify.extensions.volume_button_trigger" = ["manifest.json"]
+"like_spotify.extensions.ytmusic" = ["manifest.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
