@@ -10,6 +10,17 @@ Spotify/Supabase credentials (see [README](README.md)).
 
 ## [Unreleased]
 
+### Added
+
+- **Desktop: YouTube Music support (beta, Windows).** Pick "Music service" →
+  `ytmusic` in `like-spotify --setup`. The hotkey likes whatever is playing in
+  the YT Music tab or app: now-playing comes from the Windows media session, the
+  song is matched through the YouTube Data API, and the like lands in YT Music's
+  Liked music. You bring your own Google OAuth client; see
+  [the extension README](like_spotify/extensions/ytmusic/README.md). The
+  Windows installer now includes the `ytmusic` extra. Playlist actions
+  (archive-remove, best-of, follow-artist) stay Spotify-only.
+
 ### Changed
 
 - **README leads with the problem it solves**: liking a Spotify song with the
@@ -20,6 +31,9 @@ Spotify/Supabase credentials (see [README](README.md)).
   so the name covers more than one music service once YouTube Music support
   lands. Old URLs redirect. The `like-spotify` package and CLI names are
   unchanged for now.
+- **Android: feedback sound volume defaults to 100%** (was 25%, about −37 dB
+  below media volume and inaudible over music). Existing installs keep their
+  saved value.
 
 ### Fixed
 
@@ -33,12 +47,6 @@ Spotify/Supabase credentials (see [README](README.md)).
   cuts to its first ~20 ms buffer; it now plays in full. The vibration is tagged
   as media feedback, so it is no longer dropped when system touch haptics are
   off.
-
-### Changed
-
-- **Android: feedback sound volume defaults to 100%** (was 25%, about −37 dB
-  below media volume and inaudible over music). Existing installs keep their
-  saved value.
 
 ## [1.0.3] - 2026-09-01
 

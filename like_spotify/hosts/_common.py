@@ -52,6 +52,7 @@ from like_spotify.extensions.promote_to_best_of import (
 )
 from like_spotify.extensions.spotify import MUSIC_PROVIDER as make_spotify_provider
 from like_spotify.extensions.supabase_storage import STORAGE as make_supabase_storage
+from like_spotify.extensions.ytmusic import MUSIC_PROVIDER as make_ytmusic_provider
 
 # Second hotkey: remove the current track from the archive playlist WITHOUT
 # liking it. Distinct from DEFAULT_HOTKEY (the like trigger). The desktop can
@@ -74,6 +75,7 @@ def _config_dir() -> Path:
 CONFIG_FILE = _config_dir() / "config.json"
 SPOTIFY_TOKEN_FILE = _config_dir() / "spotify_token.json"
 GOOGLE_TOKEN_FILE = _config_dir() / "google_token.json"
+YOUTUBE_TOKEN_FILE = _config_dir() / "youtube_token.json"
 LIKE_COOLDOWN_FILE = _config_dir() / "like_cooldown.json"
 
 
@@ -324,6 +326,47 @@ def make_provider(client_id: str):
     return make_spotify_provider(client_id=client_id, token_path=SPOTIFY_TOKEN_FILE)
 
 
+def make_ytmusic():
+    return make_ytmusic_provider(token_path=YOUTUBE_TOKEN_FILE)
+
+
+DEFAULT_PROVIDER = "spotify"
+
+
+def resolve_provider_name(cfg: dict) -> str:
+    music = cfg.get("music", {}) if isinstance(cfg.get("music"), dict) else {}
+    return music.get("provider") or DEFAULT_PROVIDER
+
+
+def _build_spotify_provider(cfg: dict):
+    client_id = resolve_client_id(cfg)
+    return make_provider(client_id) if client_id else None
+
+
+def _build_ytmusic_provider(_cfg: dict):
+    # Everything it needs lives in the token file written by --setup;
+    # `has_tokens` tells the host whether that happened.
+    return make_ytmusic()
+
+
+# Provider name → builder. None means "not configured yet" (host shows the
+# setup hint); a provider without tokens means "configured, not authorized".
+PROVIDER_BUILDERS: dict[str, Callable[[dict], object | None]] = {
+    "spotify": _build_spotify_provider,
+    "ytmusic": _build_ytmusic_provider,
+}
+
+
+def build_provider(cfg: dict):
+    """Return the configured MusicProvider, or None when it isn't set up.
+
+    Selected by `cfg["music"]["provider"]` (default "spotify", so configs
+    written before YouTube Music support keep working unchanged).
+    """
+    builder = PROVIDER_BUILDERS.get(resolve_provider_name(cfg))
+    return builder(cfg) if builder else None
+
+
 def resolve_remove_hotkey(cfg: dict) -> str:
     return cfg.get("trigger", {}).get("remove_hotkey", DEFAULT_REMOVE_HOTKEY)
 
@@ -434,6 +477,7 @@ def print_config_paths() -> int:
     print(f"Config:        {CONFIG_FILE}")
     print(f"Spotify token: {SPOTIFY_TOKEN_FILE}")
     print(f"Google token:  {GOOGLE_TOKEN_FILE}")
+    print(f"YouTube token: {YOUTUBE_TOKEN_FILE}")
     return 0
 
 
