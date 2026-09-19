@@ -31,6 +31,15 @@ Spotify/Supabase credentials (see [README](README.md)).
   so the name covers more than one music service once YouTube Music support
   lands. Old URLs redirect. The `like-spotify` package and CLI names are
   unchanged for now.
+- **Android: extra actions are opt-in and live in a collapsed "Extra actions"
+  section.** Archive-remove, best-of promotion and artist auto-follow moved out
+  of the main trigger settings. Each has a one-line hint saying what it does
+  and what to fill in. On a fresh install all three are **off** with empty
+  playlist names (they used to be on, pointed at "Discover Weekly Archive" and
+  "Botbotb(Best of the best of the best)"). Existing installs keep what they
+  had, including the old all-on behaviour if the rules were never touched.
+  An action that is off, or has no playlist name, is skipped by the background
+  worker too.
 - **Android: feedback sound volume defaults to 100%** (was 25%, about −37 dB
   below media volume and inaudible over music). Existing installs keep their
   saved value.

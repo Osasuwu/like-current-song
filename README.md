@@ -48,6 +48,9 @@ No. iOS doesn't let third-party apps observe another app's playback in the backg
 4. **Best-of promotion** — like a track 3 times across devices and it's added to your best-of playlist
 5. **Artist follow** — like 5+ tracks from an artist and they get auto-followed
 
+Steps 3–5 are optional and off until you set them up. On Android they live
+under **Trigger configuration → Extra actions**.
+
 ## How it compares
 
 Several desktop hotkey tools can like the current Spotify song. We haven't found another open-source project that does it **from a phone with the screen off**, or one that covers phone and desktop with shared rules. If you only need a Windows hotkey, the smaller tools below may fit you better.
