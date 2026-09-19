@@ -221,6 +221,22 @@ class AppController extends StateNotifier<AppState> {
     }
   }
 
+  /// Called after a sign-in completed outside [connectMusicService] (e.g.
+  /// YouTube Music's device code approved on another device).
+  Future<void> onMusicServiceSignedIn() async {
+    try {
+      final auth = await _musicServiceRepository.getAuthState();
+      state = state.copyWith(authState: auth, clearError: true);
+      await addLog(
+        actionType: 'service_connect',
+        result: LogResult.success,
+        message: '${state.musicProvider.displayName} connected successfully',
+      );
+    } catch (error) {
+      state = state.copyWith(lastError: error.toString());
+    }
+  }
+
   Future<void> disconnectMusicService() async {
     await _musicServiceRepository.disconnect();
     state = state.copyWith(

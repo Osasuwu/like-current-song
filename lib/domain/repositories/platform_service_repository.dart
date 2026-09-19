@@ -31,6 +31,21 @@ abstract class PlatformServiceRepository {
     required int expiresAtEpochSec,
     required String clientId,
   });
+
+  /// Hands YouTube Music's Google tokens to the native side, which uses and
+  /// refreshes them in the background (writing refreshed tokens back itself).
+  Future<void> syncYouTubeMusicTokens({
+    required String accessToken,
+    required String refreshToken,
+    required int expiresAtEpochMs,
+    required String clientId,
+    required String clientSecret,
+    String? userSub,
+  });
+
+  /// Removes YouTube Music's tokens from the native side (sign-out).
+  Future<void> clearYouTubeMusicTokens();
+
   Future<void> syncSupabaseConfig({
     required String supabaseUrl,
     required String supabaseAnonKey,

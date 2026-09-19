@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:like_spotify_mobile_app/data/music/active_music_service_repository.dart';
-import 'package:like_spotify_mobile_app/data/ytmusic/ytmusic_music_service_repository.dart';
 import 'package:like_spotify_mobile_app/domain/entities/like_result.dart';
 import 'package:like_spotify_mobile_app/domain/entities/music_provider.dart';
 import 'package:like_spotify_mobile_app/domain/entities/music_service_exceptions.dart';
@@ -126,35 +125,5 @@ void main() {
       ),
       throwsArgumentError,
     );
-  });
-
-  group('YouTubeMusicServiceRepository (stub)', () {
-    const yt = YouTubeMusicServiceRepository();
-
-    test('reports not connected', () async {
-      expect((await yt.getAuthState()).connected, isFalse);
-    });
-
-    test('like throws MusicServiceNotConnectedException', () async {
-      await expectLater(
-        yt.likeCurrentTrack(),
-        throwsA(
-          isA<MusicServiceNotConnectedException>()
-              .having((e) => e.provider, 'provider', MusicProvider.ytmusic)
-              .having(
-                (e) => e.toString(),
-                'message',
-                'YouTube Music not connected',
-              ),
-        ),
-      );
-    });
-
-    test('does not claim auth callbacks', () async {
-      expect(
-        await yt.handleAuthCallback(Uri.parse('likespotify://auth-callback')),
-        isFalse,
-      );
-    });
   });
 }

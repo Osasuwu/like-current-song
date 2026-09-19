@@ -92,6 +92,39 @@ flutter build apk --release --dart-define-from-file=.env
 
 Install the APK, connect Spotify in the app, enable the listener service.
 
+#### YouTube Music (Android)
+
+YouTube Music signs in with your own Google OAuth client. Nothing goes in
+`.env`: you enter the client in the app. It takes about 5 minutes, once.
+
+1. Open [console.cloud.google.com](https://console.cloud.google.com/) and
+   create a project. You can reuse the desktop one.
+2. Go to **APIs & Services → Library**, find **YouTube Data API v3** and
+   click **Enable**.
+3. Go to **APIs & Services → OAuth consent screen** and choose **External**.
+   Fill in the app name and your email.
+   - Add yourself under *Test users* if you are asked to.
+   - Then click **Publish app** so it is *In production*. While the app is in
+     *Testing*, Google expires the refresh token after **7 days** and you
+     would have to sign in again every week.
+4. Go to **APIs & Services → Credentials → Create credentials → OAuth client
+   ID**, and pick application type **TVs and Limited Input devices**. Other
+   types (Android, Desktop app, Web) are rejected by the sign-in the app uses.
+5. In the app, open **Connected services**, pick **YouTube Music**, paste the
+   client ID and secret, and tap **Save credentials**.
+6. Tap **Connect YouTube Music**. The app shows a code and a link
+   (`google.com/device`). Open the link on the phone or any other device, enter
+   the code, and pick your Google account.
+7. Google warns that the app isn't verified, because it is your own
+   unreviewed project. Click **Advanced → Go to *app name* (unsafe)** and
+   allow access. The app notices on its own and shows the account as
+   connected.
+
+Requested scopes: `youtube` (to rate videos) and `openid` (the account id shown
+in the app). Tokens stay on the phone in encrypted storage, apart from
+Spotify's, so switching services keeps both signed in. **Disconnect** signs out
+of YouTube Music only and keeps the client ID and secret.
+
 ### 3. Desktop
 
 The desktop side ships as a pluggable Python package (`like_spotify/`) —

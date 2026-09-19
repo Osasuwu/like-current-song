@@ -23,10 +23,17 @@ Spotify/Supabase credentials (see [README](README.md)).
 - **Android: Music service picker.** Connected services now lets you choose
   Spotify (the default) or YouTube Music; the ids match desktop's
   `music.provider`. The choice also decides which app's playback the listener
-  follows and which app "installed" checks and launches. YouTube Music shows as
-  not connected for now: sign-in lands in a later release, and until then a
-  trigger is logged as "Like skipped: YouTube Music not connected" and nothing
-  is sent to Spotify.
+  follows and which app "installed" checks and launches. While YouTube Music
+  is not connected, a trigger is logged as "Like skipped: YouTube Music not
+  connected" and nothing is sent to Spotify.
+- **Android: YouTube Music sign-in.** Connected services takes the client ID
+  and secret of your own Google "TVs and Limited Input devices" OAuth client.
+  **Connect** then shows a code to enter at google.com/device, with copy and
+  open-in-browser buttons. Declined, expired and cancelled sign-ins show a
+  plain message. The account id is shown once you are connected. Tokens are
+  kept apart from Spotify's, so switching services keeps both signed in. The
+  access token refreshes silently and is handed to the background listener.
+  Setup steps are in the [README](README.md#youtube-music-android).
 
 ### Changed
 

@@ -77,6 +77,38 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 					result.success(true)
 				}
 
+				"syncYouTubeMusicTokens" -> {
+					// Epoch ms exceeds Int range, so the channel delivers a Long;
+					// read it as Number to accept either.
+					val expiresAt = call.argument<Number>("expiresAtEpochMs")?.toLong() ?: 0L
+					val editor = prefs().edit()
+						.putString(AppConstants.KEY_YTM_ACCESS_TOKEN, call.argument<String>("accessToken"))
+						.putString(AppConstants.KEY_YTM_REFRESH_TOKEN, call.argument<String>("refreshToken"))
+						.putLong(AppConstants.KEY_YTM_TOKEN_EXPIRES_AT, expiresAt)
+						.putString(AppConstants.KEY_YTM_CLIENT_ID, call.argument<String>("clientId"))
+						.putString(AppConstants.KEY_YTM_CLIENT_SECRET, call.argument<String>("clientSecret"))
+					val userSub = call.argument<String>("userSub")
+					if (userSub.isNullOrEmpty()) {
+						editor.remove(AppConstants.KEY_YTM_USER_SUB)
+					} else {
+						editor.putString(AppConstants.KEY_YTM_USER_SUB, userSub)
+					}
+					editor.apply()
+					result.success(true)
+				}
+
+				"clearYouTubeMusicTokens" -> {
+					prefs().edit()
+						.remove(AppConstants.KEY_YTM_ACCESS_TOKEN)
+						.remove(AppConstants.KEY_YTM_REFRESH_TOKEN)
+						.remove(AppConstants.KEY_YTM_TOKEN_EXPIRES_AT)
+						.remove(AppConstants.KEY_YTM_CLIENT_ID)
+						.remove(AppConstants.KEY_YTM_CLIENT_SECRET)
+						.remove(AppConstants.KEY_YTM_USER_SUB)
+						.apply()
+					result.success(true)
+				}
+
 				"isIgnoringBatteryOptimizations" -> {
 					val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
 					result.success(powerManager.isIgnoringBatteryOptimizations(packageName))
