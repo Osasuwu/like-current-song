@@ -132,9 +132,18 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 					result.success(true)
 				}
 
-				"isSpotifyInstalled" -> {
+				"setMusicProvider" -> {
+					val provider = MusicProvider.fromId(call.argument<String>("provider"))
+					prefs().edit()
+						.putString(AppConstants.KEY_MUSIC_PROVIDER, provider.id)
+						.apply()
+					result.success(true)
+				}
+
+				"isMusicAppInstalled" -> {
+					val provider = MusicProvider.fromId(call.argument<String>("provider"))
 					val installed = try {
-						packageManager.getPackageInfo("com.spotify.music", 0)
+						packageManager.getPackageInfo(provider.packageName, 0)
 						true
 					} catch (_: Exception) {
 						false
@@ -142,8 +151,9 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 					result.success(installed)
 				}
 
-				"openSpotify" -> {
-					val launchIntent = packageManager.getLaunchIntentForPackage("com.spotify.music")
+				"openMusicApp" -> {
+					val provider = MusicProvider.fromId(call.argument<String>("provider"))
+					val launchIntent = packageManager.getLaunchIntentForPackage(provider.packageName)
 					if (launchIntent != null) {
 						safeStart(launchIntent)
 						result.success(true)

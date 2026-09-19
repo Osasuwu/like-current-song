@@ -99,7 +99,7 @@ class PlaybackNotificationListenerService : NotificationListenerService() {
                     }
                     lastStateByPackage[packageName] = rawState
 
-                    if (packageName.contains("spotify")) {
+                    if (MusicProvider.current(this@PlaybackNotificationListenerService).ownsSession(packageName)) {
                         log("Playback state from $packageName: $mapped")
                         MediaButtonForegroundService.dispatchExternalMediaEvent(
                             this@PlaybackNotificationListenerService,
