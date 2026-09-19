@@ -4,6 +4,7 @@ import 'package:like_spotify_mobile_app/data/ytmusic/ytmusic_music_service_repos
 import 'package:like_spotify_mobile_app/domain/entities/like_result.dart';
 import 'package:like_spotify_mobile_app/domain/entities/music_provider.dart';
 import 'package:like_spotify_mobile_app/domain/entities/music_service_exceptions.dart';
+import 'package:like_spotify_mobile_app/domain/entities/pending_like.dart';
 import 'package:like_spotify_mobile_app/domain/entities/spotify_auth_state.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -128,26 +129,136 @@ void main() {
     );
   });
 
-  group('YouTubeMusicServiceRepository (stub)', () {
-    const yt = YouTubeMusicServiceRepository();
+  group('pending likes', () {
+    PendingLike queued(String id, MusicProvider provider) => PendingLike(
+          trackId: id,
+          trackName: id,
+          artistIds: const [],
+          artistNames: const [],
+          queuedAt: DateTime.utc(2025, 1, 1),
+          providerId: provider.id,
+        );
+
+    final spotifyLike = queued('s1', MusicProvider.spotify);
+    final ytLike = queued('y1', MusicProvider.ytmusic);
+
+    setUpAll(() => registerFallbackValue(<PendingLike>[]));
+
+    test('only the selected service replays, and only its own likes', () async {
+      select(MusicProvider.spotify);
+      when(() => spotify.processPendingLikes(any())).thenAnswer((_) async => 1);
+
+      expect(await repo.processPendingLikes([spotifyLike, ytLike]), 1);
+
+      final handed = verify(() => spotify.processPendingLikes(captureAny()))
+          .captured
+          .single as List<PendingLike>;
+      expect(handed, [spotifyLike]);
+      verifyZeroInteractions(ytmusic);
+    });
+
+    test('a Spotify like is never handed to YouTube Music', () async {
+      select(MusicProvider.ytmusic);
+
+      expect(await repo.processPendingLikes([spotifyLike]), 0);
+      verifyZeroInteractions(ytmusic);
+      verifyZeroInteractions(spotify);
+    });
+  });
+
+  group('YouTubeMusicServiceRepository', () {
+    late MockPlatformServiceRepository platform;
+    late YouTubeMusicServiceRepository yt;
+
+    void reply(Map<String, dynamic> map) {
+      when(() => platform.likeYouTubeMusicCurrentTrack())
+          .thenAnswer((_) async => map);
+    }
+
+    setUp(() {
+      platform = MockPlatformServiceRepository();
+      yt = YouTubeMusicServiceRepository(platformServiceRepository: platform);
+    });
 
     test('reports not connected', () async {
       expect((await yt.getAuthState()).connected, isFalse);
     });
 
-    test('like throws MusicServiceNotConnectedException', () async {
+    test('a session like is a liked result', () async {
+      reply({'outcome': 'liked', 'trackName': 'Song — Artist'});
+
+      final result = await yt.likeCurrentTrack();
+
+      expect(result.trackLiked, isTrue);
+      expect(result.alreadyLiked, isFalse);
+      expect(result.trackName, 'Song — Artist');
+    });
+
+    test('an already-liked song counts as liked', () async {
+      reply({'outcome': 'already_liked', 'trackName': 'Song'});
+
+      final result = await yt.likeCurrentTrack();
+
+      expect(result.trackLiked, isTrue);
+      expect(result.alreadyLiked, isTrue);
+    });
+
+    test('a cooldown skip is not a like', () async {
+      reply({'outcome': 'cooldown', 'trackName': 'Song'});
+
+      final result = await yt.likeCurrentTrack();
+
+      expect(result.trackLiked, isFalse);
+      expect(result.skippedCooldown, isTrue);
+    });
+
+    test('an API failure carries its HTTP status', () async {
+      reply({'outcome': 'failed', 'message': 'forbidden', 'httpCode': 403});
+
       await expectLater(
         yt.likeCurrentTrack(),
         throwsA(
-          isA<MusicServiceNotConnectedException>()
-              .having((e) => e.provider, 'provider', MusicProvider.ytmusic)
+          isA<MusicServiceHttpException>()
+              .having((e) => e.statusCode, 'statusCode', 403),
+        ),
+      );
+    });
+
+    test('a failure without a status is a plain like failure', () async {
+      reply({
+        'outcome': 'failed',
+        'message': 'YouTube Music is not playing',
+      });
+
+      await expectLater(
+        yt.likeCurrentTrack(),
+        throwsA(
+          isA<YouTubeMusicLikeException>()
+              .having((e) => e is MusicServiceHttpException, 'http', isFalse)
               .having(
                 (e) => e.toString(),
                 'message',
-                'YouTube Music not connected',
+                'YouTube Music is not playing',
               ),
         ),
       );
+    });
+
+    test('never replays queued likes', () async {
+      expect(
+        await yt.processPendingLikes([
+          PendingLike(
+            trackId: 'x',
+            trackName: 'x',
+            artistIds: const [],
+            artistNames: const [],
+            queuedAt: DateTime.utc(2025, 1, 1),
+            providerId: MusicProvider.ytmusic.id,
+          ),
+        ]),
+        0,
+      );
+      verifyZeroInteractions(platform);
     });
 
     test('does not claim auth callbacks', () async {

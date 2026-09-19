@@ -5,16 +5,40 @@ import '../../domain/entities/pending_like.dart';
 import '../../domain/entities/spotify_auth_state.dart';
 import '../../domain/entities/track_info.dart';
 import '../../domain/repositories/music_service_repository.dart';
+import '../../domain/repositories/platform_service_repository.dart';
 
-/// YouTube Music, before sign-in exists on Android.
+/// A YouTube Music like that did not go through.
+class YouTubeMusicLikeException implements Exception {
+  const YouTubeMusicLikeException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+/// A YouTube Music like the Data API rejected with an HTTP status.
+class YouTubeMusicLikeHttpException extends YouTubeMusicLikeException
+    implements MusicServiceHttpException {
+  const YouTubeMusicLikeHttpException(super.message, this.statusCode);
+
+  @override
+  final int statusCode;
+}
+
+/// YouTube Music on Android.
 ///
-/// Always reports "not connected" and never talks to any service: a like
-/// throws [MusicServiceNotConnectedException] so the user sees why nothing
-/// happened. Google device-flow sign-in (#94) and liking via the YouTube Data
-/// API (#95) replace these bodies; the class keeps its place in the
-/// provider registry (`music_service_factory.dart`).
+/// Liking is native (`YouTubeMusicLiker.kt`): a thumbs-up through the YouTube
+/// Music app's media session, which needs no sign-in, with the YouTube Data
+/// API as fallback when the session rating doesn't take. The same code runs
+/// when the trigger fires with no Flutter UI attached, so the screen-off path
+/// and this one behave identically.
 class YouTubeMusicServiceRepository implements MusicServiceRepository {
-  const YouTubeMusicServiceRepository();
+  const YouTubeMusicServiceRepository({
+    required PlatformServiceRepository platformServiceRepository,
+  }) : _platform = platformServiceRepository;
+
+  final PlatformServiceRepository _platform;
 
   static const _provider = MusicProvider.ytmusic;
 
@@ -37,19 +61,49 @@ class YouTubeMusicServiceRepository implements MusicServiceRepository {
 
   @override
   Future<LikeResult> likeCurrentTrack() async {
-    throw const MusicServiceNotConnectedException(_provider);
+    final reply = await _platform.likeYouTubeMusicCurrentTrack();
+    final trackName = reply['trackName'] as String? ?? _provider.displayName;
+    switch (reply['outcome']) {
+      case 'liked':
+        return LikeResult(trackId: '', trackName: trackName, trackLiked: true);
+      case 'already_liked':
+        return LikeResult(
+          trackId: '',
+          trackName: trackName,
+          trackLiked: true,
+          alreadyLiked: true,
+        );
+      case 'cooldown':
+        return LikeResult(
+          trackId: '',
+          trackName: trackName,
+          trackLiked: false,
+          skippedCooldown: true,
+        );
+      default:
+        final message = reply['message'] as String? ?? 'like failed';
+        final httpCode = reply['httpCode'];
+        if (httpCode is int) {
+          throw YouTubeMusicLikeHttpException(message, httpCode);
+        }
+        throw YouTubeMusicLikeException(message);
+    }
   }
 
+  /// The session can only like what is playing now, so there is no way to
+  /// like an arbitrary track from here.
   @override
   Future<LikeResult> likeTrack(TrackInfo trackInfo) async {
-    throw const MusicServiceNotConnectedException(_provider);
+    throw const YouTubeMusicLikeException(
+      'YouTube Music can only like the song that is playing',
+    );
   }
 
   @override
   Future<void> refreshIfNeeded() async {}
 
-  /// Queued likes are left in place for when a connected service picks them
-  /// up; nothing is processed while YouTube Music is not connected.
+  /// YouTube Music likes are never queued (see `AppController.queueTrackForLater`):
+  /// the like targets whatever is playing, so a replay would hit another song.
   @override
   Future<int> processPendingLikes(List<PendingLike> pending) async => 0;
 

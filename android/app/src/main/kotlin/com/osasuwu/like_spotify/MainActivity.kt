@@ -13,6 +13,8 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 	private var eventSink: EventChannel.EventSink? = null
@@ -23,6 +25,14 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 		@JvmStatic
 		var isFlutterAttached: Boolean = false
 			private set
+
+		private const val YTM_LIKE_WAKE_LOCK_MS = 45_000L
+
+		/**
+		 * Off-main-thread runner for YouTube Music likes. Process-wide (not per
+		 * activity) so a like in flight survives an activity recreate.
+		 */
+		private val ytmLikeExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 	}
 
 	override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -211,6 +221,25 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 					val success = call.argument<Boolean>("success") ?: true
 					FeedbackPlayer.play(this, success)
 					result.success(true)
+				}
+
+				// Session-first YouTube Music like; Dart owns the tone and log line.
+				"likeYouTubeMusic" -> {
+					val appContext = applicationContext
+					val power = getSystemService(Context.POWER_SERVICE) as PowerManager
+					val wakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "LikeSpotify:ytmusic-like-ui")
+					wakeLock.setReferenceCounted(false)
+					wakeLock.acquire(YTM_LIKE_WAKE_LOCK_MS)
+					ytmLikeExecutor.execute {
+						val reply = try {
+							YouTubeMusicLiker(appContext).like().toChannelMap()
+						} catch (e: Exception) {
+							mapOf("outcome" to "failed", "message" to (e.message ?: "unexpected error"))
+						} finally {
+							if (wakeLock.isHeld) wakeLock.release()
+						}
+						runOnUiThread { result.success(reply) }
+					}
 				}
 
 				else -> result.notImplemented()

@@ -10,17 +10,23 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.os.SystemClock
 import android.view.KeyEvent
 import android.support.v4.media.session.MediaSessionCompat
 import androidx.core.app.NotificationCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 class MediaButtonForegroundService : Service() {
     private lateinit var mediaSession: MediaSessionCompat
     private lateinit var detector: MediaEventPatternDetector
     private var nextToggleIsPause = true
     private var stoppedByUser = false
+
+    /** Runs YouTube Music likes (binder polling + HTTP) off the main thread. */
+    private val likeExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
     override fun onCreate() {
         super.onCreate()
@@ -101,6 +107,7 @@ class MediaButtonForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        likeExecutor.shutdown()
         mediaSession.isActive = false
         mediaSession.release()
         if (stoppedByUser) {
@@ -130,24 +137,47 @@ class MediaButtonForegroundService : Service() {
         }
     }
 
-    /** Likes without Flutter, via the selected service's WorkManager job. */
+    /** Likes without Flutter: Spotify via WorkManager, YouTube Music in-process. */
     private fun likeInBackground() {
-        when (val provider = MusicProvider.current(this)) {
+        when (MusicProvider.current(this)) {
             MusicProvider.SPOTIFY -> {
                 log("Flutter not attached — using WorkManager fallback")
                 SpotifyLikeWorker.enqueue(this)
             }
-            // No sign-in on Android yet, so nothing is sent anywhere. The
-            // YouTube Data API worker (#95) is enqueued here once it exists.
-            MusicProvider.YTMUSIC -> {
-                log(
-                    "Like skipped: ${provider.displayName} not connected",
-                    actionType = "like_track",
-                    result = "failure",
-                )
-                FeedbackPlayer.play(this, false)
+            MusicProvider.YTMUSIC -> likeYouTubeMusicInBackground()
+        }
+    }
+
+    /**
+     * The session like needs a live MediaController, which a WorkManager job
+     * can't carry, so it runs on [likeExecutor] under a partial wake lock (the
+     * screen is usually off when the trigger fires).
+     */
+    private fun likeYouTubeMusicInBackground() {
+        val appContext = applicationContext
+        val power = getSystemService(Context.POWER_SERVICE) as PowerManager
+        val wakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "LikeSpotify:ytmusic-like")
+        wakeLock.setReferenceCounted(false)
+        wakeLock.acquire(YTM_LIKE_WAKE_LOCK_MS)
+        val submitted = runCatching {
+            likeExecutor.execute {
+                try {
+                    val outcome = YouTubeMusicLiker(appContext).like()
+                    FeedbackPlayer.play(appContext, outcome.positive)
+                    log(
+                        outcome.logLine(),
+                        actionType = "like_track",
+                        result = if (outcome.positive) "success" else "failure",
+                    )
+                } catch (e: Exception) {
+                    FeedbackPlayer.play(appContext, false)
+                    log("YouTube Music like failed: ${e.message}", actionType = "like_track", result = "failure")
+                } finally {
+                    if (wakeLock.isHeld) wakeLock.release()
+                }
             }
         }
+        if (submitted.isFailure && wakeLock.isHeld) wakeLock.release()
     }
 
     private fun normalizeExternalEvent(event: String?): String? {
@@ -284,6 +314,9 @@ class MediaButtonForegroundService : Service() {
         const val ACTION_EXTERNAL_MEDIA_EVENT = "ACTION_EXTERNAL_MEDIA_EVENT"
         private const val RESTART_REQUEST_CODE = 5
         private const val RESTART_DELAY_MS = 1000L
+
+        /** Session confirm (~2 s) + worst-case refresh/search/rate round trips. */
+        private const val YTM_LIKE_WAKE_LOCK_MS = 45_000L
 
         fun dispatchExternalMediaEvent(context: Context, event: String) {
             val serviceIntent = Intent(context, MediaButtonForegroundService::class.java).apply {

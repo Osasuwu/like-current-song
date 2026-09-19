@@ -157,4 +157,11 @@ class AndroidPlatformServiceRepository implements PlatformServiceRepository {
       'success': success,
     });
   }
+
+  @override
+  Future<Map<String, dynamic>> likeYouTubeMusicCurrentTrack() async {
+    final result =
+        await _methodChannel.invokeMapMethod<String, dynamic>('likeYouTubeMusic');
+    return result ?? const <String, dynamic>{'outcome': 'failed'};
+  }
 }

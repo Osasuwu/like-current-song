@@ -92,6 +92,13 @@ flutter build apk --release --dart-define-from-file=.env
 
 Install the APK, connect Spotify in the app, enable the listener service.
 
+**YouTube Music (beta).** Pick YouTube Music under *Connected services*. The
+trigger then gives the playing song a thumbs-up through the YT Music app's own
+media session, so it works with the screen off and needs **no sign-in** — only
+the notification access the listener already uses. Signing in to YouTube Music
+is optional: it adds a YouTube Data API fallback for when the session rating
+doesn't take, plus the like counter.
+
 ### 3. Desktop
 
 The desktop side ships as a pluggable Python package (`like_spotify/`) —
@@ -247,7 +254,7 @@ Android (Flutter + Kotlin)          Desktop (Python framework)
 | Trigger pattern / hotkey | In-app UI | `~/.like_spotify/config.json` → `trigger.hotkey` (default `Ctrl+Shift+Alt+W`) |
 | Remove-from-archive hotkey | n/a (one trigger on headphones) | `~/.like_spotify/config.json` → `trigger.remove_hotkey` (default `Ctrl+Shift+Alt+Q`) |
 | Archive playlist name | In-app UI | `~/.like_spotify/config.json` → `actions.archive_remove.playlist_name` (blank = archive-remove disabled) |
-| Music service | Spotify | `~/.like_spotify/config.json` → `music.provider` (`spotify` / `ytmusic`, default `spotify`) |
+| Music service | In-app UI (Spotify / YouTube Music) | `~/.like_spotify/config.json` → `music.provider` (`spotify` / `ytmusic`, default `spotify`) |
 | YouTube Music tokens | n/a (planned) | `~/.like_spotify/youtube_token.json` (refreshed automatically) |
 | Spotify client_id | `.env` (`SPOTIFY_CLIENT_ID`) | `like-spotify --setup` → `~/.like_spotify/config.json` |
 | Spotify tokens | `FlutterSecureStorage` | `~/.like_spotify/spotify_token.json` |

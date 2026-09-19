@@ -67,7 +67,9 @@ MusicServiceRepository createMusicServiceRepository({
     settingsRepository: settingsRepository,
     repositories: <MusicProvider, MusicServiceRepository>{
       MusicProvider.spotify: spotify,
-      MusicProvider.ytmusic: const YouTubeMusicServiceRepository(),
+      MusicProvider.ytmusic: YouTubeMusicServiceRepository(
+        platformServiceRepository: platformServiceRepository,
+      ),
     },
   );
 }

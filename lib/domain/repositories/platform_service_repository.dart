@@ -36,4 +36,11 @@ abstract class PlatformServiceRepository {
     required String supabaseAnonKey,
   });
   Future<void> playFeedbackTone({required bool success});
+
+  /// Likes the song playing in the YouTube Music app, natively: the media
+  /// session's thumbs-up first, the YouTube Data API as fallback.
+  ///
+  /// Returns `outcome` (`liked` | `already_liked` | `cooldown` | `failed`),
+  /// `trackName`, and on failure `message` and optionally `httpCode`.
+  Future<Map<String, dynamic>> likeYouTubeMusicCurrentTrack();
 }
