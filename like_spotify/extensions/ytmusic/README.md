@@ -45,8 +45,31 @@ Google Cloud project.
    secret when asked. A browser opens for the Google login, and the tokens are
    saved to `~/.like_spotify/youtube_token.json`.
 
-Requested scopes: `youtube` (to rate videos) and `openid` (for a stable
-account id used by the cross-device counter).
+Requested scopes: `youtube` and `openid`. `youtube` covers rating videos
+plus the playlist and subscription writes the actions below need, so turning
+those actions on needs no new login. `openid` gives a stable account id for
+the cross-device counter.
+
+## Playlist actions
+
+The archive-remove, promote-to-best-of and follow-artist actions work under
+this provider too. Turn them on the same way as for Spotify (the "Playlist
+clean-up" step in `--setup`, or `actions.*` in `config.json`).
+
+- **Playlists** are ordinary YouTube playlists on your account, the same
+  ones YT Music lists under *Library → Playlists*. The playlist name is
+  matched case-insensitively. Best-of creates its playlist as **private**
+  if it doesn't exist yet.
+- **Archive remove** takes the liked song out of the named playlist. The
+  remove-without-like hotkey works as well.
+- **Follow artist** means **subscribing to the artist's channel**, which
+  is what YT Music's own "Subscribe" button on an artist page does. The
+  channel is the one that uploaded the matched song, and only when that
+  upload is the artist's own: the auto-generated "Artist - Topic" channel, or
+  a channel named after the artist. If the match fell back to an unrelated
+  uploader (a cover or a label compilation), the song counts toward no artist
+  and no one is subscribed. That means you never end up subscribed to a
+  stranger's channel.
 
 If you installed with pip instead of the Windows installer, add the extra:
 
@@ -61,6 +84,13 @@ pip install "like-spotify[ytmusic]"
   **65 likes a day**. Repeat presses on the same song reuse the match. When
   the quota runs out, the like fails with a rate-limit error until the quota
   resets at midnight Pacific time.
+- **Playlist actions spend quota too.** Each write costs about **50
+  units**: adding to best-of, removing from the archive, creating the best-of
+  playlist once, and subscribing. Reading a playlist costs 1 unit per 50
+  songs. The archive is read once per session, and then only when the liked
+  song is in it. A like that also triggers a write costs about 200 units
+  instead of 150. When quota runs out mid-action, the like itself has already
+  happened and only the extra step is skipped (it is logged as rate-limited).
 - **Matching is by title and artist.** Remixes, live versions and songs with
   very generic titles can match the wrong upload. The Topic preference gets
   most studio tracks right.
@@ -68,7 +98,5 @@ pip install "like-spotify[ytmusic]"
   play at once, Windows' current session wins. Pause the one you don't mean.
 - **Only playing sessions count.** A paused track is ignored, so there is
   nothing to like.
-- **Playlist actions are Spotify-only.** Archive-remove, promote-to-best-of
-  and follow-artist turn themselves off under this provider.
 - **macOS / Linux:** not supported yet. Now-playing needs a different OS
   integration there (MPRIS on Linux). Contributions are welcome.

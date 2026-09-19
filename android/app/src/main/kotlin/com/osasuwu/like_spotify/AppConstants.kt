@@ -9,6 +9,9 @@ object AppConstants {
     const val KEY_FEEDBACK_VOLUME = "trigger_feedback_volume"
     const val DEFAULT_FEEDBACK_VOLUME = 100
 
+    /** Selected music service id ("spotify" | "ytmusic"); see [MusicProvider]. */
+    const val KEY_MUSIC_PROVIDER = "music_provider"
+
     const val KEY_SPOTIFY_ACCESS_TOKEN = "spotify_access_token"
     const val KEY_SPOTIFY_REFRESH_TOKEN = "spotify_refresh_token"
     const val KEY_SPOTIFY_EXPIRES_AT = "spotify_expires_at"
@@ -25,8 +28,6 @@ object AppConstants {
     const val KEY_RULE_LIKE_COOLDOWN_ENABLED = "rule_like_cooldown_enabled"
     const val KEY_RULE_LIKE_COOLDOWN_MINUTES = "rule_like_cooldown_minutes"
 
-    const val DEFAULT_ARCHIVE_PLAYLIST_NAME = "Discover Weekly Archive"
-    const val DEFAULT_BEST_OF_PLAYLIST_NAME = "Botbotb(Best of the best of the best)"
     const val DEFAULT_BEST_OF_THRESHOLD = 3
     const val DEFAULT_FOLLOW_ARTIST_THRESHOLD = 5
     const val DEFAULT_LIKE_COOLDOWN_MINUTES = 10

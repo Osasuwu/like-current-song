@@ -132,9 +132,18 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 					result.success(true)
 				}
 
-				"isSpotifyInstalled" -> {
+				"setMusicProvider" -> {
+					val provider = MusicProvider.fromId(call.argument<String>("provider"))
+					prefs().edit()
+						.putString(AppConstants.KEY_MUSIC_PROVIDER, provider.id)
+						.apply()
+					result.success(true)
+				}
+
+				"isMusicAppInstalled" -> {
+					val provider = MusicProvider.fromId(call.argument<String>("provider"))
 					val installed = try {
-						packageManager.getPackageInfo("com.spotify.music", 0)
+						packageManager.getPackageInfo(provider.packageName, 0)
 						true
 					} catch (_: Exception) {
 						false
@@ -142,8 +151,9 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 					result.success(installed)
 				}
 
-				"openSpotify" -> {
-					val launchIntent = packageManager.getLaunchIntentForPackage("com.spotify.music")
+				"openMusicApp" -> {
+					val provider = MusicProvider.fromId(call.argument<String>("provider"))
+					val launchIntent = packageManager.getLaunchIntentForPackage(provider.packageName)
 					if (launchIntent != null) {
 						safeStart(launchIntent)
 						result.success(true)
@@ -153,18 +163,14 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 				}
 
 				"setRuleConfig" -> {
-					val archiveRemoveEnabled = call.argument<Boolean>("archiveRemoveEnabled") ?: true
-					val archiveName = call.argument<String>("archivePlaylistName")
-						?.takeIf { it.isNotBlank() }
-						?: AppConstants.DEFAULT_ARCHIVE_PLAYLIST_NAME
-					val bestOfEnabled = call.argument<Boolean>("bestOfEnabled") ?: true
-					val bestOfName = call.argument<String>("bestOfPlaylistName")
-						?.takeIf { it.isNotBlank() }
-						?: AppConstants.DEFAULT_BEST_OF_PLAYLIST_NAME
+					val archiveRemoveEnabled = call.argument<Boolean>("archiveRemoveEnabled") ?: false
+					val archiveName = call.argument<String>("archivePlaylistName")?.trim().orEmpty()
+					val bestOfEnabled = call.argument<Boolean>("bestOfEnabled") ?: false
+					val bestOfName = call.argument<String>("bestOfPlaylistName")?.trim().orEmpty()
 					val bestOfThreshold = call.argument<Int>("bestOfThreshold")
 						?.takeIf { it >= 1 }
 						?: AppConstants.DEFAULT_BEST_OF_THRESHOLD
-					val followArtistEnabled = call.argument<Boolean>("followArtistEnabled") ?: true
+					val followArtistEnabled = call.argument<Boolean>("followArtistEnabled") ?: false
 					val followArtistThreshold = call.argument<Int>("followArtistThreshold")
 						?.takeIf { it >= 1 }
 						?: AppConstants.DEFAULT_FOLLOW_ARTIST_THRESHOLD

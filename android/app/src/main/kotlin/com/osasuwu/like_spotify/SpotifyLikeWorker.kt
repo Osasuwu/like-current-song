@@ -33,6 +33,14 @@ class SpotifyLikeWorker(
 ) : Worker(appContext, params) {
 
     override fun doWork(): Result {
+        // The service switched away from Spotify after this job was queued:
+        // never send a Spotify request for another service's trigger.
+        val provider = MusicProvider.current(applicationContext)
+        if (provider != MusicProvider.SPOTIFY) {
+            log("Like skipped: music service is ${provider.displayName}, not Spotify", actionType = "like_track", result = "info")
+            return Result.success()
+        }
+
         val prefs = applicationContext.getSharedPreferences(AppConstants.PREFS, Context.MODE_PRIVATE)
         var accessToken = prefs.getString(AppConstants.KEY_SPOTIFY_ACCESS_TOKEN, null)
         val refreshToken = prefs.getString(AppConstants.KEY_SPOTIFY_REFRESH_TOKEN, null)
@@ -126,7 +134,7 @@ class SpotifyLikeWorker(
     }
 
     private fun runRulePipeline(prefs: SharedPreferences, token: String, track: CurrentTrack, ruleConfig: RuleConfig) {
-        if (ruleConfig.archiveRemoveEnabled) {
+        if (ruleConfig.archiveRemoveEnabled && ruleConfig.archivePlaylistName.isNotBlank()) {
             runCatching {
                 val archiveId = findPlaylistByName(prefs, ruleConfig.archivePlaylistName, token)
                 if (archiveId != null) {
@@ -161,7 +169,10 @@ class SpotifyLikeWorker(
 
         val trackCount = runCatching { incrementTrackLikeCount(prefs, track.id) }
             .getOrElse { incrementLocalCount(prefs, AppConstants.KEY_TRACK_LIKE_COUNTS, track.id) }
-        if (ruleConfig.bestOfEnabled && trackCount == ruleConfig.bestOfThreshold) {
+        if (ruleConfig.bestOfEnabled &&
+            ruleConfig.bestOfPlaylistName.isNotBlank() &&
+            trackCount == ruleConfig.bestOfThreshold
+        ) {
             runCatching {
                 val bestOfId = ensurePlaylist(prefs, ruleConfig.bestOfPlaylistName, token)
                 if (bestOfId != null) {
@@ -229,17 +240,21 @@ class SpotifyLikeWorker(
 
     // ---- Rule config -------------------------------------------------
 
+    // The Flutter layer pushes the full config (setRuleConfig) on every app
+    // start, so these fallbacks only apply before the app has ever run. They
+    // match the fresh-install defaults: extra actions are opt-in, and an action
+    // without a playlist name is skipped rather than guessed.
     private fun loadRuleConfig(prefs: SharedPreferences): RuleConfig {
         return RuleConfig(
-            archiveRemoveEnabled = prefs.getBoolean(AppConstants.KEY_RULE_ARCHIVE_REMOVE_ENABLED, true),
+            archiveRemoveEnabled = prefs.getBoolean(AppConstants.KEY_RULE_ARCHIVE_REMOVE_ENABLED, false),
             archivePlaylistName = prefs.getString(AppConstants.KEY_RULE_ARCHIVE_PLAYLIST_NAME, null)
-                ?.takeIf { it.isNotBlank() } ?: AppConstants.DEFAULT_ARCHIVE_PLAYLIST_NAME,
-            bestOfEnabled = prefs.getBoolean(AppConstants.KEY_RULE_BEST_OF_ENABLED, true),
+                ?.trim().orEmpty(),
+            bestOfEnabled = prefs.getBoolean(AppConstants.KEY_RULE_BEST_OF_ENABLED, false),
             bestOfPlaylistName = prefs.getString(AppConstants.KEY_RULE_BEST_OF_PLAYLIST_NAME, null)
-                ?.takeIf { it.isNotBlank() } ?: AppConstants.DEFAULT_BEST_OF_PLAYLIST_NAME,
+                ?.trim().orEmpty(),
             bestOfThreshold = prefs.getInt(AppConstants.KEY_RULE_BEST_OF_THRESHOLD, AppConstants.DEFAULT_BEST_OF_THRESHOLD)
                 .takeIf { it >= 1 } ?: AppConstants.DEFAULT_BEST_OF_THRESHOLD,
-            followArtistEnabled = prefs.getBoolean(AppConstants.KEY_RULE_FOLLOW_ARTIST_ENABLED, true),
+            followArtistEnabled = prefs.getBoolean(AppConstants.KEY_RULE_FOLLOW_ARTIST_ENABLED, false),
             followArtistThreshold = prefs.getInt(
                 AppConstants.KEY_RULE_FOLLOW_ARTIST_THRESHOLD,
                 AppConstants.DEFAULT_FOLLOW_ARTIST_THRESHOLD

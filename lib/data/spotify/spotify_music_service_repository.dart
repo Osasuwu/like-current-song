@@ -200,14 +200,14 @@ class SpotifyMusicServiceRepository implements MusicServiceRepository {
   }
 
   @override
-  Future<SpotifyAuthState> connectSpotify() async {
+  Future<SpotifyAuthState> connect() async {
     final authorizeUri = await beginSpotifyAuthorization();
     await _spotifyClient.launchAuthPage(authorizeUri);
     return getAuthState();
   }
 
   @override
-  Future<void> disconnectSpotify() async {
+  Future<void> disconnect() async {
     await _tokenStore.clear();
   }
 
@@ -218,7 +218,8 @@ class SpotifyMusicServiceRepository implements MusicServiceRepository {
     await _refreshAuthState(state);
   }
 
-  Future<bool> tryHandleIncomingUri(Uri uri) async {
+  @override
+  Future<bool> handleAuthCallback(Uri uri) async {
     if (!uri.toString().startsWith(_redirectUri)) return false;
     try {
       await completeAuthorization(uri);

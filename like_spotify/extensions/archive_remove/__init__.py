@@ -2,9 +2,9 @@
 
 Removes the just-liked track from the user's "archive" playlist
 (typically a Discover-Weekly snapshot rotation, but the name is
-configurable). Spotify-specific by design — the action is in the
-Spotify-flavor extensions; non-Spotify providers are silently skipped
-so the chain stays composable across flavors.
+configurable). Runs against any provider that speaks
+`PlaylistCapableProvider` (Spotify, YouTube Music); other providers are
+silently skipped so the chain stays composable across flavors.
 
 Idempotency (#23 AC): the first action invocation does one playlist
 lookup + one paged track fetch to populate an in-memory snapshot.

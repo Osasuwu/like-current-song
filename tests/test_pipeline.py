@@ -425,7 +425,7 @@ async def test_post_action_failure_does_not_abort_chain() -> None:
 
 
 class FakeRemoveProvider(MusicProvider):
-    """Provider with the Spotify-flavored playlist API the remove flow needs."""
+    """Provider speaking `PlaylistCapableProvider` — the remove flow needs it."""
 
     def __init__(
         self,
@@ -476,6 +476,14 @@ class FakeRemoveProvider(MusicProvider):
 
     async def get_playlist_track_ids(self, playlist_id: str) -> set[str]:  # pragma: no cover
         raise AssertionError("remove flow does not need track-id membership")
+
+    async def find_or_create_playlist(self, name: str) -> str:  # pragma: no cover
+        raise AssertionError("remove flow must not create playlists")
+
+    async def add_track_to_playlist(
+        self, track_id: str, playlist_id: str
+    ) -> None:  # pragma: no cover
+        raise AssertionError("remove flow must not add tracks")
 
     async def follow_artist(self, artist_id: str) -> None:  # pragma: no cover
         raise AssertionError("remove flow does not follow artists")

@@ -1,5 +1,6 @@
 import '../../domain/entities/app_log.dart';
 import '../../domain/entities/like_result.dart';
+import '../../domain/entities/music_provider.dart';
 import '../../domain/entities/rule_config.dart';
 import '../../domain/entities/spotify_auth_state.dart';
 import '../../domain/entities/trigger_config.dart';
@@ -10,7 +11,12 @@ class AppState {
   final bool isMiui;
   final bool batteryOptimized;
   final bool notificationListenerEnabled;
-  final bool spotifyInstalled;
+  final MusicProvider musicProvider;
+
+  /// Whether [musicProvider]'s Android app is installed.
+  final bool musicAppInstalled;
+
+  /// Sign-in state of [musicProvider].
   final SpotifyAuthState authState;
   final TriggerConfig triggerConfig;
   final RuleConfig ruleConfig;
@@ -26,7 +32,8 @@ class AppState {
     required this.isMiui,
     required this.batteryOptimized,
     required this.notificationListenerEnabled,
-    required this.spotifyInstalled,
+    this.musicProvider = MusicProvider.defaultProvider,
+    required this.musicAppInstalled,
     required this.authState,
     required this.triggerConfig,
     required this.ruleConfig,
@@ -44,7 +51,7 @@ class AppState {
       isMiui: false,
       batteryOptimized: true,
       notificationListenerEnabled: false,
-      spotifyInstalled: false,
+      musicAppInstalled: false,
       authState: const SpotifyAuthState.disconnected(),
       triggerConfig: config,
       ruleConfig: RuleConfig.defaults(),
@@ -59,7 +66,8 @@ class AppState {
     bool? isMiui,
     bool? batteryOptimized,
     bool? notificationListenerEnabled,
-    bool? spotifyInstalled,
+    MusicProvider? musicProvider,
+    bool? musicAppInstalled,
     SpotifyAuthState? authState,
     TriggerConfig? triggerConfig,
     RuleConfig? ruleConfig,
@@ -78,7 +86,8 @@ class AppState {
       batteryOptimized: batteryOptimized ?? this.batteryOptimized,
       notificationListenerEnabled:
           notificationListenerEnabled ?? this.notificationListenerEnabled,
-      spotifyInstalled: spotifyInstalled ?? this.spotifyInstalled,
+      musicProvider: musicProvider ?? this.musicProvider,
+      musicAppInstalled: musicAppInstalled ?? this.musicAppInstalled,
       authState: authState ?? this.authState,
       triggerConfig: triggerConfig ?? this.triggerConfig,
       ruleConfig: ruleConfig ?? this.ruleConfig,

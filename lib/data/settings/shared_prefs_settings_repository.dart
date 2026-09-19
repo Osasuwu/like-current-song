@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/app_constants.dart';
 import '../../domain/entities/app_log.dart';
+import '../../domain/entities/music_provider.dart';
 import '../../domain/entities/pending_like.dart';
 import '../../domain/entities/rule_config.dart';
 import '../../domain/entities/trigger_config.dart';
@@ -19,6 +20,7 @@ class SharedPrefsSettingsRepository implements SettingsRepository {
   static const _legacyKeyBestOfPlaylistName = 'best_of_playlist_name';
   static const _keyRuleConfig = 'rule_config';
   static const _keyServiceEnabled = 'service_enabled';
+  static const _keyMusicProvider = 'music_provider';
   static const _keyLogs = 'logs';
   static const _keyPendingLikes = 'pending_likes';
 
@@ -58,21 +60,52 @@ class SharedPrefsSettingsRepository implements SettingsRepository {
     final legacyArchive = prefs.getString(_legacyKeyArchivePlaylistName);
     final legacyBestOf = prefs.getString(_legacyKeyBestOfPlaylistName);
     if (legacyArchive != null || legacyBestOf != null) {
-      final migrated = RuleConfig.defaults().copyWith(
-        archivePlaylistName: legacyArchive ?? AppConstants.defaultArchivePlaylistName,
-        bestOfPlaylistName: legacyBestOf ?? AppConstants.defaultBestOfPlaylistName,
+      final migrated = RuleConfig.legacyDefaults().copyWith(
+        archivePlaylistName: legacyArchive ?? AppConstants.legacyArchivePlaylistName,
+        bestOfPlaylistName: legacyBestOf ?? AppConstants.legacyBestOfPlaylistName,
       );
       await saveRuleConfig(migrated);
       return migrated;
     }
 
-    return RuleConfig.defaults();
+    // No rules were ever saved. An install that has been used before ran with
+    // the old all-on defaults, so pin those; only a genuinely fresh install
+    // gets the opt-in defaults. Either way the choice is persisted, so it is
+    // made exactly once and never flips on a later launch.
+    final resolved = _hasPriorUsage(prefs)
+        ? RuleConfig.legacyDefaults()
+        : RuleConfig.defaults();
+    await saveRuleConfig(resolved);
+    return resolved;
+  }
+
+  /// Whether these prefs belong to an install that was used before extra
+  /// actions became opt-in. Every real use of the app writes at least one of
+  /// these keys (enabling the listener, any log line, a saved trigger, a
+  /// queued like).
+  bool _hasPriorUsage(SharedPreferences prefs) {
+    return prefs.containsKey(_keyServiceEnabled) ||
+        prefs.containsKey(_keyLogs) ||
+        prefs.containsKey(_keyPattern) ||
+        prefs.containsKey(_keyPendingLikes);
   }
 
   @override
   Future<void> saveRuleConfig(RuleConfig config) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyRuleConfig, jsonEncode(config.toJson()));
+  }
+
+  @override
+  Future<MusicProvider> loadMusicProvider() async {
+    final prefs = await SharedPreferences.getInstance();
+    return MusicProvider.fromId(prefs.getString(_keyMusicProvider));
+  }
+
+  @override
+  Future<void> saveMusicProvider(MusicProvider provider) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyMusicProvider, provider.id);
   }
 
   @override
