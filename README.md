@@ -139,7 +139,23 @@ like-spotify            # Windows: tray host with the hotkey (default Ctrl+Shift
 like-spotify like-once  # any OS: like the currently-playing track and exit
 like-spotify remove-once # any OS: remove the current track from the archive playlist (no like)
 like-spotify --config   # print config + token paths
+like-spotify --settings # open the settings window
 ```
+
+**Settings window.** Everything the wizard asks, in one window instead of a
+terminal: the music service and the account sign-in (the same browser flow
+as `--setup`), the hotkeys, the sound volume (with a Test button), the like
+counter storage, and autostart. The optional **Extra actions** (archive
+clean-up, best-of, follow artist, like cooldown) sit in a collapsed
+section, each with a one-line explanation. On a fresh install they all
+start switched off. On Windows, open it from the tray menu (**Settings…**).
+Saved changes apply right away, hotkeys included. If the new settings can't
+run yet (for example, you switched service but haven't signed in), the tray
+keeps the old ones and tells you why. If a change can't be applied live, it
+offers to restart. From a terminal, run `like-spotify --settings` (or
+`like-spotify-gui --settings`). It needs Tk: on Linux, install your
+distro's `python3-tk` package. The window only edits the keys it knows, so
+anything else you added to `config.json` by hand is kept as is.
 
 `like-spotify` is a console-subsystem executable, so any of the above
 briefly shows a terminal window. On Windows, a windowed twin is also
@@ -241,6 +257,9 @@ Android (Flutter + Kotlin)          Desktop (Python framework)
 - `like_spotify/` — Python desktop package: `core/` (ABCs), `hosts/` (tray runtime), `extensions/` (default Spotify provider + tray-hotkey trigger), `samples/` (alt-flavor examples)
 
 ## Configuration
+
+Every desktop setting below except the token files can be changed in the
+settings window (`like-spotify --settings`, or **Settings…** in the tray menu).
 
 | Setting | Android | Desktop |
 |---------|---------|---------|

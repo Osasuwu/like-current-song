@@ -34,10 +34,19 @@ like_spotify/
 │   └── follow_artist/            # PostLikeAction (needs Storage).
 └── hosts/
     ├── windows/          # Resident tray + global hotkey + autostart.
+    ├── settings/         # `--settings` window: model.py (pure config
+    │                     #   round-trip + validation), services.py (OAuth,
+    │                     #   autostart), window.py (thin tkinter view).
     ├── _stub.py          # macOS / Linux CLI fallback (like-once only).
     ├── _common.py        # Config I/O + storage/action-chain builder registries.
     └── _setup.py         # Interactive `--setup` wizard.
 ```
+
+A new config key needs three touches: the runtime reader in
+`hosts/_common.py`, the `--setup` prompt in `hosts/_setup.py`, and a field
+in `hosts/settings/model.py` (`Settings`, `settings_from_config`,
+`apply_settings`) plus its widget in `window.py`. Keep all logic in the
+model so `tests/test_settings_model.py` covers it without a display.
 
 `hosts/__init__.py` picks the right host at startup via `sys.platform`.
 Anything Windows-specific (`winreg`, `winsound`, `ctypes.windll`,
