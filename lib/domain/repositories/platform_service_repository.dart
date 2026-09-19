@@ -1,3 +1,4 @@
+import '../entities/music_provider.dart';
 import '../entities/rule_config.dart';
 import '../entities/trigger_config.dart';
 
@@ -14,8 +15,14 @@ abstract class PlatformServiceRepository {
   Future<void> openNotificationListenerSettings();
   Future<bool> isMiuiDevice();
   Future<void> openMiuiAutostartSettings();
-  Future<bool> isSpotifyInstalled();
-  Future<bool> openSpotify();
+  /// Whether [provider]'s Android app is installed.
+  Future<bool> isMusicAppInstalled(MusicProvider provider);
+
+  /// Launches [provider]'s Android app; false when it is not installed.
+  Future<bool> openMusicApp(MusicProvider provider);
+
+  /// Tells the native listener which service a pause-play should like on.
+  Future<void> updateMusicProvider(MusicProvider provider);
   Future<void> updateRuleConfig(RuleConfig config);
   Stream<Map<String, dynamic>> events();
   Future<void> syncSpotifyTokens({

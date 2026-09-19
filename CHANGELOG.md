@@ -20,6 +20,13 @@ Spotify/Supabase credentials (see [README](README.md)).
   [the extension README](like_spotify/extensions/ytmusic/README.md). The
   Windows installer now includes the `ytmusic` extra. Playlist actions
   (archive-remove, best-of, follow-artist) stay Spotify-only.
+- **Android: Music service picker.** Connected services now lets you choose
+  Spotify (the default) or YouTube Music; the ids match desktop's
+  `music.provider`. The choice also decides which app's playback the listener
+  follows and which app "installed" checks and launches. YouTube Music shows as
+  not connected for now: sign-in lands in a later release, and until then a
+  trigger is logged as "Like skipped: YouTube Music not connected" and nothing
+  is sent to Spotify.
 
 ### Changed
 

@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/app_constants.dart';
 import '../../domain/entities/app_log.dart';
+import '../../domain/entities/music_provider.dart';
 import '../../domain/entities/pending_like.dart';
 import '../../domain/entities/rule_config.dart';
 import '../../domain/entities/trigger_config.dart';
@@ -19,6 +20,7 @@ class SharedPrefsSettingsRepository implements SettingsRepository {
   static const _legacyKeyBestOfPlaylistName = 'best_of_playlist_name';
   static const _keyRuleConfig = 'rule_config';
   static const _keyServiceEnabled = 'service_enabled';
+  static const _keyMusicProvider = 'music_provider';
   static const _keyLogs = 'logs';
   static const _keyPendingLikes = 'pending_likes';
 
@@ -92,6 +94,18 @@ class SharedPrefsSettingsRepository implements SettingsRepository {
   Future<void> saveRuleConfig(RuleConfig config) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyRuleConfig, jsonEncode(config.toJson()));
+  }
+
+  @override
+  Future<MusicProvider> loadMusicProvider() async {
+    final prefs = await SharedPreferences.getInstance();
+    return MusicProvider.fromId(prefs.getString(_keyMusicProvider));
+  }
+
+  @override
+  Future<void> saveMusicProvider(MusicProvider provider) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyMusicProvider, provider.id);
   }
 
   @override
