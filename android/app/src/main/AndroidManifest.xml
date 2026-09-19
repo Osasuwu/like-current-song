@@ -45,6 +45,7 @@
             android:name=".MediaButtonForegroundService"
             android:enabled="true"
             android:exported="false"
+            android:stopWithTask="false"
             android:foregroundServiceType="mediaPlayback" />
 
         <service

@@ -1,5 +1,6 @@
 package com.osasuwu.like_spotify
 
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -9,6 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import android.view.KeyEvent
 import android.support.v4.media.session.MediaSessionCompat
 import androidx.core.app.NotificationCompat
@@ -18,6 +20,7 @@ class MediaButtonForegroundService : Service() {
     private lateinit var mediaSession: MediaSessionCompat
     private lateinit var detector: MediaEventPatternDetector
     private var nextToggleIsPause = true
+    private var stoppedByUser = false
 
     override fun onCreate() {
         super.onCreate()
@@ -79,10 +82,35 @@ class MediaButtonForegroundService : Service() {
         return START_STICKY
     }
 
+    /**
+     * The user swiped the app out of recents. Stock Android keeps a foreground
+     * service alive through that, but some OEM shells (MIUI / HyperOS) tear the
+     * service down with the task. Re-assert foreground state and queue a restart
+     * so listening survives either way.
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        if (stoppedByUser || !prefs().getBoolean(AppConstants.KEY_SERVICE_ENABLED, false)) {
+            return
+        }
+        log("Task removed from recents — keeping service alive")
+        runCatching {
+            startForeground(AppConstants.NOTIFICATION_ID, buildNotification(active = true))
+        }
+        scheduleRestart()
+    }
+
     override fun onDestroy() {
         mediaSession.isActive = false
         mediaSession.release()
-        sendServiceState(false)
+        if (stoppedByUser) {
+            sendServiceState(false)
+        } else {
+            // Killed by the system, not switched off: keep the persisted "enabled"
+            // flag so the boot receiver and the queued restart can bring it back.
+            broadcastServiceState(false)
+            scheduleRestart()
+        }
         super.onDestroy()
     }
 
@@ -123,6 +151,10 @@ class MediaButtonForegroundService : Service() {
 
     private fun sendServiceState(active: Boolean) {
         prefs().edit().putBoolean(AppConstants.KEY_SERVICE_ENABLED, active).apply()
+        broadcastServiceState(active)
+    }
+
+    private fun broadcastServiceState(active: Boolean) {
         val intent = Intent(AppConstants.ACTION_SERVICE_STATE).putExtra(AppConstants.EXTRA_ACTIVE, active)
         LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
     }
@@ -183,7 +215,44 @@ class MediaButtonForegroundService : Service() {
         manager.createNotificationChannel(channel)
     }
 
+    /**
+     * Queues a one-shot start of this service about a second from now. If the
+     * service is still alive the start is a no-op re-assert; if the OEM killed it,
+     * this brings it back. Starting a foreground service from the background is
+     * only permitted on Android 12+ when the app is exempt from battery
+     * optimisation, so a refused start fails inside the system, not here.
+     */
+    private fun scheduleRestart() {
+        val alarmManager = getSystemService(AlarmManager::class.java) ?: return
+        runCatching {
+            alarmManager.set(
+                AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                SystemClock.elapsedRealtime() + RESTART_DELAY_MS,
+                restartPendingIntent()
+            )
+        }
+    }
+
+    private fun cancelScheduledRestart() {
+        val alarmManager = getSystemService(AlarmManager::class.java) ?: return
+        runCatching { alarmManager.cancel(restartPendingIntent()) }
+    }
+
+    private fun restartPendingIntent(): PendingIntent {
+        val restartIntent = Intent(applicationContext, MediaButtonForegroundService::class.java).apply {
+            action = ACTION_START
+        }
+        val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            PendingIntent.getForegroundService(applicationContext, RESTART_REQUEST_CODE, restartIntent, flags)
+        } else {
+            PendingIntent.getService(applicationContext, RESTART_REQUEST_CODE, restartIntent, flags)
+        }
+    }
+
     private fun stopSelfSafely() {
+        stoppedByUser = true
+        cancelScheduledRestart()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -194,6 +263,8 @@ class MediaButtonForegroundService : Service() {
         const val ACTION_START = "ACTION_START"
         const val ACTION_STOP = "ACTION_STOP"
         const val ACTION_EXTERNAL_MEDIA_EVENT = "ACTION_EXTERNAL_MEDIA_EVENT"
+        private const val RESTART_REQUEST_CODE = 5
+        private const val RESTART_DELAY_MS = 1000L
 
         fun dispatchExternalMediaEvent(context: Context, event: String) {
             val serviceIntent = Intent(context, MediaButtonForegroundService::class.java).apply {

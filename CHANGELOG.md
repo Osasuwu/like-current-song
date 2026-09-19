@@ -12,6 +12,11 @@ Spotify/Supabase credentials (see [README](README.md)).
 
 ### Fixed
 
+- **Android: the listener survives swiping the app out of recents.** Some OEM
+  shells (MIUI / HyperOS) tear the foreground service down together with the
+  task. The service now re-asserts itself and queues a restart when the task is
+  removed. A system-initiated kill also no longer clears the "enabled" flag, so
+  the service still comes back after a reboot.
 - **Android: like feedback tone and vibration are back on HyperOS 3 / Android 16.**
   The tone was released immediately after starting, which the newer audio stack
   cuts to its first ~20 ms buffer; it now plays in full. The vibration is tagged
