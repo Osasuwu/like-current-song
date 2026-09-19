@@ -163,7 +163,9 @@ prompt in `--setup`. The hotkey then likes the song playing in the YT Music
 browser tab or desktop app, and it lands in YT Music's *Liked music*. You need
 your own free Google OAuth client with the YouTube Data API enabled; the steps
 are in [`extensions/ytmusic/README.md`](like_spotify/extensions/ytmusic/README.md).
-The playlist actions (archive-remove, best-of, follow-artist) are Spotify-only.
+The playlist actions (archive-remove, best-of, follow-artist) work there too.
+Follow-artist subscribes to the artist's channel, and each playlist write
+costs YouTube API quota (see that README).
 
 **Single-file `.exe`** (for users without Python): build via
 `tools\build.bat` → `dist\LikeSpotify.exe`.

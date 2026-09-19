@@ -261,6 +261,9 @@ pattern to copy for services without a "currently playing" endpoint.
 A provider is selected by `music.provider` in `config.json`; register a
 builder in `PROVIDER_BUILDERS` (`hosts/_common.py`) to make yours
 selectable in `--setup`. Tidal or local Mopidy would fit the same seam.
+To make the playlist actions work with your provider too, implement the
+optional `PlaylistCapableProvider` protocol (see *Provider-aware actions*
+below).
 
 OAuth flows belong inside the extension. See `extensions/spotify/`
 for a PKCE example (~70 LOC) and `like_spotify/auth/google.py` for an
@@ -348,11 +351,28 @@ skipped if it equals `trigger.hotkey` or no archive name is configured.
 `resolve_archive_playlist_name` in `hosts/_common.py` is the single
 source of truth both flows read.
 
-**Provider-aware actions** downcast: if your action needs a
-Spotify-only API (e.g. playlist manipulation), check
-`isinstance(ctx.music_provider, SpotifyMusicProvider)` and use its
-provider-specific methods. Ship the action in a folder coupled to the
-provider's name, so the soft dependency is visible.
+**Provider-aware actions** check a capability, not a class. Playlist and
+follow operations live on the `PlaylistCapableProvider` protocol
+(`core/music_provider.py`), not on `MusicProvider`:
+
+| Method | Contract |
+|--------|----------|
+| `find_playlist_by_name(name)` | Id or `None`; case-insensitive, trimmed |
+| `find_or_create_playlist(name)` | Id; creates a private playlist if missing |
+| `get_playlist_track_ids(playlist_id)` | Set of `provider_track_id`s |
+| `add_track_to_playlist(track_id, playlist_id)` | Append |
+| `remove_track_from_playlist(track_id, playlist_id)` | Every occurrence; absent is not an error |
+| `follow_artist(artist_id)` | An id from `CurrentTrack.artist_ids`; already-followed is not an error |
+
+Your action checks `isinstance(ctx.music_provider, PlaylistCapableProvider)`
+and stays silent when the provider doesn't qualify. The protocol is
+structural, so a provider opts in by implementing all six methods, with no
+inheritance. Both `spotify` and `ytmusic` do, so archive-remove,
+promote-to-best-of and follow-artist run on either unchanged. A provider
+that can't name a track's artist leaves `artist_ids` empty, and
+follow-artist skips that track. For an API that only one provider has,
+downcast to the concrete class and ship the action in a folder named
+after that provider, so the dependency is visible.
 
 ## Adding an extension — checklist
 

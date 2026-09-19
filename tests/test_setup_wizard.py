@@ -488,7 +488,7 @@ class _FakeYtProvider:
         self._has = True
 
 
-def test_setup_ytmusic_runs_google_oauth_and_skips_archive(
+def test_setup_ytmusic_runs_google_oauth(
     tmp_paths, fake_provider, monkeypatch
 ) -> None:
     yt = _FakeYtProvider()
@@ -497,7 +497,8 @@ def test_setup_ytmusic_runs_google_oauth_and_skips_archive(
         "ytmusic",      # music service
         "g-client",     # Google OAuth client id
         "g-secret",     # Google OAuth client secret
-        "none",         # storage — no archive prompt follows for ytmusic
+        "none",         # storage
+        "",             # [3/4] archive — skip
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -507,6 +508,28 @@ def test_setup_ytmusic_runs_google_oauth_and_skips_archive(
     cfg = _common.load_config()
     assert cfg["music"]["provider"] == "ytmusic"
     assert "spotify" not in cfg
+    assert _common.resolve_archive_playlist_name(cfg) == ""
+
+
+def test_setup_ytmusic_offers_archive_step(
+    tmp_paths, fake_provider, monkeypatch
+) -> None:
+    """#99: YT Music speaks the playlist capability, so the archive step
+    (and its remove-without-like hotkey) is offered for it too."""
+    monkeypatch.setattr(_common, "make_ytmusic", lambda: _FakeYtProvider(has_tokens=True))
+    monkeypatch.setattr("builtins.input", _scripted_input([
+        "ytmusic",          # music service (tokens present → no OAuth prompts)
+        "none",             # storage
+        "YT Archive",       # [3/4] archive playlist name
+        "",                 # remove hotkey — default
+    ]))
+    monkeypatch.setattr(_common.sys, "platform", "linux")
+
+    assert _setup.do_setup(reauth=False) == 0
+    cfg = _common.load_config()
+    assert cfg["music"]["provider"] == "ytmusic"
+    assert _common.resolve_archive_playlist_name(cfg) == "YT Archive"
+    assert cfg["trigger"]["remove_hotkey"] == _common.DEFAULT_REMOVE_HOTKEY
 
 
 def test_setup_ytmusic_aborts_without_google_client(

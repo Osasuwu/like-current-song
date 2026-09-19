@@ -8,8 +8,9 @@ count EQUALS the threshold, so the 4th, 5th… likes do not re-add.
 The trigger uses `ctx.like_count` (populated by the Pipeline from the
 last `Storage.increment` call); falling back to a fresh
 `Storage.get_count` is unnecessary — by the time PostLikeAction fires,
-the count is already in the context. Spotify-specific; non-Spotify
-providers are a silent no-op.
+the count is already in the context. Runs against any provider that
+speaks `PlaylistCapableProvider` (Spotify, YouTube Music); others are a
+silent no-op.
 """
 
 from __future__ import annotations
@@ -18,8 +19,8 @@ import logging
 
 from like_spotify.core.actions import PostLikeAction
 from like_spotify.core.errors import AuthError
+from like_spotify.core.music_provider import PlaylistCapableProvider
 from like_spotify.core.types import LikeContext
-from like_spotify.extensions.spotify import SpotifyMusicProvider
 
 DOMAIN = "promote_to_best_of"
 DEFAULT_THRESHOLD = 3
@@ -45,7 +46,7 @@ class PromoteToBestOfAction(PostLikeAction):
 
     async def run(self, ctx: LikeContext) -> None:
         provider = ctx.music_provider
-        if not isinstance(provider, SpotifyMusicProvider):
+        if not isinstance(provider, PlaylistCapableProvider):
             return  # cross-flavour silence
         if ctx.like_count is None or ctx.like_count != self._threshold:
             return  # idempotency: only the threshold-crossing press triggers
