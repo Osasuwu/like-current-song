@@ -291,7 +291,7 @@ like_spotify/extensions/<domain>/
   "description": "Reads currently-playing and likes via Spotify Web API.",
   "codeowners": ["@Osasuwu"],
   "requirements": ["requests>=2.31"],
-  "documentation": "https://github.com/Osasuwu/like_spotify_mobile_app/blob/main/like_spotify/extensions/spotify/README.md",
+  "documentation": "https://github.com/Osasuwu/like-current-song/blob/main/like_spotify/extensions/spotify/README.md",
   "stage": "stable"
 }
 ```

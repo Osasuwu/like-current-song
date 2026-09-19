@@ -7,7 +7,7 @@ body:
       value: |
         Thanks for the idea. If you're proposing a new **extension** (a `Trigger`,
         `MusicProvider`, `Storage`, `PreLikeAction`, or `PostLikeAction`), skim
-        [CONTRIBUTING.md](https://github.com/Osasuwu/like_spotify_mobile_app/blob/main/CONTRIBUTING.md)
+        [CONTRIBUTING.md](https://github.com/Osasuwu/like-current-song/blob/main/CONTRIBUTING.md)
         first — the seam you need may already exist, in which case this is a PR
         rather than a request.
 

@@ -7,7 +7,7 @@ the next tag; there are no backport branches.
 
 | Version | Supported |
 |---------|-----------|
-| latest release (see [Releases](https://github.com/Osasuwu/like_spotify_mobile_app/releases)) | ✅ |
+| latest release (see [Releases](https://github.com/Osasuwu/like-current-song/releases)) | ✅ |
 | anything older | ❌ |
 
 ## Reporting a vulnerability
@@ -15,7 +15,7 @@ the next tag; there are no backport branches.
 **Do not open a public issue for a security problem.**
 
 Report it privately through GitHub:
-[**Report a vulnerability**](https://github.com/Osasuwu/like_spotify_mobile_app/security/advisories/new).
+[**Report a vulnerability**](https://github.com/Osasuwu/like-current-song/security/advisories/new).
 
 Please include:
 

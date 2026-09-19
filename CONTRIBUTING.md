@@ -11,7 +11,7 @@ tests / CI work.
   Phase 0.
 - **Desktop** (`like_spotify/`) — pluggable Python framework. Default
   flavor is a Windows tray host + global hotkey. Pluggability is what
-  the OSS-framework refactor ([#19](https://github.com/Osasuwu/like_spotify_mobile_app/issues/19))
+  the OSS-framework refactor ([#19](https://github.com/Osasuwu/like-current-song/issues/19))
   is about: every concern (`Trigger`, `MusicProvider`, `Storage`,
   `PreLikeAction`, `PostLikeAction`, host) is a small interface in
   `like_spotify/core/`, and concrete implementations live under
@@ -127,7 +127,7 @@ Example manifest:
   "description": "Listen for vol-up-up on a connected MIDI / HID device and emit a like intent.",
   "codeowners": ["@you"],
   "requirements": ["hid>=1.0"],
-  "documentation": "https://github.com/Osasuwu/like_spotify_mobile_app/blob/main/like_spotify/extensions/volume_button_trigger/README.md",
+  "documentation": "https://github.com/Osasuwu/like-current-song/blob/main/like_spotify/extensions/volume_button_trigger/README.md",
   "stage": "experimental"
 }
 ```
@@ -287,7 +287,7 @@ class Storage(ABC):
 multiple devices and return the new count. `was_already_liked` is the
 backfill flag — on first encounter with `True`, seed `count=2` and a
 `backfilled=TRUE` marker, otherwise `count=1`. See
-[#24](https://github.com/Osasuwu/like_spotify_mobile_app/issues/24)
+[#24](https://github.com/Osasuwu/like-current-song/issues/24)
 for why this exists.
 
 **Existing impls** (≥2, so the abstraction is real):

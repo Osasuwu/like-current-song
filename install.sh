@@ -8,7 +8,7 @@
 # passed.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/Osasuwu/like_spotify_mobile_app/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/Osasuwu/like-current-song/main/install.sh | bash
 #
 #   # Re-run OAuth (after revoking access or switching accounts):
 #   ./install.sh --reauth

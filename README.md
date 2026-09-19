@@ -1,16 +1,44 @@
-# Like Spotify
+# Like Current Song — save the Spotify song you're hearing without touching your phone
 
-[![CI](https://github.com/Osasuwu/like_spotify_mobile_app/actions/workflows/ci.yml/badge.svg)](https://github.com/Osasuwu/like_spotify_mobile_app/actions/workflows/ci.yml)
-[![Latest release](https://img.shields.io/github/v/release/Osasuwu/like_spotify_mobile_app)](https://github.com/Osasuwu/like_spotify_mobile_app/releases)
+[![CI](https://github.com/Osasuwu/like-current-song/actions/workflows/ci.yml/badge.svg)](https://github.com/Osasuwu/like-current-song/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/Osasuwu/like-current-song)](https://github.com/Osasuwu/like-current-song/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](CONTRIBUTING.md)
 
-**One-button Spotify automation across your phone and laptop.** Like the currently-playing track with a headset pause-play pattern (Android) or a global keyboard hotkey (Windows tray; macOS / Linux CLI). On top of "like", a small rule engine runs per like: remove from an archive playlist (Discover Weekly clean-up), promote a track to a "best-of" playlist when you've liked it N times across devices, auto-follow an artist after N liked tracks. Counters live in Supabase or Google Sheets so phone + laptop see the same numbers.
+Heard a song you love while your phone is in your pocket with the screen off? **Pause and resume it with your headphone button** (e.g. pause → play), and the track is saved to your Spotify **Liked Songs**. You don't unlock the phone, look at the screen, or open the Spotify app.
 
-The desktop side is a **pluggable framework**, not a single tool. Five extension points — `Trigger`, `MusicProvider`, `Storage`, `PreLikeAction`, `PostLikeAction` — discover at startup via a filesystem convention (each extension is a folder with a `manifest.json` and a `TRIGGER` / `MUSIC_PROVIDER` / `STORAGE` / `PRE_LIKE_ACTION` / `POST_LIKE_ACTION` factory). Drop a folder, restart, your code runs in the like pipeline. See [CONTRIBUTING.md](CONTRIBUTING.md) for the plugin-author guide.
+At your computer, a **global keyboard shortcut** does the same thing: press `Ctrl+Shift+Alt+W` while Spotify plays in the background, and the current song is liked without switching away from the app you're working in.
 
-Keywords for the search-engine crowd: spotify like hotkey, spotify automation, headset pause-play like, spotify scrobbler alternative, spotify plugin framework, cross-device like counter.
+- **Android**: works with the screen off and the phone locked. It reacts to Spotify's pause/play state, so anything that pauses and resumes playback can trigger it: wired or Bluetooth headphones, earbud taps, a smartwatch, or a car stereo. The pattern is configurable, and a short sound confirms the like.
+- **Windows**: a tray app with a global hotkey to like the current track, plus a second hotkey to remove it from a playlist.
+- **macOS / Linux**: a `like-spotify like-once` command you can bind to any shortcut.
+- **Beyond "like"** (optional rules): remove the track from a Discover Weekly archive playlist, promote it to a "best-of" playlist after you like it N times across devices, and auto-follow an artist after N liked tracks. Counters are stored in Supabase or Google Sheets, so your phone and computer see the same numbers.
+
+Open source (MIT). It uses the official Spotify Web API with your own Spotify Developer app. There's no UI scraping, and your tokens stay on your devices.
+
+For developers: the desktop side is a **pluggable framework** with five extension points (`Trigger`, `MusicProvider`, `Storage`, `PreLikeAction`, `PostLikeAction`) discovered from `manifest.json` folders. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## FAQ
+
+### Can I like a Spotify song without unlocking my phone?
+Yes, that's the main use case. Install the Android app, connect Spotify, and turn on the listener service. With the screen off, do the trigger pattern with your headphone button (default: pause, then play within a short window), and the current track goes to Liked Songs.
+
+### Does it work with Bluetooth headphones, earbuds, or a smartwatch?
+Yes. The app watches Spotify's playback state rather than one specific button, so any device that pauses and resumes Spotify works.
+
+### Is there a global keyboard shortcut to like the current Spotify song on Windows?
+Yes. The Windows tray host binds `Ctrl+Shift+Alt+W` (configurable) to "save current track to Liked Songs", and it works while Spotify is minimized or in the background. On macOS and Linux, bind `like-spotify like-once` to a shortcut in your OS settings, Raycast, skhd, or similar.
+
+### Can it add the song to a playlist too, not only Liked Songs?
+Yes, through the rule engine: it can promote a track to a "best-of" playlist after N likes and remove it from an archive playlist. New actions are small Python plugins.
+
+### Does it work on iPhone?
+No. iOS doesn't let third-party apps observe another app's playback in the background. Android and desktop only.
+
+## По-русски
+
+**Like Spotify** лайкает трек в Spotify, не доставая телефон: нажмите пауза → плей на наушниках, и песня попадёт в «Любимые треки», даже с выключенным экраном и заблокированным телефоном. Работает с любыми наушниками (проводными и Bluetooth), часами и магнитолой. На компьютере (Windows) то же самое делает глобальная горячая клавиша `Ctrl+Shift+Alt+W`, пока Spotify играет в фоне. Открытый исходный код, лицензия MIT.
 
 ## How it works
 
@@ -22,12 +50,15 @@ Keywords for the search-engine crowd: spotify like hotkey, spotify automation, h
 
 ## How it compares
 
-There are several adjacent projects in this space; they solve overlapping problems but none solve all four of *one-press cross-device like + rule engine + headset-button trigger on phone + plugin framework on desktop*.
+Several desktop hotkey tools can like the current Spotify song. We haven't found another open-source project that does it **from a phone with the screen off**, or one that covers phone and desktop with shared rules. If you only need a Windows hotkey, the smaller tools below may fit you better.
 
 | Project | One-press like | Headset trigger (phone) | Hotkey trigger (desktop) | Rule engine (archive/best-of/follow) | Cross-device counters | Pluggable | Use **theirs** when |
 |---|---|---|---|---|---|---|---|
 | **Like Spotify** (this) | ✓ | ✓ Android | ✓ Windows tray + mac/linux CLI | ✓ | ✓ Supabase / Sheets | ✓ 5 typed seams + manifest discovery | n/a |
 | [Pano Scrobbler](https://github.com/kawaiiDango/pano-scrobbler) | partial (love via UI) | — (notification scrape) | — | — (scrobble target only) | — | provider seam only (write target) | you want **scrobbling history** to last.fm/listenbrainz/librefm/pleroma. Pano is the right answer for "where did my listens go" — we don't try to replace it. |
+| [BeatBind](https://github.com/justinknguyen/BeatBind) | ✓ (save / remove) | — | ✓ Windows tray (.NET) | — | — | — | you want a polished **Windows-only** global-hotkey app for full playback control (play/pause, skip, volume, seek) as well as saving tracks. |
+| [Spotikey](https://github.com/dannj90/Spotikey) | ✓ | — | ✓ Windows (`Ctrl+Alt+L`) | — | — | — | you want **only** a like hotkey, as a single small executable. |
+| [SpotiLike-GUI](https://github.com/senuka-b/SpotiLike-GUI) | ✓ (to a playlist) | — | ✓ desktop (PyQt) | — | — | — | you want one hotkey per **target playlist** and a GUI to manage them. |
 | [SpotifyHotKeys.ahk](https://github.com/rjmccallumbigl/SpotifyHotKeys.ahk) | ✓ (like / unlike) | — | ✓ Windows only (AutoHotKey) | — | — | — | you already live in AutoHotKey and want a small single-file script you can paste & edit. We're heavier (Python install) but cross-platform and rule-capable. |
 | [Music Assistant](https://www.music-assistant.io/) | partial (per-provider) | — | via Home Assistant | extensive (queue / library / sync) | — (per-instance) | ✓ ~60 providers | you want **Home Assistant-grade music orchestration** — multi-provider library merging, multi-room sync, queue scripting. We don't try to be your music server; we sit next to your existing Spotify client. |
 | [n8n](https://n8n.io/) / Zapier / IFTTT | only via polling | — | — | yes (general workflows) | yes (workflow vars) | ✓ generic | you want **a generic workflow engine** with a UI and 400+ integrations. We're the inverse — narrow to "like + post-like rules", but one button press and ~30 ms latency vs minutes of polling. |
@@ -47,8 +78,8 @@ There are several adjacent projects in this space; they solve overlapping proble
 
 ```bash
 # Clone and setup
-git clone https://github.com/Osasuwu/like_spotify_mobile_app.git
-cd like_spotify_mobile_app
+git clone https://github.com/Osasuwu/like-current-song.git
+cd like-current-song
 
 # Configure
 cp .env.example .env
@@ -72,15 +103,15 @@ Sheets).
 
 ```powershell
 # Windows (PowerShell)
-git clone https://github.com/Osasuwu/like_spotify_mobile_app.git
-cd like_spotify_mobile_app
+git clone https://github.com/Osasuwu/like-current-song.git
+cd like-current-song
 .\install.ps1
 ```
 
 ```bash
 # macOS / Linux
-git clone https://github.com/Osasuwu/like_spotify_mobile_app.git
-cd like_spotify_mobile_app
+git clone https://github.com/Osasuwu/like-current-song.git
+cd like-current-song
 ./install.sh
 ```
 
@@ -232,8 +263,8 @@ that other people's triggers, providers, storages, and actions can live in it.
 - [**CONTRIBUTING.md**](CONTRIBUTING.md) — repo layout, the five extension
   points with code, the add-an-extension checklist, and how to run the tests.
   It also lists what's known to be easy to land.
-- [**Good first issues**](https://github.com/Osasuwu/like_spotify_mobile_app/labels/good%20first%20issue)
-  · [**Help wanted**](https://github.com/Osasuwu/like_spotify_mobile_app/labels/help%20wanted)
+- [**Good first issues**](https://github.com/Osasuwu/like-current-song/labels/good%20first%20issue)
+  · [**Help wanted**](https://github.com/Osasuwu/like-current-song/labels/help%20wanted)
 - [**CODE_OF_CONDUCT.md**](CODE_OF_CONDUCT.md)
 - [**SECURITY.md**](SECURITY.md) — please report vulnerabilities privately, not
   as a public issue.
