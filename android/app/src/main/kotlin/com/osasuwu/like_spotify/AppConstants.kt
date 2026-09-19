@@ -28,8 +28,6 @@ object AppConstants {
     const val KEY_RULE_LIKE_COOLDOWN_ENABLED = "rule_like_cooldown_enabled"
     const val KEY_RULE_LIKE_COOLDOWN_MINUTES = "rule_like_cooldown_minutes"
 
-    const val DEFAULT_ARCHIVE_PLAYLIST_NAME = "Discover Weekly Archive"
-    const val DEFAULT_BEST_OF_PLAYLIST_NAME = "Botbotb(Best of the best of the best)"
     const val DEFAULT_BEST_OF_THRESHOLD = 3
     const val DEFAULT_FOLLOW_ARTIST_THRESHOLD = 5
     const val DEFAULT_LIKE_COOLDOWN_MINUTES = 10

@@ -23,15 +23,41 @@ class RuleConfig {
     this.likeCooldownMinutes = AppConstants.defaultLikeCooldownMinutes,
   });
 
+  /// Defaults for a fresh install.
+  ///
+  /// The extra actions (archive-remove, best-of promotion, artist auto-follow)
+  /// are opt-in: off, with empty playlist names. Thresholds keep a sensible
+  /// suggested value so switching an action on needs only a playlist name.
   factory RuleConfig.defaults() {
     return const RuleConfig(
+      archiveRemoveEnabled: false,
+      archivePlaylistName: '',
+      bestOfEnabled: false,
+      bestOfPlaylistName: '',
+      bestOfThreshold: AppConstants.defaultBestOfThreshold,
+      followArtistEnabled: false,
+      followArtistThreshold: AppConstants.defaultFollowArtistThreshold,
+      likeCooldownEnabled: true,
+      likeCooldownMinutes: AppConstants.defaultLikeCooldownMinutes,
+    );
+  }
+
+  /// The defaults every install ran with up to v1.0.3, when all extra actions
+  /// were on out of the box.
+  ///
+  /// Used only to upgrade installs that predate opt-in extra actions, so they
+  /// keep behaving exactly as before: a saved payload missing a field, a
+  /// pre-`rule_config` legacy key migration, or an install that used the app
+  /// but never saved rules at all.
+  factory RuleConfig.legacyDefaults() {
+    return const RuleConfig(
       archiveRemoveEnabled: true,
-      archivePlaylistName: AppConstants.defaultArchivePlaylistName,
+      archivePlaylistName: AppConstants.legacyArchivePlaylistName,
       bestOfEnabled: true,
-      bestOfPlaylistName: AppConstants.defaultBestOfPlaylistName,
-      bestOfThreshold: 3,
+      bestOfPlaylistName: AppConstants.legacyBestOfPlaylistName,
+      bestOfThreshold: AppConstants.defaultBestOfThreshold,
       followArtistEnabled: true,
-      followArtistThreshold: 5,
+      followArtistThreshold: AppConstants.defaultFollowArtistThreshold,
       likeCooldownEnabled: true,
       likeCooldownMinutes: AppConstants.defaultLikeCooldownMinutes,
     );
@@ -96,8 +122,14 @@ class RuleConfig {
     };
   }
 
+  /// Parses a persisted config.
+  ///
+  /// A persisted payload always comes from an install that already existed,
+  /// so a missing field falls back to [RuleConfig.legacyDefaults] — the value
+  /// that install was actually running with — never to the fresh-install
+  /// [RuleConfig.defaults].
   factory RuleConfig.fromJson(Map<String, dynamic> json) {
-    final defaults = RuleConfig.defaults();
+    final defaults = RuleConfig.legacyDefaults();
     return RuleConfig(
       archiveRemoveEnabled: json['archiveRemoveEnabled'] as bool? ?? defaults.archiveRemoveEnabled,
       archivePlaylistName: json['archivePlaylistName'] as String? ?? defaults.archivePlaylistName,

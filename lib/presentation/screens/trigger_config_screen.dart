@@ -5,6 +5,16 @@ import '../../core/app_constants.dart';
 import '../../domain/entities/rule_config.dart';
 import '../../domain/entities/trigger_config.dart';
 import '../state/app_providers.dart';
+import '../widgets/extra_actions_section.dart';
+
+/// Text for a threshold field: empty while it holds the default, so the field
+/// shows the default as its hint instead of looking pre-filled.
+String _thresholdText(int value, int defaultValue) =>
+    value == defaultValue ? '' : value.toString();
+
+/// Parses a threshold field; an empty or invalid entry means the default.
+int _parseThreshold(String text, int defaultValue) =>
+    int.tryParse(text.trim()) ?? defaultValue;
 
 class TriggerConfigScreen extends ConsumerStatefulWidget {
   const TriggerConfigScreen({super.key});
@@ -41,9 +51,15 @@ class _TriggerConfigScreenState extends ConsumerState<TriggerConfigScreen> {
     _feedbackVolume = config.feedbackVolume;
     _archivePlaylistName = TextEditingController(text: ruleConfig.archivePlaylistName);
     _bestOfPlaylistName = TextEditingController(text: ruleConfig.bestOfPlaylistName);
-    _bestOfThreshold = TextEditingController(text: ruleConfig.bestOfThreshold.toString());
-    _followArtistThreshold =
-        TextEditingController(text: ruleConfig.followArtistThreshold.toString());
+    _bestOfThreshold = TextEditingController(
+      text: _thresholdText(ruleConfig.bestOfThreshold, AppConstants.defaultBestOfThreshold),
+    );
+    _followArtistThreshold = TextEditingController(
+      text: _thresholdText(
+        ruleConfig.followArtistThreshold,
+        AppConstants.defaultFollowArtistThreshold,
+      ),
+    );
     _likeCooldownMinutes = TextEditingController(text: ruleConfig.likeCooldownMinutes.toString());
     _archiveRemoveEnabled = ruleConfig.archiveRemoveEnabled;
     _bestOfEnabled = ruleConfig.bestOfEnabled;
@@ -106,55 +122,6 @@ class _TriggerConfigScreenState extends ConsumerState<TriggerConfigScreen> {
             const Divider(),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('Remove from archive playlist'),
-              value: _archiveRemoveEnabled,
-              onChanged: (value) => setState(() => _archiveRemoveEnabled = value),
-            ),
-            TextField(
-              controller: _archivePlaylistName,
-              enabled: _archiveRemoveEnabled,
-              decoration: const InputDecoration(
-                labelText: 'Archive playlist name',
-                hintText: 'Discover Weekly Archive',
-              ),
-            ),
-            const SizedBox(height: 12),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Promote to best-of playlist'),
-              value: _bestOfEnabled,
-              onChanged: (value) => setState(() => _bestOfEnabled = value),
-            ),
-            TextField(
-              controller: _bestOfPlaylistName,
-              enabled: _bestOfEnabled,
-              decoration: const InputDecoration(
-                labelText: 'Best-of playlist name',
-                hintText: 'Botbotb(Best of the best of the best)',
-              ),
-            ),
-            TextField(
-              controller: _bestOfThreshold,
-              enabled: _bestOfEnabled,
-              decoration: const InputDecoration(labelText: 'Best-of threshold (likes)'),
-              keyboardType: TextInputType.number,
-            ),
-            const SizedBox(height: 12),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Auto-follow artist'),
-              value: _followArtistEnabled,
-              onChanged: (value) => setState(() => _followArtistEnabled = value),
-            ),
-            TextField(
-              controller: _followArtistThreshold,
-              enabled: _followArtistEnabled,
-              decoration: const InputDecoration(labelText: 'Follow-artist threshold (likes)'),
-              keyboardType: TextInputType.number,
-            ),
-            const SizedBox(height: 12),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
               title: const Text('Like cooldown'),
               subtitle: const Text('Ignore accidental repeat-likes of the same track'),
               value: _likeCooldownEnabled,
@@ -165,6 +132,21 @@ class _TriggerConfigScreenState extends ConsumerState<TriggerConfigScreen> {
               enabled: _likeCooldownEnabled,
               decoration: const InputDecoration(labelText: 'Cooldown (minutes)'),
               keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 12),
+            ExtraActionsSection(
+              archiveRemoveEnabled: _archiveRemoveEnabled,
+              onArchiveRemoveChanged: (value) =>
+                  setState(() => _archiveRemoveEnabled = value),
+              archivePlaylistName: _archivePlaylistName,
+              bestOfEnabled: _bestOfEnabled,
+              onBestOfChanged: (value) => setState(() => _bestOfEnabled = value),
+              bestOfPlaylistName: _bestOfPlaylistName,
+              bestOfThreshold: _bestOfThreshold,
+              followArtistEnabled: _followArtistEnabled,
+              onFollowArtistChanged: (value) =>
+                  setState(() => _followArtistEnabled = value),
+              followArtistThreshold: _followArtistThreshold,
             ),
             const SizedBox(height: 20),
             FilledButton(
@@ -180,10 +162,15 @@ class _TriggerConfigScreenState extends ConsumerState<TriggerConfigScreen> {
                   archivePlaylistName: _archivePlaylistName.text.trim(),
                   bestOfEnabled: _bestOfEnabled,
                   bestOfPlaylistName: _bestOfPlaylistName.text.trim(),
-                  bestOfThreshold: int.tryParse(_bestOfThreshold.text.trim()) ?? 3,
+                  bestOfThreshold: _parseThreshold(
+                    _bestOfThreshold.text,
+                    AppConstants.defaultBestOfThreshold,
+                  ),
                   followArtistEnabled: _followArtistEnabled,
-                  followArtistThreshold:
-                      int.tryParse(_followArtistThreshold.text.trim()) ?? 5,
+                  followArtistThreshold: _parseThreshold(
+                    _followArtistThreshold.text,
+                    AppConstants.defaultFollowArtistThreshold,
+                  ),
                   likeCooldownEnabled: _likeCooldownEnabled,
                   likeCooldownMinutes:
                       int.tryParse(_likeCooldownMinutes.text.trim()) ??
