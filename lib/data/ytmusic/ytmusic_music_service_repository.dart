@@ -15,13 +15,37 @@ import '../../domain/repositories/platform_service_repository.dart';
 import 'google_oauth_client.dart';
 import 'ytmusic_token_store.dart';
 
-/// YouTube Music: Google sign-in via the OAuth 2.0 device flow with a
-/// "TVs and Limited Input devices" client the user creates.
+/// A YouTube Music like that did not go through.
+class YouTubeMusicLikeException implements Exception {
+  const YouTubeMusicLikeException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+/// A YouTube Music like the Data API rejected with an HTTP status.
+class YouTubeMusicLikeHttpException extends YouTubeMusicLikeException
+    implements MusicServiceHttpException {
+  const YouTubeMusicLikeHttpException(super.message, this.statusCode);
+
+  @override
+  final int statusCode;
+}
+
+/// YouTube Music on Android.
 ///
-/// Tokens live in their own secure-storage keys ([YouTubeMusicTokenStore]) and
-/// are mirrored to the native side (`syncYouTubeMusicTokens`), which does the
-/// like itself in the background. The Dart side never likes: a like request
-/// here throws, so nothing is sent to another service by mistake.
+/// Liking is native (`YouTubeMusicLiker.kt`): a thumbs-up through the YouTube
+/// Music app's media session, which needs no sign-in, with the YouTube Data
+/// API as fallback when the session rating doesn't take. The same code runs
+/// when the trigger fires with no Flutter UI attached, so the screen-off path
+/// and this one behave identically.
+///
+/// Google sign-in uses the OAuth 2.0 device flow with a "TVs and Limited Input
+/// devices" client the user creates. Tokens live in their own secure-storage
+/// keys ([YouTubeMusicTokenStore]) and are mirrored to the native side
+/// (`syncYouTubeMusicTokens`), where the Data API fallback uses them.
 class YouTubeMusicServiceRepository
     implements MusicServiceRepository, DeviceSignInRepository {
   YouTubeMusicServiceRepository({
@@ -342,21 +366,47 @@ class YouTubeMusicServiceRepository
   Future<bool> handleAuthCallback(Uri uri) async => false;
 
   @override
-  Future<LikeResult> likeCurrentTrack() => _likeUnavailable();
-
-  @override
-  Future<LikeResult> likeTrack(TrackInfo trackInfo) => _likeUnavailable();
-
-  Future<LikeResult> _likeUnavailable() async {
-    if (!(await getAuthState()).connected) {
-      throw const MusicServiceNotConnectedException(_provider);
+  Future<LikeResult> likeCurrentTrack() async {
+    final reply = await _platform.likeYouTubeMusicCurrentTrack();
+    final trackName = reply['trackName'] as String? ?? _provider.displayName;
+    switch (reply['outcome']) {
+      case 'liked':
+        return LikeResult(trackId: '', trackName: trackName, trackLiked: true);
+      case 'already_liked':
+        return LikeResult(
+          trackId: '',
+          trackName: trackName,
+          trackLiked: true,
+          alreadyLiked: true,
+        );
+      case 'cooldown':
+        return LikeResult(
+          trackId: '',
+          trackName: trackName,
+          trackLiked: false,
+          skippedCooldown: true,
+        );
+      default:
+        final message = reply['message'] as String? ?? 'like failed';
+        final httpCode = reply['httpCode'];
+        if (httpCode is int) {
+          throw YouTubeMusicLikeHttpException(message, httpCode);
+        }
+        throw YouTubeMusicLikeException(message);
     }
-    throw UnsupportedError(
-      'Liking on ${_provider.displayName} from the app is not available yet.',
+  }
+
+  /// The session can only like what is playing now, so there is no way to
+  /// like an arbitrary track from here.
+  @override
+  Future<LikeResult> likeTrack(TrackInfo trackInfo) async {
+    throw const YouTubeMusicLikeException(
+      'YouTube Music can only like the song that is playing',
     );
   }
 
-  /// Queued likes are left in place; nothing is processed for YouTube Music.
+  /// YouTube Music likes are never queued (see `AppController.queueTrackForLater`):
+  /// the like targets whatever is playing, so a replay would hit another song.
   @override
   Future<int> processPendingLikes(List<PendingLike> pending) async => 0;
 

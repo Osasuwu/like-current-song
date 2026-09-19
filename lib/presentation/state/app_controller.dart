@@ -11,6 +11,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../core/app_constants.dart';
 import '../../domain/entities/app_log.dart';
+import '../../domain/entities/like_result.dart';
 import '../../domain/entities/music_provider.dart';
 import '../../domain/entities/music_service_exceptions.dart';
 import '../../domain/entities/pending_like.dart';
@@ -342,7 +343,7 @@ class AppController extends StateNotifier<AppState> {
         actionType: 'like_track',
         targetId: result.trackName,
         result: LogResult.success,
-        message: 'Liked: ${result.trackName} (x${result.trackLikeCount})',
+        message: _likedMessage(result),
       );
       if (result.removedFromArchive) {
         await addLog(
@@ -380,6 +381,16 @@ class AppController extends StateNotifier<AppState> {
       // If we can still reach Spotify to get current track, queue it.
       await _tryQueueCurrentTrack();
     }
+  }
+
+  /// Log line for a like that went through. The "(xN)" counter is shown only
+  /// when the service keeps one (YouTube Music has none yet).
+  static String _likedMessage(LikeResult result) {
+    if (result.alreadyLiked) return 'Already liked: ${result.trackName}';
+    if (result.trackLikeCount > 0) {
+      return 'Liked: ${result.trackName} (x${result.trackLikeCount})';
+    }
+    return 'Liked: ${result.trackName}';
   }
 
   /// Nothing was sent: the selected service has no sign-in. Not queued for
@@ -427,14 +438,20 @@ class AppController extends StateNotifier<AppState> {
     }
   }
 
-  /// Queue a track for offline retry.
+  /// Queue a track for offline retry on the currently selected service.
+  ///
+  /// YouTube Music likes are never queued: its like targets whatever is
+  /// playing, so replaying it later would like a different song.
   Future<void> queueTrackForLater(TrackInfo trackInfo) async {
+    final provider = await _settingsRepository.loadMusicProvider();
+    if (provider == MusicProvider.ytmusic) return;
     final pending = PendingLike(
       trackId: trackInfo.trackId,
       trackName: trackInfo.trackName,
       artistIds: trackInfo.artistIds,
       artistNames: trackInfo.artistNames,
       queuedAt: DateTime.now().toUtc(),
+      providerId: provider.id,
     );
     await _settingsRepository.addPendingLike(pending);
     final count = (await _settingsRepository.loadPendingLikes()).length;
@@ -608,7 +625,7 @@ class AppController extends StateNotifier<AppState> {
         actionType: 'like_track',
         targetId: result.trackName,
         result: LogResult.success,
-        message: 'Liked: ${result.trackName} (x${result.trackLikeCount})',
+        message: _likedMessage(result),
       );
       if (result.removedFromArchive) {
         await addLog(

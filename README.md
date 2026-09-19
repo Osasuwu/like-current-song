@@ -48,6 +48,9 @@ No. iOS doesn't let third-party apps observe another app's playback in the backg
 4. **Best-of promotion** — like a track 3 times across devices and it's added to your best-of playlist
 5. **Artist follow** — like 5+ tracks from an artist and they get auto-followed
 
+Steps 3–5 are optional and off until you set them up. On Android they live
+under **Trigger configuration → Extra actions**.
+
 ## How it compares
 
 Several desktop hotkey tools can like the current Spotify song. We haven't found another open-source project that does it **from a phone with the screen off**, or one that covers phone and desktop with shared rules. If you only need a Windows hotkey, the smaller tools below may fit you better.
@@ -94,7 +97,13 @@ Install the APK, connect Spotify in the app, enable the listener service.
 
 #### YouTube Music (Android)
 
-YouTube Music signs in with your own Google OAuth client. Nothing goes in
+**YouTube Music (beta).** Pick YouTube Music under *Connected services*. The
+trigger then gives the playing song a thumbs-up through the YT Music app's own
+media session, so it works with the screen off and needs **no sign-in**, only
+the notification access the listener already uses. Signing in is optional: it
+adds a YouTube Data API fallback for when the session rating doesn't take.
+
+To sign in, you use your own Google OAuth client. Nothing goes in
 `.env`: you enter the client in the app. It takes about 5 minutes, once.
 
 1. Open [console.cloud.google.com](https://console.cloud.google.com/) and
@@ -196,7 +205,9 @@ prompt in `--setup`. The hotkey then likes the song playing in the YT Music
 browser tab or desktop app, and it lands in YT Music's *Liked music*. You need
 your own free Google OAuth client with the YouTube Data API enabled; the steps
 are in [`extensions/ytmusic/README.md`](like_spotify/extensions/ytmusic/README.md).
-The playlist actions (archive-remove, best-of, follow-artist) are Spotify-only.
+The playlist actions (archive-remove, best-of, follow-artist) work there too.
+Follow-artist subscribes to the artist's channel, and each playlist write
+costs YouTube API quota (see that README).
 
 **Single-file `.exe`** (for users without Python): build via
 `tools\build.bat` → `dist\LikeSpotify.exe`.
@@ -280,7 +291,7 @@ Android (Flutter + Kotlin)          Desktop (Python framework)
 | Trigger pattern / hotkey | In-app UI | `~/.like_spotify/config.json` → `trigger.hotkey` (default `Ctrl+Shift+Alt+W`) |
 | Remove-from-archive hotkey | n/a (one trigger on headphones) | `~/.like_spotify/config.json` → `trigger.remove_hotkey` (default `Ctrl+Shift+Alt+Q`) |
 | Archive playlist name | In-app UI | `~/.like_spotify/config.json` → `actions.archive_remove.playlist_name` (blank = archive-remove disabled) |
-| Music service | Spotify | `~/.like_spotify/config.json` → `music.provider` (`spotify` / `ytmusic`, default `spotify`) |
+| Music service | In-app UI (Spotify / YouTube Music) | `~/.like_spotify/config.json` → `music.provider` (`spotify` / `ytmusic`, default `spotify`) |
 | YouTube Music tokens | n/a (planned) | `~/.like_spotify/youtube_token.json` (refreshed automatically) |
 | Spotify client_id | `.env` (`SPOTIFY_CLIENT_ID`) | `like-spotify --setup` → `~/.like_spotify/config.json` |
 | Spotify tokens | `FlutterSecureStorage` | `~/.like_spotify/spotify_token.json` |

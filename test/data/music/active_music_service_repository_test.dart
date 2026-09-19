@@ -3,6 +3,7 @@ import 'package:like_spotify_mobile_app/data/music/active_music_service_reposito
 import 'package:like_spotify_mobile_app/domain/entities/like_result.dart';
 import 'package:like_spotify_mobile_app/domain/entities/music_provider.dart';
 import 'package:like_spotify_mobile_app/domain/entities/music_service_exceptions.dart';
+import 'package:like_spotify_mobile_app/domain/entities/pending_like.dart';
 import 'package:like_spotify_mobile_app/domain/entities/spotify_auth_state.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -125,5 +126,42 @@ void main() {
       ),
       throwsArgumentError,
     );
+  });
+
+  group('pending likes', () {
+    PendingLike queued(String id, MusicProvider provider) => PendingLike(
+          trackId: id,
+          trackName: id,
+          artistIds: const [],
+          artistNames: const [],
+          queuedAt: DateTime.utc(2025, 1, 1),
+          providerId: provider.id,
+        );
+
+    final spotifyLike = queued('s1', MusicProvider.spotify);
+    final ytLike = queued('y1', MusicProvider.ytmusic);
+
+    setUpAll(() => registerFallbackValue(<PendingLike>[]));
+
+    test('only the selected service replays, and only its own likes', () async {
+      select(MusicProvider.spotify);
+      when(() => spotify.processPendingLikes(any())).thenAnswer((_) async => 1);
+
+      expect(await repo.processPendingLikes([spotifyLike, ytLike]), 1);
+
+      final handed = verify(() => spotify.processPendingLikes(captureAny()))
+          .captured
+          .single as List<PendingLike>;
+      expect(handed, [spotifyLike]);
+      verifyZeroInteractions(ytmusic);
+    });
+
+    test('a Spotify like is never handed to YouTube Music', () async {
+      select(MusicProvider.ytmusic);
+
+      expect(await repo.processPendingLikes([spotifyLike]), 0);
+      verifyZeroInteractions(ytmusic);
+      verifyZeroInteractions(spotify);
+    });
   });
 }

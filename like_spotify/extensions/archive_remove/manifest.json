@@ -2,7 +2,7 @@
   "domain": "archive_remove",
   "extension_point": "post_like_action",
   "name": "Archive Remove",
-  "description": "Removes a just-liked track from the user's configured archive playlist (Spotify-only).",
+  "description": "Removes a just-liked track from the user's configured archive playlist (Spotify, YouTube Music).",
   "codeowners": ["@Osasuwu"],
   "requirements": ["requests>=2.31"],
   "documentation": "https://github.com/Osasuwu/like-current-song/blob/main/like_spotify/extensions/archive_remove/README.md",

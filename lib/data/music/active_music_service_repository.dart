@@ -74,9 +74,16 @@ class ActiveMusicServiceRepository implements MusicServiceRepository {
   @override
   Future<void> refreshIfNeeded() async => (await resolve()).refreshIfNeeded();
 
+  /// Hands the selected service only the likes queued for it: a Spotify like
+  /// must never be replayed on YouTube Music, or the other way round. Likes
+  /// for other services stay queued until that service is selected again.
   @override
-  Future<int> processPendingLikes(List<PendingLike> pending) async =>
-      (await resolve()).processPendingLikes(pending);
+  Future<int> processPendingLikes(List<PendingLike> pending) async {
+    final provider = await _settingsRepository.loadMusicProvider();
+    final own = pending.where((like) => like.isFor(provider)).toList();
+    if (own.isEmpty) return 0;
+    return _repositories[provider]!.processPendingLikes(own);
+  }
 
   @override
   Future<Map<String, Map<String, int>>> loadAllLikeCounts() async =>

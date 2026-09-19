@@ -12,6 +12,7 @@ import 'package:like_spotify_mobile_app/data/ytmusic/ytmusic_token_store.dart';
 import 'package:like_spotify_mobile_app/domain/entities/device_sign_in.dart';
 import 'package:like_spotify_mobile_app/domain/entities/music_provider.dart';
 import 'package:like_spotify_mobile_app/domain/entities/music_service_exceptions.dart';
+import 'package:like_spotify_mobile_app/domain/entities/pending_like.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../helpers/mocks.dart';
@@ -344,12 +345,86 @@ void main() {
       verify(() => platform.clearYouTubeMusicTokens()).called(1);
     });
 
-    test('like while signed out throws not-connected', () async {
+    void likeReply(Map<String, dynamic> map) {
+      when(() => platform.likeYouTubeMusicCurrentTrack())
+          .thenAnswer((_) async => map);
+    }
+
+    test('a session like needs no sign-in and is a liked result', () async {
+      likeReply({'outcome': 'liked', 'trackName': 'Song — Artist'});
+
+      final result = await repo.likeCurrentTrack();
+
+      expect(result.trackLiked, isTrue);
+      expect(result.alreadyLiked, isFalse);
+      expect(result.trackName, 'Song — Artist');
+    });
+
+    test('an already-liked song counts as liked', () async {
+      likeReply({'outcome': 'already_liked', 'trackName': 'Song'});
+
+      final result = await repo.likeCurrentTrack();
+
+      expect(result.trackLiked, isTrue);
+      expect(result.alreadyLiked, isTrue);
+    });
+
+    test('a cooldown skip is not a like', () async {
+      likeReply({'outcome': 'cooldown', 'trackName': 'Song'});
+
+      final result = await repo.likeCurrentTrack();
+
+      expect(result.trackLiked, isFalse);
+      expect(result.skippedCooldown, isTrue);
+    });
+
+    test('an API failure carries its HTTP status', () async {
+      likeReply({'outcome': 'failed', 'message': 'forbidden', 'httpCode': 403});
+
       await expectLater(
         repo.likeCurrentTrack(),
-        throwsA(isA<MusicServiceNotConnectedException>()
-            .having((e) => e.provider, 'provider', MusicProvider.ytmusic)),
+        throwsA(
+          isA<MusicServiceHttpException>()
+              .having((e) => e.statusCode, 'statusCode', 403),
+        ),
       );
+    });
+
+    test('a failure without a status is a plain like failure', () async {
+      likeReply({
+        'outcome': 'failed',
+        'message': 'YouTube Music is not playing',
+      });
+
+      await expectLater(
+        repo.likeCurrentTrack(),
+        throwsA(
+          isA<YouTubeMusicLikeException>()
+              .having((e) => e is MusicServiceHttpException, 'http', isFalse)
+              .having(
+                (e) => e.toString(),
+                'message',
+                'YouTube Music is not playing',
+              ),
+        ),
+      );
+    });
+
+    test('never replays queued likes', () async {
+      expect(
+        await repo.processPendingLikes([
+          PendingLike(
+            trackId: 'x',
+            trackName: 'x',
+            artistIds: const [],
+            artistNames: const [],
+            queuedAt: DateTime.utc(2025, 1, 1),
+            providerId: MusicProvider.ytmusic.id,
+          ),
+        ]),
+        0,
+      );
+      verifyZeroInteractions(platform);
     });
 
     test('does not claim Spotify auth callbacks', () async {

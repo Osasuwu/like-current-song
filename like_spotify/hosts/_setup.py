@@ -70,7 +70,7 @@ class _SetupAbort(Exception):
 
 def do_setup(reauth: bool = False) -> int:
     """Interactive wizard: music service → its OAuth (Spotify or YouTube)
-    → storage choice → archive playlist (Spotify only) → autostart.
+    → storage choice → archive playlist → autostart.
 
     Re-runnable. Existing OAuth tokens (Spotify, YouTube, Google) are kept unless
     `reauth=True` is passed — switching storage backend does NOT
@@ -86,9 +86,9 @@ def do_setup(reauth: bool = False) -> int:
         else:
             _setup_spotify(cfg, reauth=reauth)
         _setup_storage(cfg, reauth=reauth)
-        if _common.resolve_provider_name(cfg) == "spotify":
-            # Playlist clean-up needs Spotify playlists; YT Music has none here.
-            _setup_archive(cfg)
+        # Both providers speak the playlist capability, so the archive
+        # step is offered whichever music service was picked.
+        _setup_archive(cfg)
         _setup_autostart()
     except _SetupAbort as e:
         print(f"Aborted: {e}", file=sys.stderr)
@@ -235,7 +235,7 @@ def _setup_storage(cfg: dict, *, reauth: bool) -> None:
 
 
 def _setup_archive(cfg: dict) -> None:
-    """Discover Weekly clean-up: archive playlist + remove-without-like hotkey.
+    """Playlist clean-up (e.g. a Discover Weekly archive): archive playlist + remove-without-like hotkey.
 
     Two coupled settings, one playlist:
       - `actions.archive_remove.playlist_name` — when you like a track, it's
@@ -249,10 +249,10 @@ def _setup_archive(cfg: dict) -> None:
     so re-running setup for an unrelated step won't clobber the archive.
     Type `-` to turn the feature off; blank with nothing set = skip.
     """
-    print("\n[3/4] Discover Weekly clean-up (optional)")
+    print("\n[3/4] Playlist clean-up (optional)")
     print(
-        "  Name a playlist (e.g. an archived copy of Discover Weekly) to "
-        "curate.\n"
+        "  Name one of your playlists to curate (e.g. an archived copy of\n"
+        "  Spotify's Discover Weekly, or a YouTube Music playlist).\n"
         "  Liking a track removes it from this playlist; a second hotkey "
         "removes\n"
         "  the current track WITHOUT liking it. Blank = skip, '-' = turn off."
