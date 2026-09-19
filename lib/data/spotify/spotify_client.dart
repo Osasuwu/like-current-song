@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/app_constants.dart';
+import '../../domain/entities/music_service_exceptions.dart';
 import '../../domain/entities/track_info.dart';
 import 'spotify_models.dart';
 
@@ -366,7 +367,8 @@ class SpotifyClient {
 /// Thrown when a Spotify API call returns a non-2xx response, carrying the
 /// real HTTP status code so callers/logs can surface it instead of just the
 /// message text.
-class SpotifyApiException implements Exception {
+class SpotifyApiException implements MusicServiceHttpException {
+  @override
   final int statusCode;
   final String message;
   SpotifyApiException(this.statusCode, this.message);

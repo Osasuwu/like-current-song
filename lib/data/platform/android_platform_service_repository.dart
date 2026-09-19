@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 
 import '../../core/app_constants.dart';
+import '../../domain/entities/music_provider.dart';
 import '../../domain/entities/rule_config.dart';
 import '../../domain/entities/trigger_config.dart';
 import '../../domain/repositories/platform_service_repository.dart';
@@ -86,15 +87,29 @@ class AndroidPlatformServiceRepository implements PlatformServiceRepository {
   }
 
   @override
-  Future<bool> isSpotifyInstalled() async {
-    final result = await _methodChannel.invokeMethod<bool>('isSpotifyInstalled');
+  Future<bool> isMusicAppInstalled(MusicProvider provider) async {
+    final result = await _methodChannel.invokeMethod<bool>(
+      'isMusicAppInstalled',
+      <String, dynamic>{'provider': provider.id},
+    );
     return result ?? false;
   }
 
   @override
-  Future<bool> openSpotify() async {
-    final result = await _methodChannel.invokeMethod<bool>('openSpotify');
+  Future<bool> openMusicApp(MusicProvider provider) async {
+    final result = await _methodChannel.invokeMethod<bool>(
+      'openMusicApp',
+      <String, dynamic>{'provider': provider.id},
+    );
     return result ?? false;
+  }
+
+  @override
+  Future<void> updateMusicProvider(MusicProvider provider) async {
+    await _methodChannel.invokeMethod<void>(
+      'setMusicProvider',
+      <String, dynamic>{'provider': provider.id},
+    );
   }
 
   @override
