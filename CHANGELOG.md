@@ -10,6 +10,13 @@ Spotify/Supabase credentials (see [README](README.md)).
 
 ## [Unreleased]
 
+### Changed
+
+- **README leads with the problem it solves**: liking a Spotify song with the
+  phone screen off (headphone pause-play) or with a global hotkey on Windows.
+  Adds an FAQ, a short Russian summary, and BeatBind / Spotikey / SpotiLike-GUI
+  to the comparison table.
+
 ### Fixed
 
 - **Android: like feedback tone and vibration are back on HyperOS 3 / Android 16.**

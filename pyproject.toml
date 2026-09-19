@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "like-spotify"
 version = "1.0.3"
-description = "Pluggable hotkey-to-like framework. Default flavor: tray hotkey + Spotify."
+description = "Like the currently playing Spotify song with a global hotkey (Windows tray, macOS/Linux CLI) - saves to Liked Songs without switching windows. Pluggable framework."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
 authors = [{ name = "Osasuwu" }]
-keywords = ["spotify", "hotkey", "tray", "media", "like"]
+keywords = ["spotify", "hotkey", "global-hotkey", "keyboard-shortcut", "liked-songs", "like", "save-track", "tray", "spotify-api", "automation"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Win32 (MS Windows)",
