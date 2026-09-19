@@ -9,6 +9,9 @@ object AppConstants {
     const val KEY_FEEDBACK_VOLUME = "trigger_feedback_volume"
     const val DEFAULT_FEEDBACK_VOLUME = 100
 
+    /** Selected music service id ("spotify" | "ytmusic"); see [MusicProvider]. */
+    const val KEY_MUSIC_PROVIDER = "music_provider"
+
     const val KEY_SPOTIFY_ACCESS_TOKEN = "spotify_access_token"
     const val KEY_SPOTIFY_REFRESH_TOKEN = "spotify_refresh_token"
     const val KEY_SPOTIFY_EXPIRES_AT = "spotify_expires_at"

@@ -33,6 +33,14 @@ class SpotifyLikeWorker(
 ) : Worker(appContext, params) {
 
     override fun doWork(): Result {
+        // The service switched away from Spotify after this job was queued:
+        // never send a Spotify request for another service's trigger.
+        val provider = MusicProvider.current(applicationContext)
+        if (provider != MusicProvider.SPOTIFY) {
+            log("Like skipped: music service is ${provider.displayName}, not Spotify", actionType = "like_track", result = "info")
+            return Result.success()
+        }
+
         val prefs = applicationContext.getSharedPreferences(AppConstants.PREFS, Context.MODE_PRIVATE)
         var accessToken = prefs.getString(AppConstants.KEY_SPOTIFY_ACCESS_TOKEN, null)
         val refreshToken = prefs.getString(AppConstants.KEY_SPOTIFY_REFRESH_TOKEN, null)
