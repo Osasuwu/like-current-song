@@ -15,6 +15,20 @@ Quota (default 10,000 units/day per Google project): search = 100,
 rate = 50, getRating = 1 — about 65 likes a day. Resolved ids are cached
 per process so a repeat press on the same song does not search again.
 
+**Playlist capability** (`PlaylistCapableProvider`): YT Music playlists
+are ordinary YouTube playlists on the user's channel, so archive-remove,
+promote-to-best-of and follow-artist run unchanged. Reads (playlists.list,
+playlistItems.list) cost 1 unit per page; each write (playlistItems.insert
+/ delete, playlists.insert, subscriptions.insert) costs 50.
+
+**Artist id = channel id.** "Follow artist" is a channel subscribe. The
+channel is the uploader of the matched video, but only when that upload is
+the artist's own: the auto-generated "Artist - Topic" channel (what YT
+Music's artist page is built on) or a channel named after the artist.
+When matching fell back to an unrelated uploader (a cover, a label
+compilation) `artist_ids` stays empty and follow-artist skips the track,
+so a lucky search hit never subscribes the user to a stranger.
+
 OAuth rides on `like_spotify.auth.google` with the YouTube scope and its
 own token file; the user brings their own Google Cloud OAuth client.
 """
@@ -39,11 +53,15 @@ from like_spotify.core.types import CurrentTrack
 DOMAIN = "ytmusic"
 
 API_BASE = "https://www.googleapis.com/youtube/v3"
-# `youtube` covers videos.rate / getRating; `openid` yields an id_token
-# whose `sub` is a stable user id even for accounts without a channel.
+# `youtube` covers videos.rate / getRating and the playlist + subscription
+# writes (playlists.insert, playlistItems.insert/delete,
+# subscriptions.insert); `openid` yields an id_token whose `sub` is a
+# stable user id even for accounts without a channel.
 SCOPE = "https://www.googleapis.com/auth/youtube openid"
 MUSIC_CATEGORY_ID = "10"
 TOPIC_SUFFIX = " - Topic"
+PAGE_SIZE = 50  # max for playlists.list / playlistItems.list
+PLAYLIST_DESCRIPTION = "Managed by Like Current Song"
 
 
 @dataclass(frozen=True)
@@ -58,6 +76,13 @@ class NowPlaying:
 NowPlayingReader = Callable[[], Awaitable[NowPlaying | None]]
 
 
+@dataclass(frozen=True)
+class _Match:
+    video_id: str
+    # Uploader channel, only when it is the artist's own (see module doc).
+    artist_channel_id: str | None
+
+
 class YouTubeMusicProvider(MusicProvider):
     def __init__(
         self,
@@ -68,9 +93,9 @@ class YouTubeMusicProvider(MusicProvider):
         self._now_playing = now_playing or _default_reader()
         self._token_provider: Callable[[], str] | None = None
         self._lock = threading.Lock()
-        # (artist, title) -> videoId. Per process: saves 100 quota units on
+        # (artist, title) -> match. Per process: saves 100 quota units on
         # every repeat press for the same song.
-        self._resolved: dict[tuple[str, str], str] = {}
+        self._resolved: dict[tuple[str, str], _Match] = {}
 
     # ── MusicProvider ─────────────────────────────────────────────────
 
@@ -79,14 +104,15 @@ class YouTubeMusicProvider(MusicProvider):
         if np is None or not np.title:
             return None
         artist = _clean_artist(np.artist)
-        video_id = await asyncio.to_thread(self._resolve_sync, artist, np.title)
-        if video_id is None:
+        match = await asyncio.to_thread(self._resolve_sync, artist, np.title)
+        if match is None:
             return None
         return CurrentTrack(
             provider=DOMAIN,
-            provider_track_id=video_id,
+            provider_track_id=match.video_id,
             title=np.title,
             artists=(artist,) if artist else (),
+            artist_ids=(match.artist_channel_id,) if match.artist_channel_id else (),
             album=np.album or None,
         )
 
@@ -104,6 +130,29 @@ class YouTubeMusicProvider(MusicProvider):
                 "youtube token has no id_token; re-run `like-spotify --setup --reauth`"
             )
         return sub
+
+    # ── PlaylistCapableProvider ───────────────────────────────────────
+
+    async def find_playlist_by_name(self, name: str) -> str | None:
+        return await asyncio.to_thread(self._find_playlist_by_name_sync, name)
+
+    async def find_or_create_playlist(self, name: str) -> str:
+        return await asyncio.to_thread(self._find_or_create_playlist_sync, name)
+
+    async def get_playlist_track_ids(self, playlist_id: str) -> set[str]:
+        items = await asyncio.to_thread(self._playlist_items_sync, playlist_id)
+        return {video_id for _item_id, video_id in items}
+
+    async def add_track_to_playlist(self, track_id: str, playlist_id: str) -> None:
+        await asyncio.to_thread(self._add_to_playlist_sync, track_id, playlist_id)
+
+    async def remove_track_from_playlist(
+        self, track_id: str, playlist_id: str
+    ) -> None:
+        await asyncio.to_thread(self._remove_from_playlist_sync, track_id, playlist_id)
+
+    async def follow_artist(self, artist_id: str) -> None:
+        await asyncio.to_thread(self._subscribe_sync, artist_id)
 
     # ── Auth (host wiring, not on the abstract base) ──────────────────
 
@@ -132,7 +181,10 @@ class YouTubeMusicProvider(MusicProvider):
             provider = self._token_provider
         return provider()
 
-    def _resolve_sync(self, artist: str, title: str) -> str | None:
+    def _auth(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self._access_token()}"}
+
+    def _resolve_sync(self, artist: str, title: str) -> _Match | None:
         key = (artist.casefold(), title.casefold())
         if key in self._resolved:
             return self._resolved[key]
@@ -145,15 +197,15 @@ class YouTubeMusicProvider(MusicProvider):
                 "type": "video",
                 "videoCategoryId": MUSIC_CATEGORY_ID,
                 "maxResults": 5,
-                "fields": "items(id/videoId,snippet/channelTitle)",
+                "fields": "items(id/videoId,snippet/channelId,snippet/channelTitle)",
             },
             timeout=5,
         )
         _raise_for_status(r)
-        video_id = _pick_video(r.json().get("items", []), artist)
-        if video_id:
-            self._resolved[key] = video_id
-        return video_id
+        match = _pick_video(r.json().get("items", []), artist)
+        if match:
+            self._resolved[key] = match
+        return match
 
     def _like_sync(self, video_id: str) -> None:
         r = requests.post(
@@ -175,6 +227,127 @@ class YouTubeMusicProvider(MusicProvider):
         items = r.json().get("items", [])
         return bool(items) and items[0].get("rating") == "like"
 
+    def _find_playlist_by_name_sync(self, name: str) -> str | None:
+        needle = name.strip().casefold()
+        page_token: str | None = None
+        while True:
+            params = {
+                "part": "snippet",
+                "mine": "true",
+                "maxResults": PAGE_SIZE,
+                "fields": "items(id,snippet/title),nextPageToken",
+            }
+            if page_token:
+                params["pageToken"] = page_token
+            r = requests.get(
+                f"{API_BASE}/playlists", headers=self._auth(), params=params, timeout=5
+            )
+            _raise_for_status(r)
+            data = r.json()
+            for p in data.get("items", []):
+                title = (p.get("snippet") or {}).get("title") or ""
+                if title.strip().casefold() == needle:
+                    return p.get("id")
+            page_token = data.get("nextPageToken")
+            if not page_token:
+                return None
+
+    def _find_or_create_playlist_sync(self, name: str) -> str:
+        existing = self._find_playlist_by_name_sync(name)
+        if existing:
+            return existing
+        r = requests.post(
+            f"{API_BASE}/playlists",
+            headers=self._auth(),
+            params={"part": "snippet,status"},
+            json={
+                "snippet": {"title": name.strip(), "description": PLAYLIST_DESCRIPTION},
+                "status": {"privacyStatus": "private"},
+            },
+            timeout=5,
+        )
+        _raise_for_status(r)
+        pid = r.json().get("id")
+        if not pid:
+            raise RuntimeError("youtube playlist create returned no id")
+        return pid
+
+    def _playlist_items_sync(self, playlist_id: str) -> list[tuple[str, str]]:
+        """(playlistItem id, videoId) for every entry, all pages."""
+        out: list[tuple[str, str]] = []
+        page_token: str | None = None
+        while True:
+            params = {
+                "part": "contentDetails",
+                "playlistId": playlist_id,
+                "maxResults": PAGE_SIZE,
+                "fields": "items(id,contentDetails/videoId),nextPageToken",
+            }
+            if page_token:
+                params["pageToken"] = page_token
+            r = requests.get(
+                f"{API_BASE}/playlistItems",
+                headers=self._auth(),
+                params=params,
+                timeout=10,
+            )
+            _raise_for_status(r)
+            data = r.json()
+            for it in data.get("items", []):
+                video_id = (it.get("contentDetails") or {}).get("videoId")
+                if it.get("id") and video_id:
+                    out.append((it["id"], video_id))
+            page_token = data.get("nextPageToken")
+            if not page_token:
+                return out
+
+    def _add_to_playlist_sync(self, video_id: str, playlist_id: str) -> None:
+        r = requests.post(
+            f"{API_BASE}/playlistItems",
+            headers=self._auth(),
+            params={"part": "snippet"},
+            json={
+                "snippet": {
+                    "playlistId": playlist_id,
+                    "resourceId": {"kind": "youtube#video", "videoId": video_id},
+                }
+            },
+            timeout=5,
+        )
+        _raise_for_status(r)
+
+    def _remove_from_playlist_sync(self, video_id: str, playlist_id: str) -> None:
+        # YouTube deletes by playlistItem id, not videoId: list, then delete
+        # every entry of this video (1 unit per page + 50 per delete).
+        for item_id, vid in self._playlist_items_sync(playlist_id):
+            if vid != video_id:
+                continue
+            r = requests.delete(
+                f"{API_BASE}/playlistItems",
+                headers=self._auth(),
+                params={"id": item_id},
+                timeout=5,
+            )
+            if r.status_code == 404:
+                continue  # already gone (removed elsewhere meanwhile)
+            _raise_for_status(r)
+
+    def _subscribe_sync(self, channel_id: str) -> None:
+        r = requests.post(
+            f"{API_BASE}/subscriptions",
+            headers=self._auth(),
+            params={"part": "snippet"},
+            json={
+                "snippet": {
+                    "resourceId": {"kind": "youtube#channel", "channelId": channel_id}
+                }
+            },
+            timeout=5,
+        )
+        if r.status_code == 400 and _error_reason(r) == "subscriptionDuplicate":
+            return  # already subscribed: follow is idempotent
+        _raise_for_status(r)
+
 
 # ── Module-level helpers ──────────────────────────────────────────────
 
@@ -188,26 +361,29 @@ def _clean_artist(artist: str) -> str:
     return artist
 
 
-def _pick_video(items: list[dict], artist: str) -> str | None:
+def _pick_video(items: list[dict], artist: str) -> _Match | None:
     """Prefer the "Artist - Topic" Art Track (the audio-only upload YT Music
     itself plays), then any upload from the artist's own channel, then the
-    top hit."""
+    top hit. Only the first two carry the uploader as the artist channel."""
     want = artist.casefold()
-    candidates = [
-        (it.get("id", {}).get("videoId"), it.get("snippet", {}).get("channelTitle", ""))
-        for it in items
-    ]
-    candidates = [(vid, ch.casefold()) for vid, ch in candidates if vid]
+    candidates: list[tuple[str, str | None, str]] = []
+    for it in items:
+        vid = (it.get("id") or {}).get("videoId")
+        snippet = it.get("snippet") or {}
+        if vid:
+            channel_id = snippet.get("channelId") or None
+            channel_title = (snippet.get("channelTitle") or "").casefold()
+            candidates.append((vid, channel_id, channel_title))
     if not candidates:
         return None
     if want:
-        for vid, ch in candidates:
-            if ch == f"{want}{TOPIC_SUFFIX.casefold()}":
-                return vid
-        for vid, ch in candidates:
-            if ch.startswith(want):
-                return vid
-    return candidates[0][0]
+        for vid, channel_id, channel_title in candidates:
+            if channel_title == f"{want}{TOPIC_SUFFIX.casefold()}":
+                return _Match(vid, channel_id)
+        for vid, channel_id, channel_title in candidates:
+            if channel_title.startswith(want):
+                return _Match(vid, channel_id)
+    return _Match(candidates[0][0], None)
 
 
 def _id_token_sub(id_token: str) -> str | None:
