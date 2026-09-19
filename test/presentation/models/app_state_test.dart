@@ -19,7 +19,7 @@ void main() {
       bool isMiui = false,
       bool batteryOptimized = true,
       bool notificationListenerEnabled = false,
-      bool spotifyInstalled = false,
+      bool musicAppInstalled = false,
       SpotifyAuthState authState = const SpotifyAuthState.disconnected(),
       TriggerConfig? triggerConfig,
       RuleConfig? ruleConfig,
@@ -32,7 +32,7 @@ void main() {
         isMiui: isMiui,
         batteryOptimized: batteryOptimized,
         notificationListenerEnabled: notificationListenerEnabled,
-        spotifyInstalled: spotifyInstalled,
+        musicAppInstalled: musicAppInstalled,
         authState: authState,
         triggerConfig: triggerConfig ?? testConfig,
         ruleConfig: ruleConfig ?? RuleConfig.defaults(),
@@ -50,7 +50,7 @@ void main() {
         expect(state.isMiui, equals(false));
         expect(state.batteryOptimized, equals(true));
         expect(state.notificationListenerEnabled, equals(false));
-        expect(state.spotifyInstalled, equals(false));
+        expect(state.musicAppInstalled, equals(false));
       });
 
       test('initializes with disconnected auth state', () {
@@ -129,11 +129,11 @@ void main() {
         expect(updated.notificationListenerEnabled, equals(true));
       });
 
-      test('updates spotifyInstalled field', () {
+      test('updates musicAppInstalled field', () {
         final state = AppState.initial(testConfig);
-        final updated = state.copyWith(spotifyInstalled: true);
+        final updated = state.copyWith(musicAppInstalled: true);
 
-        expect(updated.spotifyInstalled, equals(true));
+        expect(updated.musicAppInstalled, equals(true));
       });
 
       test('updates ruleConfig field', () {
@@ -157,7 +157,7 @@ void main() {
         expect(updated.batteryOptimized, equals(state.batteryOptimized));
         expect(updated.notificationListenerEnabled,
             equals(state.notificationListenerEnabled));
-        expect(updated.spotifyInstalled, equals(state.spotifyInstalled));
+        expect(updated.musicAppInstalled, equals(state.musicAppInstalled));
       });
 
       test('updating multiple fields preserves rest', () {
@@ -263,7 +263,7 @@ void main() {
           isMiui: true,
           batteryOptimized: false,
           notificationListenerEnabled: true,
-          spotifyInstalled: true,
+          musicAppInstalled: true,
           authState: authState,
           ruleConfig: ruleConfig,
           logs: logs,
@@ -275,7 +275,7 @@ void main() {
         expect(state.isMiui, equals(true));
         expect(state.batteryOptimized, equals(false));
         expect(state.notificationListenerEnabled, equals(true));
-        expect(state.spotifyInstalled, equals(true));
+        expect(state.musicAppInstalled, equals(true));
         expect(state.authState.connected, equals(true));
         expect(state.ruleConfig.archivePlaylistName, equals('Custom Archive'));
         expect(state.ruleConfig.bestOfPlaylistName, equals('Custom Best Of'));
@@ -296,12 +296,12 @@ void main() {
 
         final updated = state.copyWith(
           authState: newAuthState,
-          spotifyInstalled: true,
+          musicAppInstalled: true,
         );
 
         expect(updated.authState.connected, equals(true));
         expect(updated.authState.accessToken, equals('new_token'));
-        expect(updated.spotifyInstalled, equals(true));
+        expect(updated.musicAppInstalled, equals(true));
       });
     });
 

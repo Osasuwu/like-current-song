@@ -125,8 +125,27 @@ class MediaButtonForegroundService : Service() {
                 val intent = Intent(AppConstants.ACTION_TRIGGER_LIKE)
                 LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
             } else {
+                likeInBackground()
+            }
+        }
+    }
+
+    /** Likes without Flutter, via the selected service's WorkManager job. */
+    private fun likeInBackground() {
+        when (val provider = MusicProvider.current(this)) {
+            MusicProvider.SPOTIFY -> {
                 log("Flutter not attached — using WorkManager fallback")
                 SpotifyLikeWorker.enqueue(this)
+            }
+            // No sign-in on Android yet, so nothing is sent anywhere. The
+            // YouTube Data API worker (#95) is enqueued here once it exists.
+            MusicProvider.YTMUSIC -> {
+                log(
+                    "Like skipped: ${provider.displayName} not connected",
+                    actionType = "like_track",
+                    result = "failure",
+                )
+                FeedbackPlayer.play(this, false)
             }
         }
     }

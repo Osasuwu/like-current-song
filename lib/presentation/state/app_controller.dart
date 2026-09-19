@@ -10,9 +10,9 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/app_constants.dart';
-import '../../data/spotify/spotify_client.dart';
-import '../../data/spotify/spotify_music_service_repository.dart';
 import '../../domain/entities/app_log.dart';
+import '../../domain/entities/music_provider.dart';
+import '../../domain/entities/music_service_exceptions.dart';
 import '../../domain/entities/pending_like.dart';
 import '../../domain/entities/rule_config.dart';
 import '../../domain/entities/spotify_auth_state.dart';
@@ -63,6 +63,7 @@ class AppController extends StateNotifier<AppState> {
     state = state.copyWith(loading: true, clearError: true);
     try {
       final config = await _settingsRepository.loadTriggerConfig();
+      final musicProvider = await _settingsRepository.loadMusicProvider();
       final serviceEnabled = await _platformServiceRepository.isServiceEnabled();
       final auth = await _musicServiceRepository.getAuthState();
       final ruleConfig = await _settingsRepository.loadRuleConfig();
@@ -71,9 +72,11 @@ class AppController extends StateNotifier<AppState> {
         final notificationListenerEnabled =
           await _platformServiceRepository.isNotificationListenerEnabled();
       final isMiui = await _platformServiceRepository.isMiuiDevice();
-      final spotifyInstalled = await _platformServiceRepository.isSpotifyInstalled();
+      final musicAppInstalled =
+          await _platformServiceRepository.isMusicAppInstalled(musicProvider);
       final logLines = await _settingsRepository.loadLogs();
 
+      await _platformServiceRepository.updateMusicProvider(musicProvider);
       await _platformServiceRepository.updateTriggerConfig(config);
       await _platformServiceRepository.updateRuleConfig(ruleConfig);
       await _platformServiceRepository.syncSupabaseConfig(
@@ -89,7 +92,8 @@ class AppController extends StateNotifier<AppState> {
         batteryOptimized: !batteryIgnored,
         notificationListenerEnabled: notificationListenerEnabled,
         isMiui: isMiui,
-        spotifyInstalled: spotifyInstalled,
+        musicProvider: musicProvider,
+        musicAppInstalled: musicAppInstalled,
         ruleConfig: ruleConfig,
         logs: logLines,
       );
@@ -168,36 +172,65 @@ class AppController extends StateNotifier<AppState> {
     }
   }
 
-  Future<void> connectSpotify() async {
+  /// Switches the music service that likes go to, both here and in the
+  /// native listener, and refreshes the connection state shown for it.
+  Future<void> selectMusicProvider(MusicProvider provider) async {
+    if (provider == state.musicProvider) return;
     try {
-      if (!state.spotifyInstalled) {
-        await addLog(
-          actionType: 'spotify_connect',
-          result: LogResult.failure,
-          message: 'Spotify app is not installed.',
-        );
-      }
-      await _musicServiceRepository.connectSpotify();
+      await _settingsRepository.saveMusicProvider(provider);
+      await _platformServiceRepository.updateMusicProvider(provider);
+      final auth = await _musicServiceRepository.getAuthState();
+      final installed =
+          await _platformServiceRepository.isMusicAppInstalled(provider);
+      state = state.copyWith(
+        musicProvider: provider,
+        authState: auth,
+        musicAppInstalled: installed,
+        clearError: true,
+        clearLikeResult: true,
+      );
       await addLog(
-        actionType: 'spotify_connect',
-        result: LogResult.info,
-        message: 'Waiting for Spotify OAuth callback...',
+        actionType: 'music_provider',
+        result: LogResult.success,
+        message: 'Music service set to ${provider.displayName}'
+            '${auth.connected ? '' : ' (not connected)'}',
       );
     } catch (error) {
       state = state.copyWith(lastError: error.toString());
     }
   }
 
-  Future<void> disconnectSpotify() async {
-    await _musicServiceRepository.disconnectSpotify();
+  Future<void> connectMusicService() async {
+    final name = state.musicProvider.displayName;
+    try {
+      if (!state.musicAppInstalled) {
+        await addLog(
+          actionType: 'service_connect',
+          result: LogResult.failure,
+          message: '$name app is not installed.',
+        );
+      }
+      await _musicServiceRepository.connect();
+      await addLog(
+        actionType: 'service_connect',
+        result: LogResult.info,
+        message: 'Waiting for $name sign-in...',
+      );
+    } catch (error) {
+      state = state.copyWith(lastError: error.toString());
+    }
+  }
+
+  Future<void> disconnectMusicService() async {
+    await _musicServiceRepository.disconnect();
     state = state.copyWith(
       authState: const SpotifyAuthState.disconnected(),
       clearError: true,
     );
     await addLog(
-      actionType: 'spotify_disconnect',
+      actionType: 'service_disconnect',
       result: LogResult.success,
-      message: 'Spotify disconnected',
+      message: '${state.musicProvider.displayName} disconnected',
     );
   }
 
@@ -316,12 +349,15 @@ class AppController extends StateNotifier<AppState> {
           message: 'Auto-followed: ${result.followedArtistNames.join(", ")}',
         );
       }
+    } on MusicServiceNotConnectedException catch (error) {
+      state = state.copyWith(lastError: error.toString(), liking: false);
+      await _logNotConnected(error);
     } catch (error) {
       state = state.copyWith(lastError: error.toString(), liking: false);
       await addLog(
         actionType: 'like_track',
         result: LogResult.failure,
-        httpCode: error is SpotifyApiException ? error.statusCode : null,
+        httpCode: error is MusicServiceHttpException ? error.statusCode : null,
         message: 'Like command failed: $error',
       );
       // Try to queue for offline retry — we need the track info.
@@ -330,13 +366,20 @@ class AppController extends StateNotifier<AppState> {
     }
   }
 
+  /// Nothing was sent: the selected service has no sign-in. Not queued for
+  /// retry, since coming back online won't fix it.
+  Future<void> _logNotConnected(MusicServiceNotConnectedException error) {
+    return addLog(
+      actionType: 'like_track',
+      result: LogResult.failure,
+      message: 'Like skipped: $error. Connect it under Connected services.',
+    );
+  }
+
   Future<void> _tryQueueCurrentTrack() async {
     try {
       // Attempt to get current track info for queuing — may also fail if fully offline
-      final repository = _musicServiceRepository;
-      if (repository is! SpotifyMusicServiceRepository) return;
-
-      final auth = await repository.getAuthState();
+      final auth = await _musicServiceRepository.getAuthState();
       if (!auth.connected || auth.accessToken == null) return;
 
       // If we can't even get track info, nothing to queue
@@ -417,7 +460,8 @@ class AppController extends StateNotifier<AppState> {
           'isMiui': state.isMiui,
           'batteryOptimized': state.batteryOptimized,
           'notificationListenerEnabled': state.notificationListenerEnabled,
-          'spotifyInstalled': state.spotifyInstalled,
+          'musicProvider': state.musicProvider.id,
+          'musicAppInstalled': state.musicAppInstalled,
         },
         // Only non-secret auth fields — never export accessToken/refreshToken.
         'auth': <String, dynamic>{
@@ -474,18 +518,15 @@ class AppController extends StateNotifier<AppState> {
 
   Future<void> _onIncomingLink(Uri uri) async {
     try {
-      final repository = _musicServiceRepository;
-      if (repository is SpotifyMusicServiceRepository) {
-        final handled = await repository.tryHandleIncomingUri(uri);
-        if (handled) {
-          final auth = await repository.getAuthState();
-          state = state.copyWith(authState: auth, clearError: true);
-          await addLog(
-            actionType: 'oauth_callback',
-            result: LogResult.success,
-            message: 'Spotify connected successfully',
-          );
-        }
+      final handled = await _musicServiceRepository.handleAuthCallback(uri);
+      if (handled) {
+        final auth = await _musicServiceRepository.getAuthState();
+        state = state.copyWith(authState: auth, clearError: true);
+        await addLog(
+          actionType: 'oauth_callback',
+          result: LogResult.success,
+          message: '${state.musicProvider.displayName} connected successfully',
+        );
       }
     } catch (error) {
       state = state.copyWith(lastError: 'OAuth callback failed: $error');
@@ -574,13 +615,17 @@ class AppController extends StateNotifier<AppState> {
           message: 'Auto-followed: ${result.followedArtistNames.join(", ")}',
         );
       }
+    } on MusicServiceNotConnectedException catch (error) {
+      state = state.copyWith(lastError: error.toString(), liking: false);
+      await _platformServiceRepository.playFeedbackTone(success: false);
+      await _logNotConnected(error);
     } catch (error) {
       state = state.copyWith(lastError: error.toString(), liking: false);
       await _platformServiceRepository.playFeedbackTone(success: false);
       await addLog(
         actionType: 'like_track',
         result: LogResult.failure,
-        httpCode: error is SpotifyApiException ? error.statusCode : null,
+        httpCode: error is MusicServiceHttpException ? error.statusCode : null,
         message: 'Like from trigger failed: $error',
       );
       await _tryQueueCurrentTrack();

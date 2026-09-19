@@ -28,6 +28,13 @@ Spotify/Supabase credentials (see [README](README.md)).
   YT Music too. Each write costs about 50 units of the daily YouTube API quota.
   The `youtube` scope already granted covers the writes, so no re-login is
   needed.
+- **Android: Music service picker.** Connected services now lets you choose
+  Spotify (the default) or YouTube Music; the ids match desktop's
+  `music.provider`. The choice also decides which app's playback the listener
+  follows and which app "installed" checks and launches. YouTube Music shows as
+  not connected for now: sign-in lands in a later release, and until then a
+  trigger is logged as "Like skipped: YouTube Music not connected" and nothing
+  is sent to Spotify.
 
 ### Changed
 
