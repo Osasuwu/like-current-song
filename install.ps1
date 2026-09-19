@@ -4,9 +4,10 @@
 
 .DESCRIPTION
     Checks for Python 3.11+, installs pipx if missing, installs the
-    like-spotify package from this repo, runs the interactive setup
+    like-current-song package from this repo, runs the interactive setup
     wizard. Re-runnable; existing tokens are kept unless -Reauth is
-    passed.
+    passed. An existing pipx install under the old package name
+    (like-spotify) is uninstalled first; config and tokens are kept.
 
 .EXAMPLE
     iwr https://raw.githubusercontent.com/Osasuwu/like-current-song/main/install.ps1 -OutFile install.ps1
@@ -86,34 +87,57 @@ if (-not $hasPipx) {
     Write-Ok "pipx already present"
 }
 
-# ── like-spotify ───────────────────────────────────────────────────────
+# ── like-current-song ──────────────────────────────────────────────────
 
-Write-Step "Installing like-spotify from '$Source'"
+# Before #101 the package was called `like-spotify`. Both packages ship the
+# `like-spotify` / `like-spotify-gui` commands (the new one keeps them as
+# deprecated aliases), so pipx can't hold both. Remove the old pipx package
+# first. Config and tokens in ~/.like_spotify/ are not touched.
+$hadOld = $false
+try {
+    $pipxList = & pipx list --short 2>$null
+    if ($LASTEXITCODE -eq 0 -and ($pipxList | Where-Object { $_ -match '^like-spotify\s' })) {
+        $hadOld = $true
+    }
+} catch {}
+if ($hadOld) {
+    Write-Step "Removing the old 'like-spotify' pipx package (now called like-current-song)"
+    & pipx uninstall like-spotify
+    if ($LASTEXITCODE -ne 0) { throw "pipx uninstall of like-spotify failed" }
+    Write-Ok "old package removed; config in ~/.like_spotify/ is kept"
+}
+
+Write-Step "Installing like-current-song from '$Source'"
 # The ytmusic extra only pulls small winrt wheels for the Windows media
 # session, so install it up front: switching service in --setup then just works.
 & pipx install --force "${Source}[ytmusic]"
-if ($LASTEXITCODE -ne 0) { throw "pipx install of like-spotify failed" }
-Write-Ok "like-spotify on PATH"
+if ($LASTEXITCODE -ne 0) { throw "pipx install of like-current-song failed" }
+Write-Ok "like-current-song on PATH"
 
 # ── setup ──────────────────────────────────────────────────────────────
 
 if ($SkipSetup) {
     Write-Step "Skipping --setup (per -SkipSetup)"
-    Write-Host "Next: run 'like-spotify --setup' manually."
+    Write-Host "Next: run 'like-current-song --setup' manually."
+    if ($hadOld) {
+        # The old autostart entry pointed into the removed package. Starting
+        # the tray once (or --setup's autostart step) rewrites it.
+        Write-Warn2 "If autostart was on, launch 'like-current-song-gui' once to point it at the new install."
+    }
     exit 0
 }
 
 Write-Step "Launching interactive setup"
 $setupArgs = @("--setup")
 if ($Reauth) { $setupArgs += "--reauth" }
-& like-spotify @setupArgs
+& like-current-song @setupArgs
 $setupExit = $LASTEXITCODE
 if ($setupExit -ne 0) {
-    Write-Warn2 "setup exited with code $setupExit. Re-run 'like-spotify --setup' once you have the credentials."
+    Write-Warn2 "setup exited with code $setupExit. Re-run 'like-current-song --setup' once you have the credentials."
     exit $setupExit
 }
 
 Write-Host ""
-Write-Step "Done. Launch the tray host with: like-spotify-gui"
-Write-Host "      (like-spotify also works but shows a console; -gui is the windowed twin)"
+Write-Step "Done. Launch the tray host with: like-current-song-gui"
+Write-Host "      (like-current-song also works but shows a console; -gui is the windowed twin)"
 Write-Host "      Default hotkey: Ctrl+Shift+Alt+W"

@@ -6,7 +6,7 @@ Firefox and with the YT Music desktop app.
 
 - **Status:** beta. Desktop only, **Windows only** for now.
 - **Selected by:** `music.provider = "ytmusic"` in `~/.like_spotify/config.json`,
-  or the "Music service" prompt in `like-spotify --setup`.
+  or the "Music service" prompt in `like-current-song --setup`.
 
 ## How it works
 
@@ -41,7 +41,7 @@ Google Cloud project.
      which you can click through.
 4. Go to **APIs & Services → Credentials → Create credentials → OAuth client
    ID**, and pick application type **Desktop app**.
-5. Run `like-spotify --setup` and choose `ytmusic`. Paste the client ID and
+5. Run `like-current-song --setup` and choose `ytmusic`. Paste the client ID and
    secret when asked. A browser opens for the Google login, and the tokens are
    saved to `~/.like_spotify/youtube_token.json`.
 
@@ -74,7 +74,7 @@ clean-up" step in `--setup`, or `actions.*` in `config.json`).
 If you installed with pip instead of the Windows installer, add the extra:
 
 ```bash
-pip install "like-spotify[ytmusic]"
+pip install "like-current-song[ytmusic]"
 ```
 
 ## Limits and caveats

@@ -4,7 +4,7 @@
 ::
 :: Run from repo root: tools\build.bat   (or from tools\ directly).
 ::
-:: Requires: Python 3.11+ and the `like-spotify` package installed with
+:: Requires: Python 3.11+ and the `like-current-song` package installed with
 :: dev extras (PyInstaller). One-liner from a clean clone:
 ::
 ::     pip install -e .[dev]

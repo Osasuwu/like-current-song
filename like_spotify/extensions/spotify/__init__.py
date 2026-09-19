@@ -175,7 +175,7 @@ class SpotifyMusicProvider(MusicProvider):
     def _access_token(self) -> str:
         with self._lock:
             if not self._tokens.get("refresh_token") and not self._tokens.get("access_token"):
-                raise AuthError("not authenticated; run `like-spotify --setup` first")
+                raise AuthError("not authenticated; run `like-current-song --setup` first")
             if time.time() > self._tokens.get("expires_at", 0) - 60:
                 self._refresh_locked()
             return self._tokens["access_token"]

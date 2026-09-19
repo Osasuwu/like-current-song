@@ -4,7 +4,7 @@ Every Chromium/Firefox tab using the Media Session API, and the YT Music
 desktop app, publishes a session here. We take the first session that is
 actually playing, preferring the one Windows considers current.
 
-Needs the optional `ytmusic` extra (`pip install like-spotify[ytmusic]`).
+Needs the optional `ytmusic` extra (`pip install like-current-song[ytmusic]`).
 Imported lazily so the rest of the package stays importable without it
 and on non-Windows platforms.
 """
@@ -32,7 +32,7 @@ async def read_now_playing() -> NowPlaying | None:
         )
     except ImportError as e:
         raise TransientError(
-            "YouTube Music support needs the extra: pip install like-spotify[ytmusic]"
+            "YouTube Music support needs the extra: pip install like-current-song[ytmusic]"
         ) from e
 
     manager = await SessionManager.request_async()

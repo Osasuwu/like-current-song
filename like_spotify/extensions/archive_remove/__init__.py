@@ -76,7 +76,7 @@ class ArchiveRemoveAction(PostLikeAction):
             # this in the log.
             logger.warning(
                 "archive playlist lookup unauthorized (%s) — re-run "
-                "`like-spotify --setup` to grant playlist scopes",
+                "`like-current-song --setup` to grant playlist scopes",
                 e,
             )
             return

@@ -31,7 +31,7 @@ needed. Standard Claude Code practices apply.
 - **Storage**: SharedPreferences + FlutterSecureStorage (tokens)
 
 ### Desktop
-- **Language**: Python 3.11+, packaged via `pyproject.toml` (`like-spotify`)
+- **Language**: Python 3.11+, packaged via `pyproject.toml` (`like-current-song`)
 - **Architecture**: ABCs in `core/`, implementations in `extensions/`, OS-bound
   side effects confined to `hosts/<platform>/`
 - **Counters**: Supabase (Postgres RPC) or Google Sheets, selected by
@@ -92,7 +92,7 @@ flutter build apk --release --dart-define-from-file=.env            # Build APK 
 
 pip install -e .[dev]     # Desktop: install with dev extras
 pytest                    # Desktop: run Python tests
-like-spotify --setup      # Desktop: interactive config wizard
+like-current-song --setup # Desktop: interactive config wizard
 ```
 
 ## Key files

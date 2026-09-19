@@ -4,7 +4,7 @@ Where `TrayHotkeyTrigger` is resident (registers a global hotkey and
 sticks around emitting on each press), this one fires exactly once on
 `start()` and is done. The user signal is the invocation itself:
 
-    $ like-spotify like-once
+    $ like-current-song like-once
 
 Validates that the `Trigger` interface accommodates per-invocation
 lifetime alongside the resident tray case. Slice: #27.

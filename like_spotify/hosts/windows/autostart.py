@@ -98,7 +98,7 @@ def _write_autostart_vbs() -> Path:
     `_venv_bypass`, whose `site_packages` (when set) is written here as a
     `PYTHONPATH` env var on the same `WScript.Shell` object, so it's
     inherited by the process `Run` spawns. Only the autostart path goes
-    through this; running `like-spotify` from a terminal is unaffected (it
+    through this; running `like-current-song` from a terminal is unaffected (it
     never touches the VBScript).
     """
     cmd, extra_pythonpath = _resident_launch_plan()
@@ -122,24 +122,36 @@ def _write_autostart_vbs() -> Path:
     return path
 
 
+# Windowed launcher stubs from `[project.gui-scripts]`. The legacy name is a
+# compatibility alias kept since the #101 rename; older Run entries point at
+# it until `migrate_legacy_entry` rewrites them.
+_GUI_SCRIPT_NAME = "like-current-song-gui.exe"
+_LEGACY_GUI_SCRIPT_NAME = "like-spotify-gui.exe"
+
+
 def _gui_script_path() -> Path | None:
-    """The `like-spotify-gui` launcher stub beside `sys.executable`, if any.
+    """The `like-current-song-gui` launcher stub beside `sys.executable`, if any.
 
     Installed by pip/pipx from the `[project.gui-scripts]` entry point — a
     genuinely windowed-subsystem binary, not a console interpreter with its
     window hidden after the fact. Using it sidesteps the pythonw/venv-stub
     SW_HIDE-forwarding bug entirely (`_venv_bypass` below is now only a
-    fallback for installs predating this entry point).
+    fallback for installs predating this entry point). Falls back to the
+    legacy `like-spotify-gui` alias for an install that only has that one.
     """
-    candidate = Path(sys.executable).with_name("like-spotify-gui.exe")
-    return candidate if candidate.exists() else None
+    scripts = Path(sys.executable).parent
+    for name in (_GUI_SCRIPT_NAME, _LEGACY_GUI_SCRIPT_NAME):
+        candidate = scripts / name
+        if candidate.exists():
+            return candidate
+    return None
 
 
 def _autostart_target() -> str:
     """Registry Run value: launch the tray fully hidden at login.
 
     A frozen windowed exe has no console, so it's launched directly.
-    Otherwise prefer the `like-spotify-gui` shim (see `_gui_script_path`) —
+    Otherwise prefer the `like-current-song-gui` shim (see `_gui_script_path`) —
     it needs no VBScript wrapper since it never has a console to hide. Only
     an install without that shim falls back to `wscript.exe` + the
     hidden-launch VBScript.
@@ -175,3 +187,58 @@ def _autostart_set(enabled: bool) -> None:
                 winreg.DeleteValue(k, _AUTOSTART_NAME)
             except FileNotFoundError:
                 pass
+
+
+def _autostart_value() -> str | None:
+    """The current Run value, or None when autostart is off."""
+    import winreg
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _AUTOSTART_KEY, 0, winreg.KEY_READ) as k:
+            value, _type = winreg.QueryValueEx(k, _AUTOSTART_NAME)
+    except FileNotFoundError:
+        return None
+    return str(value)
+
+
+def _legacy_entry_is_stale(value: str) -> bool:
+    """True when `value` launches the legacy `like-spotify-gui` shim and this
+    install should take it over.
+
+    That holds when the shim it names no longer exists (e.g. the old pipx
+    `like-spotify` package was uninstalled), or when it sits in this
+    interpreter's own Scripts dir (same install, just the pre-rename name).
+    A legacy entry that points at a *different*, still-working install is
+    left alone, so running a dev checkout doesn't hijack the user's
+    autostart.
+    """
+    exe = value.strip().strip('"')
+    if Path(exe).name.lower() != _LEGACY_GUI_SCRIPT_NAME:
+        return False
+    legacy = Path(exe)
+    if not legacy.exists():
+        return True
+    try:
+        return legacy.parent.resolve() == Path(sys.executable).parent.resolve()
+    except OSError:
+        return False
+
+
+def migrate_legacy_entry() -> bool:
+    """Point a pre-#101 autostart entry at the renamed launcher.
+
+    Called once per resident start. Rewrites the Run value only when it
+    names the legacy `like-spotify-gui` shim and `_legacy_entry_is_stale`
+    says this install owns it; any other entry (or none) is untouched.
+    Returns True when the entry was rewritten.
+    """
+    if getattr(sys, "frozen", False):
+        return False
+    value = _autostart_value()
+    if value is None or not _legacy_entry_is_stale(value):
+        return False
+    target = _autostart_target()
+    if target == value:
+        return False
+    _autostart_set(True)
+    return True

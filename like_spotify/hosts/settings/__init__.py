@@ -7,7 +7,7 @@ Layers:
                   this package never pulls in tkinter (headless boxes and
                   Python builds without Tk keep working).
 
-Entry points: `like-spotify --settings`, and the tray's "Settings…" item,
+Entry points: `like-current-song --settings`, and the tray's "Settings…" item,
 which launches that same command as a child process (see
 `hosts/windows/resident.py` for why it's a process, not a thread).
 """
@@ -25,7 +25,7 @@ def run(*, from_tray: bool = False) -> int:
         print(
             "The settings window needs tkinter, which this Python lacks "
             f"({e}).\nInstall it (e.g. `sudo apt install python3-tk`) or use "
-            "`like-spotify --setup` instead.",
+            "`like-current-song --setup` instead.",
             file=sys.stderr,
         )
         return 2

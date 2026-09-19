@@ -3,7 +3,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "like-spotify"
+name = "like-current-song"
 version = "1.0.3"
 description = "Like the currently playing Spotify song with a global hotkey (Windows tray, macOS/Linux CLI) - saves to Liked Songs without switching windows. Pluggable framework."
 readme = "README.md"
@@ -46,13 +46,20 @@ ytmusic = [
 ]
 
 [project.scripts]
-like-spotify = "like_spotify.hosts:main"
+like-current-song = "like_spotify.hosts:main"
+# Deprecated alias (#101): same commands, plus a one-line note on stderr.
+# Keep for at least one release after the rename.
+like-spotify = "like_spotify.hosts:legacy_main"
 
 [project.gui-scripts]
-# Windowed-subsystem twin of `like-spotify`, for launches that must never
-# show a console: the login autostart target and any external hotkey tool
-# invoking `like-once`/`remove-once`. `--setup`/`--config` still need
-# `like-spotify` (console) since they read from stdin.
+# Windowed-subsystem twin of `like-current-song`, for launches that must
+# never show a console: the login autostart target and any external hotkey
+# tool invoking `like-once`/`remove-once`. `--setup`/`--config` still need
+# `like-current-song` (console) since they read from stdin.
+like-current-song-gui = "like_spotify.hosts:main"
+# Deprecated alias (#101). Silent on purpose: a windowed exe has no console
+# to print the note to. Autostart entries written by older versions point
+# here until the tray migrates them (see `autostart.migrate_legacy_entry`).
 like-spotify-gui = "like_spotify.hosts:main"
 
 [project.urls]
