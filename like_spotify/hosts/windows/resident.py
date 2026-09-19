@@ -502,7 +502,7 @@ def _run_resident_host() -> int:
     feedback.set_volume(wiring.volume)
     try:
         if migrate_legacy_entry():
-            _log("autostart: migrated legacy like-current-song-gui entry")
+            _log("autostart: migrated legacy like-spotify-gui entry to like-current-song-gui")
     except Exception:
         import traceback
 
