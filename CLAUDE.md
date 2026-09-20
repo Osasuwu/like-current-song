@@ -9,9 +9,12 @@ Two halves that share Spotify state and a cross-device like counter:
   manage playlists, follow artists.
 - **Desktop** (Python, `like_spotify/`) — a *pluggable framework* with five
   extension points (`Trigger`, `MusicProvider`, `Storage`, `PreLikeAction`,
-  `PostLikeAction`) discovered at startup via a `manifest.json` filesystem
-  convention. Default flavor: Windows tray host + global hotkey; `_stub.py` CLI
-  fallback on macOS/Linux.
+  `PostLikeAction`). Each extension is a folder under `extensions/` with a
+  `manifest.json`, wired in by a builder function + a registry entry in
+  `hosts/_common.py`. The manifest is metadata only — nothing reads it at
+  runtime, and automatic discovery is #144; don't describe it as shipped.
+  Default flavor: Windows tray host + global hotkey; `_stub.py` CLI fallback
+  on macOS/Linux.
 
 Repo: `Osasuwu/like-current-song` — **public**. Public repo = production
 quality: no local hacks, no "works for me".
@@ -34,8 +37,10 @@ needed. Standard Claude Code practices apply.
 - **Language**: Python 3.11+, packaged via `pyproject.toml` (`like-current-song`)
 - **Architecture**: ABCs in `core/`, implementations in `extensions/`, OS-bound
   side effects confined to `hosts/<platform>/`
-- **Counters**: Supabase (Postgres RPC) or Google Sheets, selected by
-  `storage.backend` in `~/.like_spotify/config.json`
+- **Counters**: a Google Sheet the user owns, switched on by
+  `storage.backend` (`sheets` / `none`) in `~/.like_spotify/config.json`.
+  Supabase was removed after v1.1.0; a config still naming it resolves to no
+  counter with a one-line notice (`_RETIRED_BACKENDS` in `hosts/_common.py`).
 - **Config/tokens**: `~/.like_spotify/` (`config.json`, `spotify_token.json`,
   `google_token.json`)
 
@@ -59,11 +64,13 @@ lib/
 
 like_spotify/
 ├── core/                 # Pure interfaces — no I/O, no platform code
-├── extensions/           # Pluggable impls (spotify, tray_hotkey_trigger,
-│                         #   supabase_storage, google_sheets_storage,
+├── extensions/           # Pluggable impls (spotify, ytmusic,
+│                         #   tray_hotkey_trigger, one_shot_cli_trigger,
+│                         #   volume_button_trigger, google_sheets_storage,
 │                         #   archive_remove, promote_to_best,
 │                         #   follow_artist, like_cooldown)
 ├── hosts/
+│   ├── settings/         # Settings window (model.py + window.py)
 │   ├── windows/          # Resident tray + global hotkey + autostart
 │   ├── _stub.py          # macOS / Linux CLI fallback (like-once only)
 │   ├── _common.py        # Config I/O + storage/action builder registries

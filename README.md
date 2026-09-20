@@ -8,16 +8,17 @@
 
 Heard a song you love while your phone is in your pocket with the screen off? **Pause and resume it with your headphone button** (e.g. pause → play), and the track is saved to your Spotify **Liked Songs**. You don't unlock the phone, look at the screen, or open the Spotify app.
 
-At your computer, a **global keyboard shortcut** does the same thing: press `Ctrl+Shift+Alt+W` while Spotify plays in the background, and the current song is liked without switching away from the app you're working in.
+At your computer, a **global keyboard shortcut** does the same thing: press `Ctrl+Shift+Alt+W` while your music plays in the background, and the current song is liked without switching away from the app you're working in.
 
-- **Android**: works with the screen off and the phone locked. It reacts to Spotify's pause/play state, so anything that pauses and resumes playback can trigger it: wired or Bluetooth headphones, earbud taps, a smartwatch, or a car stereo. The pattern is configurable, and a short sound confirms the like.
-- **Windows**: a tray app with a global hotkey to like the current track, plus a second hotkey to remove it from a playlist.
+- **Android**: works with the screen off and the phone locked. It reacts to the pause/play state of whatever is playing, so anything that pauses and resumes playback can trigger it: wired or Bluetooth headphones, earbud taps, a smartwatch, or a car stereo. The pattern is configurable, and a short sound confirms the like.
+- **Windows**: a tray app with a global hotkey to like the current track, plus a second hotkey to remove it from a playlist. Spotify, or YouTube Music in beta.
 - **macOS / Linux**: a `like-current-song like-once` command you can bind to any shortcut.
-- **Beyond "like"** (optional rules): remove the track from a Discover Weekly archive playlist, promote it to a "best" playlist after you like it N times across devices, and auto-follow an artist after N liked tracks. Counters are stored in Supabase or Google Sheets, so your phone and computer see the same numbers.
+- **Two music services**: Spotify, and YouTube Music (beta on Windows, and on Android with no Google sign-in needed). On Android you can also let it pick whichever one is actually playing.
+- **Beyond "like"** (optional rules): remove the track from a Discover Weekly archive playlist, promote it to a "best" playlist after you like it N times across devices, and auto-follow an artist after N liked tracks. The counts live in a Google Sheet you own, so your phone and computer see the same numbers.
 
-Open source (MIT). It uses the official Spotify Web API with your own Spotify Developer app. There's no UI scraping, and your tokens stay on your devices.
+Open source (MIT). It talks to your music service through that service's official API, using a developer app you create yourself. There's no UI scraping, and your tokens stay on your devices.
 
-For developers: the desktop side is a **pluggable framework** with five extension points (`Trigger`, `MusicProvider`, `Storage`, `PreLikeAction`, `PostLikeAction`) discovered from `manifest.json` folders. See [CONTRIBUTING.md](CONTRIBUTING.md).
+For developers: the desktop side is a **pluggable framework** with five extension points (`Trigger`, `MusicProvider`, `Storage`, `PreLikeAction`, `PostLikeAction`). Nine extensions ship across those five seams, plus one skeleton, each a folder under `like_spotify/extensions/` with a `manifest.json` describing it. Adding one is a builder function and a registry entry, not a new branch in a dispatcher. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## FAQ
 
@@ -33,6 +34,12 @@ Yes. The Windows tray host binds `Ctrl+Shift+Alt+W` (configurable) to "save curr
 ### Can it add the song to a playlist too, not only Liked Songs?
 Yes, through the rule engine: it can promote a track to a "best" playlist after N likes and remove it from an archive playlist. New actions are small Python plugins.
 
+### Does it work with YouTube Music?
+Yes, on both halves. On Android it is built in and needs **no Google sign-in**: the trigger gives the playing song a thumbs-up through YT Music's own media session. On Windows it is in beta — pick `ytmusic` during `--setup` and connect your own free Google OAuth client. If you use both services, Android can send each like to whichever one is currently playing.
+
+### Do I have to use Spotify?
+No. Spotify and YouTube Music are equal citizens: the desktop side reaches each one through a `MusicProvider` extension, and adding a third is a plugin, not a fork.
+
 ### Does it work on iPhone?
 No. iOS doesn't let third-party apps observe another app's playback in the background. Android and desktop only.
 
@@ -43,13 +50,17 @@ No. iOS doesn't let third-party apps observe another app's playback in the backg
 ## How it works
 
 1. **Trigger** — pause-play your headset (Android) or press a hotkey (desktop)
-2. **Like** — the current track is added to your Spotify Liked Songs
+2. **Like** — the current track is saved: Liked Songs on Spotify, a thumbs-up
+   on YouTube Music
 3. **Archive cleanup** — if the track is in your archive playlist, it gets removed
 4. **Best promotion** — like a track 3 times across devices and it's added to your best playlist
 5. **Artist follow** — like 5+ tracks from an artist and they get auto-followed
 
 Steps 3–5 are optional and off until you set them up. On Android they live
-under **Trigger configuration → Extra actions**.
+under **Trigger configuration → Extra actions**. Steps 4 and 5 count likes, so
+they also need the counter from
+[Cross-device counters](#4-cross-device-counters-optional); step 3 works
+without one.
 
 ## How it compares
 
@@ -57,7 +68,7 @@ Several desktop hotkey tools can like the current Spotify song. We haven't found
 
 | Project | One-press like | Headset trigger (phone) | Hotkey trigger (desktop) | Rule engine (archive/best/follow) | Cross-device counters | Pluggable | Use **theirs** when |
 |---|---|---|---|---|---|---|---|
-| **Like Current Song** (this) | ✓ | ✓ Android | ✓ Windows tray + mac/linux CLI | ✓ | ✓ Supabase / Sheets | ✓ 5 typed seams + manifest discovery | n/a |
+| **Like Current Song** (this) | ✓ | ✓ Android | ✓ Windows tray + mac/linux CLI | ✓ | ✓ a Google Sheet you own | ✓ 5 typed seams, 9 extensions | n/a |
 | [Pano Scrobbler](https://github.com/kawaiiDango/pano-scrobbler) | partial (love via UI) | — (notification scrape) | — | — (scrobble target only) | — | provider seam only (write target) | you want **scrobbling history** to last.fm/listenbrainz/librefm/pleroma. Pano is the right answer for "where did my listens go" — we don't try to replace it. |
 | [BeatBind](https://github.com/justinknguyen/BeatBind) | ✓ (save / remove) | — | ✓ Windows tray (.NET) | — | — | — | you want a polished **Windows-only** global-hotkey app for full playback control (play/pause, skip, volume, seek) as well as saving tracks. |
 | [Spotikey](https://github.com/dannj90/Spotikey) | ✓ | — | ✓ Windows (`Ctrl+Alt+L`) | — | — | — | you want **only** a like hotkey, as a single small executable. |
@@ -69,6 +80,10 @@ Several desktop hotkey tools can like the current Spotify song. We haven't found
 ## Quick start
 
 ### 1. Spotify Developer App
+
+*Only if you use Spotify.* For YouTube Music, skip this step — on Android it
+needs no sign-in at all ([details](#youtube-music-android)), and on Windows it
+uses a Google OAuth client instead ([details](#youtube-music-beta-windows)).
 
 You run this against your own Spotify app, which stays in Spotify's
 **development mode**. Since the February 2026 changes (in force for existing
@@ -142,9 +157,18 @@ the credentials at build time instead:
 
 ```bash
 cp .env.example .env
-# Edit .env — set SPOTIFY_CLIENT_ID (and optionally SUPABASE_URL/KEY)
+# Edit .env — fill in only the keys you use
 flutter build apk --release --dart-define-from-file=.env
 ```
+
+`.env.example` documents all six, and every one of them is optional:
+
+| Key | What it seeds |
+|---|---|
+| `SPOTIFY_CLIENT_ID` | Spotify sign-in |
+| `YTMUSIC_CLIENT_ID`, `YTMUSIC_CLIENT_SECRET` | the optional YouTube Music sign-in |
+| `COUNTER_SPREADSHEET_ID` | which sheet the [shared counter](#4-cross-device-counters-optional) writes to |
+| `COUNTER_GOOGLE_CLIENT_ID`, `COUNTER_GOOGLE_CLIENT_SECRET` | the counter's own Google sign-in |
 
 Those values only ever fill a field the app has never been told about. Anything
 saved in *Connected services* wins from then on, and clearing a field keeps it
@@ -171,9 +195,12 @@ logs which service it went to and why, on the *Logs* screen.
 **Signing in is optional, and the rest of this section is only about that.**
 It buys two things: a YouTube Data API fallback for when the session rating
 doesn't take, and likes that count in the shared counter (the same one the
-desktop app uses, keyed by your Google account, and only when Supabase is
-configured). It also costs a re-sign-in about once a week — see step 3. If
-that trade isn't worth it to you, stop here; the thumbs-up keeps working.
+desktop app uses, keyed by your Google account, and only once the
+[shared like counter](#4-cross-device-counters-optional) is set up). It costs
+setting up a Google Cloud project, and — if you leave that project in
+*Testing* — a re-sign-in about once a week; see step 3, which is also where
+that weekly reconnect is avoided. If the trade isn't worth it to you, stop
+here; the thumbs-up keeps working.
 
 Counting looks a song up through the Data API the first time it is liked.
 Since 1 June 2026 that lookup has its own budget: Google grants a project
@@ -193,23 +220,35 @@ To sign in, you use your own Google OAuth client. Nothing goes in
 2. Go to **APIs & Services → Library**, find **YouTube Data API v3** and
    click **Enable**.
 3. Go to **APIs & Services → OAuth consent screen** and choose **External**.
-   Fill in the app name and your email. Leave the app in **Testing** and add
-   your own Google account under *Test users*.
-   - **Don't click Publish app.** Google requires a home page, a privacy
-     policy link and a terms-of-service link for every external production
-     app, each on a domain you have verified in Search Console: "These links
-     are required for all external production apps. You will not be able to
-     submit your app for verification if it is missing these links"
-     ([source](https://support.google.com/cloud/answer/10311615)). Without
-     them, Publish only gets you *"To publish your app, you must complete
-     your configuration on the Branding page"*.
-   - **The cost of staying in Testing**: Google expires the refresh token
-     after **7 days**, so you have to repeat the sign-in (steps 6–7) roughly
-     once a week. There is no way around it for the `youtube` scope — the
-     7-day limit is waived only for the name/email/profile scopes.
-   - A Google account that is *not* on the *Test users* list gets "Access
-     blocked: … has not completed the Google verification process" instead of
-     a consent screen. Add the account there first.
+   Fill in the app name and your email. You now pick one of two states, and
+   the choice is worth a minute because one of them makes you reconnect every
+   week.
+
+   **Testing** — the quick way to try it. Add your own Google account under
+   *Test users* and carry on. The cost: Google expires the refresh token after
+   **7 days**, so you repeat the sign-in (steps 6–7) roughly once a week.
+   There is no way around that for the `youtube` scope — the 7-day limit is
+   waived only for the name/email/profile scopes. An account that is *not* on
+   the *Test users* list gets "Access blocked: … has not completed the Google
+   verification process" instead of a consent screen, so add it there first.
+
+   **In production** — click **Publish app**, and the 7-day expiry goes away.
+   Publishing is not the same as being verified by Google, and it does not
+   require a review. What it does require is a **Branding** page with a home
+   page, a privacy policy and a terms-of-service link, each on a domain you
+   have verified in Search Console: "These links are required for all external
+   production apps"
+   ([source](https://support.google.com/cloud/answer/10311615)). Without them
+   Publish only answers *"To publish your app, you must complete your
+   configuration on the Branding page"*. This repo ships those pages — they
+   are the GitHub Pages site under [`docs/`](docs/), served from
+   `osasuwu.github.io`, which is a domain you can verify if you fork. What
+   publishing does **not** remove: the "Google hasn't verified this app"
+   interstitial on every sign-in (step 7), because `youtube` is a sensitive
+   scope, and the **100-user** lifetime cap. Both need full verification, which
+   is a demo video and a review.
+
+   The project this repo is developed against runs in production, unverified.
 4. Go to **APIs & Services → Credentials → Create credentials → OAuth client
    ID**, and pick application type **TVs and Limited Input devices**. Other
    types (Android, Desktop app, Web) are rejected by the sign-in the app uses.
@@ -245,8 +284,8 @@ authorise.
 
 The desktop side ships as a pluggable Python package (`like_spotify/`) —
 a tray host + global hotkey on Windows, a CLI fallback (`like-once`) on
-macOS / Linux, and a multi-backend counter Storage (Supabase or Google
-Sheets).
+macOS / Linux, providers for **Spotify** and **YouTube Music** (beta), and
+an optional like counter kept in a Google Sheet you own.
 
 **One-liner installs.** Run from a fresh clone:
 
@@ -266,15 +305,26 @@ cd like-current-song
 
 The installer checks for Python 3.11+, installs `pipx` if missing,
 installs the `like-current-song` package, then walks you through the
-interactive setup wizard:
+interactive setup wizard. It opens by asking which **music service** you
+want — `spotify` or `ytmusic` — and that answer decides what step 1 asks
+for. Then four numbered steps:
 
-1. **Spotify** — paste a Client ID from
-   [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard)
-   (redirect URI: `http://127.0.0.1:8793/callback`); a browser opens
-   for PKCE OAuth.
-2. **Storage** — pick `supabase`, `sheets`, or `none` (likes work
-   without a counter; you'd just lose cross-device aggregation).
-3. **Autostart** — Windows: toggle the `HKCU\…\Run` entry. macOS /
+1. **Sign in to the service you picked.**
+   - *Spotify*: paste a Client ID from
+     [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard)
+     (redirect URI: `http://127.0.0.1:8793/callback`); a browser opens
+     for PKCE OAuth.
+   - *YouTube Music*: paste your own Google OAuth client — see
+     [YouTube Music (beta, Windows)](#youtube-music-beta-windows) below.
+2. **Storage** — `sheets` counts your likes into a Google Sheet you own;
+   `none` skips counting. Likes work either way; without a counter you
+   lose cross-device aggregation and the two rules that read it
+   (promote-to-best, follow-artist). The default is `none`, so nothing is
+   set up behind your back.
+3. **Playlist clean-up** (optional) — the archive playlist that a like
+   should remove the track from, plus the best playlist. Leave blank to
+   skip.
+4. **Autostart** — Windows: toggle the `HKCU\…\Run` entry. macOS /
    Linux: instructions for a Launch Agent / `.desktop` file are
    printed (no auto-config — too platform-fragmented).
 
@@ -333,93 +383,158 @@ archive playlist name in `--setup`; if it collides with the like hotkey
 it's skipped. Audio feedback is audible through the default sound device
 and distinct per action (like / remove / error).
 
-**YouTube Music (beta, Windows).** Choose `ytmusic` at the "Music service"
-prompt in `--setup`. The hotkey then likes the song playing in the YT Music
-browser tab or desktop app, and it lands in YT Music's *Liked music*. You need
-your own free Google OAuth client with the YouTube Data API enabled; the steps
-are in [`extensions/ytmusic/README.md`](like_spotify/extensions/ytmusic/README.md).
-The playlist actions (archive-remove, best, follow-artist) work there too.
-Follow-artist subscribes to the artist's channel, and each playlist write
-costs YouTube API quota (see that README).
+#### YouTube Music (beta, Windows)
+
+Choose `ytmusic` at the "Music service" prompt in `--setup` — it is the first
+thing the wizard asks, before any sign-in. The hotkey then likes the song
+playing in the YT Music browser tab or desktop app, and it lands in YT Music's
+*Liked music*.
+
+You need your own free Google OAuth client with the YouTube Data API enabled;
+the steps are in
+[`extensions/ytmusic/README.md`](like_spotify/extensions/ytmusic/README.md).
+Unlike the Android side, the desktop one has no session to drive, so the
+sign-in is required rather than optional.
+
+The playlist actions (archive-remove, best, follow-artist) work here too.
+Follow-artist subscribes to the artist's channel, and each playlist write costs
+YouTube API quota (see that README).
+
+To switch back, re-run `--setup` and pick `spotify`, or change the music
+service in the settings window. Both services keep their own tokens, so
+switching does not sign you out of the other one.
 
 **Single-file `.exe`** (for users without Python): build via
 `tools\build.bat` → `dist\LikeSpotify.exe`.
 
 ### 4. Cross-device counters (optional)
 
-Pick a backend during `--setup`:
+Everything above works without this. Turning it on buys you two things: the
+same like counts on your phone and your computer, and the two rules that read
+them — **promote-to-best** (add a track to a "best" playlist once you have
+liked it N times) and **follow-artist** (follow an artist after N liked
+tracks). Without a counter those two stay inactive and every other feature is
+unaffected.
 
-#### Option A — Supabase (default; one SQL block)
+The counter is a **Google Sheet you own**. There is no service to sign up for,
+no database to run, and no backend operated by this project — the numbers are
+rows in a spreadsheet you can open, edit, chart or delete yourself.
 
-Counters live in Supabase Postgres (free tier).
+1. Create a Google Sheet. On a tab named `Likes`, put this header row:
 
-1. Create a Supabase project
-2. Run the setup SQL:
-   ```sql
-   CREATE TABLE public.track_likes (
-       user_id TEXT NOT NULL,
-       track_id TEXT NOT NULL,
-       count INTEGER NOT NULL DEFAULT 1,
-       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-       PRIMARY KEY (user_id, track_id)
-   );
-
-   CREATE OR REPLACE FUNCTION increment_track_like(p_user_id TEXT, p_track_id TEXT)
-   RETURNS INTEGER LANGUAGE plpgsql SECURITY DEFINER AS $$
-   DECLARE new_count INTEGER;
-   BEGIN
-       INSERT INTO public.track_likes (user_id, track_id, count, updated_at)
-       VALUES (p_user_id, p_track_id, 1, now())
-       ON CONFLICT (user_id, track_id)
-       DO UPDATE SET count = track_likes.count + 1, updated_at = now()
-       RETURNING count INTO new_count;
-       RETURN new_count;
-   END; $$;
-
-   ALTER TABLE public.track_likes ENABLE ROW LEVEL SECURITY;
-   CREATE POLICY "anon_full_access" ON public.track_likes FOR ALL USING (true) WITH CHECK (true);
    ```
-3. Android: open *Connected services* → **Shared like counter (optional)** and
-   paste the project URL and anon key there (or put `SUPABASE_URL` and
-   `SUPABASE_ANON_KEY` in `.env` if you build your own APK). Leave both blank
-   to keep counts on the device. Desktop: paste both into the wizard when
-   prompted for the `supabase` backend.
+   user_id | track_id | count | backfilled | updated_at
+   ```
 
-#### Option B — Google Sheets
+   For the follow-artist rule, add a second tab named `ArtistTracks` with the
+   header row `user_id | artist_id | track_id`.
+2. At [console.cloud.google.com/apis/credentials](https://console.cloud.google.com/apis/credentials),
+   enable the **Google Sheets API** and create an OAuth client. Which kind
+   depends on the half, because the two sign in differently:
 
-If you'd rather see counts in a spreadsheet you control:
+   | Half | Client type | Why |
+   |---|---|---|
+   | Desktop | **Desktop app** | it opens a browser and catches the reply on `127.0.0.1` |
+   | Android | **TVs and Limited Input devices** | it shows a code you type at `google.com/device` |
 
-1. Create a Google Sheet with header row `user_id | track_id | count | backfilled | updated_at` on a tab named `Likes`. Optionally add an `ArtistTracks` tab for the follow-artist rule.
-2. Create a Google Cloud OAuth client (type: **Desktop app**) at [console.cloud.google.com/apis/credentials](https://console.cloud.google.com/apis/credentials). Enable the Google Sheets API for the project. Note the Client ID + secret.
-3. Run `like-current-song --setup`, pick `sheets`, paste the spreadsheet ID (from the URL), Client ID, and secret. A browser opens for Google authorization — tokens are refreshed automatically afterwards.
+   One Cloud project covers both. If you already made a *TVs and Limited Input
+   devices* client for YouTube Music, the phone can reuse that same client for
+   the counter once the Sheets API is on — the two grants are still separate
+   sign-ins with separate scopes.
+3. Run `like-current-song --setup`, pick `sheets` at the storage step, and
+   paste the spreadsheet ID (the long segment in the sheet's URL), the client
+   ID and the secret. A browser opens for the Google consent screen; the token
+   is refreshed automatically afterwards and lives in
+   `~/.like_spotify/google_token.json`.
+4. Point the Android app at the **same sheet** to share counts between
+   devices: *Connected services* → **Shared like counter (optional)**. Paste
+   the spreadsheet ID and the client ID and secret, then sign in. This is the
+   counter's **own** Google sign-in, separate from the music service and
+   asking for one scope, `spreadsheets` — so a Spotify user gets a shared
+   counter without granting any YouTube permission, and disconnecting the
+   counter leaves the music service signed in.
 
-Without a backend, counters are silently skipped — likes still write to your Spotify Liked Songs.
+Both halves address a row by your own account id — your Spotify user id, or
+the Google account id when the like came from YouTube Music — so two people
+using one sheet do not collide.
+
+**Storage is a seam, not a hard-coded choice.** `Storage` is one of the five
+extension points, and `tests/test_storage_contract.py` holds the seven
+invariants any implementation has to satisfy. If a spreadsheet is the wrong
+shape for you, a different backend is a plugin — see
+[CONTRIBUTING.md](CONTRIBUTING.md). Google Sheets is simply the one that
+ships.
+
+> **Upgrading from the Supabase backend?** Both halves had one; both dropped
+> it in the release after v1.1.0. Nothing breaks: likes keep working, they
+> just stop being counted until you point the half at a sheet.
+>
+> On the desktop, a config still saying `backend: "supabase"` says so once at
+> startup — re-run `--setup` (or open the settings window) and pick `sheets`.
+> On the phone, the old Supabase fields are gone from *Connected services*;
+> fill in **Shared like counter** instead. Counts do not carry over, on either
+> half. Your Supabase project is untouched and yours to keep or delete.
 
 ## Architecture
 
+Neither half is written against one music service or one place to keep counts.
+Both go through the same two seams: a **provider** that knows how to like a
+track somewhere, and a **counter** that knows how to add one to a number.
+
 ```
-Android (Flutter + Kotlin)          Desktop (Python framework)
-┌──────────────────────┐           ┌──────────────────────────┐
-│  MediaSession        │           │  Trigger (hotkey/tray)   │
-│  pause-play pattern  │           │       ↓                  │
-│       ↓              │           │  MusicProvider (Spotify) │
-│  SpotifyLikeWorker   │           │  • like track            │
-│  • like track        │           │  Storage  → #22          │
-│  • remove from       │           │  PostLikeAction → #23/26 │
-│    archive           │           │    · archive remove      │
-│  • Supabase counter  │           │    · best promote        │
-│  • best / follow     │           │    · artist follow       │
-└──────┬───────────────┘           └──────┬───────────────────┘
-       │                                  │
-       └──────────┬───────────────────────┘
-                  ↓
-          Spotify Web API (shared state)
-          Supabase (shared counters)
+Android (Flutter + Kotlin)            Desktop (Python framework)
+┌────────────────────────────┐       ┌────────────────────────────┐
+│ Trigger                    │       │ Trigger                    │
+│  · headset / media buttons │       │  · tray + global hotkey    │
+│    (pause-play patterns)   │       │  · one-shot CLI            │
+│            ↓               │       │            ↓               │
+│ Music service              │       │ MusicProvider              │
+│  · Spotify   · YT Music    │       │  · Spotify   · YT Music    │
+│  · Automatic (whichever    │       │            ↓               │
+│    one is playing)         │       │ PreLikeAction              │
+│            ↓               │       │  · like cooldown           │
+│ Extra actions              │       │            ↓               │
+│  · archive remove          │       │ PostLikeAction             │
+│  · promote to best         │       │  · archive remove          │
+│  · follow artist           │       │  · promote to best         │
+└──────┬─────────────────────┘       │  · follow artist           │
+       │                             └──────┬─────────────────────┘
+       │                                    │
+       └──────────────┬─────────────────────┘
+                      ↓
+        Your music service's own API   (what "like" means)
+        Storage  ·  Google Sheets      (shared counts, optional)
 ```
 
-- `lib/` — Flutter app (Dart): UI, state management (Riverpod), Spotify OAuth
-- `android/.../kotlin/` — Native Android: foreground service, MediaSession, background worker
-- `like_spotify/` — Python desktop package: `core/` (ABCs), `hosts/` (tray runtime), `extensions/` (default Spotify provider + tray-hotkey trigger), `samples/` (alt-flavor examples)
+The desktop side names those seams as five ABCs in `like_spotify/core/`:
+`Trigger`, `MusicProvider`, `Storage`, `PreLikeAction` and `PostLikeAction`.
+Nine extensions ship against them, plus one skeleton:
+
+| Seam | Ships today |
+|---|---|
+| `Trigger` | `tray_hotkey_trigger`, `one_shot_cli_trigger` |
+| `MusicProvider` | `spotify`, `ytmusic` (beta) |
+| `Storage` | `google_sheets_storage` |
+| `PreLikeAction` | `like_cooldown` |
+| `PostLikeAction` | `archive_remove`, `promote_to_best`, `follow_artist` |
+
+`volume_button_trigger` is in the tree as well, but it is a skeleton: the
+pattern matching is written, the HID read loop is a TODO, and its manifest
+stage says `experimental`. Finishing it is
+[#74](https://github.com/Osasuwu/like-current-song/issues/74), and it is a
+good way to see the `Trigger` seam end to end.
+
+Each lives in its own folder under `like_spotify/extensions/` with a
+`manifest.json` describing it, and is wired in by one builder function plus one
+registry entry in `like_spotify/hosts/_common.py`. Nothing in `core/` or the
+pipeline knows the names above.
+
+- `lib/` — Flutter app (Dart): UI, state management (Riverpod), OAuth
+- `android/.../kotlin/` — native Android: foreground service, MediaSession,
+  background worker
+- `like_spotify/` — Python desktop package: `core/` (the five ABCs and the
+  pipeline), `hosts/` (tray runtime, setup wizard, settings window),
+  `extensions/` (the ten above), `samples/` (alt-flavor examples)
 
 ## Configuration
 
@@ -432,12 +547,14 @@ settings window (`like-current-song --settings`, or **Settings…** in the tray 
 | Remove-from-archive hotkey | n/a (one trigger on headphones) | `~/.like_spotify/config.json` → `trigger.remove_hotkey` (default `Ctrl+Shift+Alt+Q`) |
 | Archive playlist name | In-app UI | `~/.like_spotify/config.json` → `actions.archive_remove.playlist_name` (blank = archive-remove disabled) |
 | Music service | In-app UI (Spotify / YouTube Music / Automatic) | `~/.like_spotify/config.json` → `music.provider` (`spotify` / `ytmusic`, default `spotify`) |
-| YouTube Music tokens | n/a (planned) | `~/.like_spotify/youtube_token.json` (refreshed automatically) |
+| YouTube Music client ID / secret | In-app UI (*Connected services*), stored in `FlutterSecureStorage`; `.env` (`YTMUSIC_CLIENT_ID`, `YTMUSIC_CLIENT_SECRET`) seeds a build | `like-current-song --setup` → `~/.like_spotify/config.json` |
+| YouTube Music tokens | `FlutterSecureStorage` (refreshed automatically) | `~/.like_spotify/youtube_token.json` (refreshed automatically) |
 | Spotify client_id | In-app UI (*Connected services*), stored in `FlutterSecureStorage`; `.env` (`SPOTIFY_CLIENT_ID`) seeds a build | `like-current-song --setup` → `~/.like_spotify/config.json` |
 | Spotify tokens | `FlutterSecureStorage` | `~/.like_spotify/spotify_token.json` |
-| Supabase URL / anon key | In-app UI (*Connected services*), stored in `FlutterSecureStorage`; `.env` (`SUPABASE_URL`, `SUPABASE_ANON_KEY`) seeds a build | `like-current-song --setup` → `~/.like_spotify/config.json` |
-| Storage backend | (Supabase only; blank = counts stay on the device) | `~/.like_spotify/config.json` → `storage.backend` (`supabase` / `sheets` / `none`) |
-| Google Sheets tokens | n/a | `~/.like_spotify/google_token.json` (refreshed automatically) |
+| Counter spreadsheet ID | In-app UI (*Connected services* → *Shared like counter*), stored in `FlutterSecureStorage`; `.env` (`COUNTER_SPREADSHEET_ID`) seeds a build | `like-current-song --setup` → `~/.like_spotify/config.json` → `sheets.spreadsheet_id` |
+| Counter Google client ID / secret | In-app UI (*Shared like counter*); `.env` (`COUNTER_GOOGLE_CLIENT_ID`, `COUNTER_GOOGLE_CLIENT_SECRET`) seeds a build | `like-current-song --setup`, kept beside the tokens in `~/.like_spotify/google_token.json` |
+| Storage backend | Blank spreadsheet ID = counts stay on the device | `~/.like_spotify/config.json` → `storage.backend` (`sheets` / `none`) |
+| Counter Google tokens | `FlutterSecureStorage` (refreshed automatically) | `~/.like_spotify/google_token.json` (refreshed automatically) |
 | Best / follow | In-app UI | `~/.like_spotify/config.json` → `actions.{promote_to_best,follow_artist}` |
 
 ## Contributing

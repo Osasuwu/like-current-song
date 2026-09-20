@@ -33,8 +33,8 @@ support and no bug bounty.
   Android, `~/.like_spotify/spotify_token.json` on desktop)
 - Leakage or mishandling of Google OAuth tokens (`~/.like_spotify/google_token.json`)
 - Anything that lets a third party act on a user's Spotify account
-- Privilege escalation or arbitrary code execution via the extension-discovery
-  mechanism (`manifest.json` loading in `like_spotify/extensions/`)
+- Privilege escalation or arbitrary code execution through an extension the
+  host loads from `like_spotify/extensions/`
 - Android: the foreground service, the notification listener, and the exported
   broadcast receivers
 

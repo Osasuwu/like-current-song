@@ -27,8 +27,9 @@ like_spotify/
 │   ├── ytmusic/                  # YouTube Music provider (beta, Windows).
 │   ├── tray_hotkey_trigger/      # Global-hotkey trigger (Windows).
 │   ├── one_shot_cli_trigger/     # Per-invocation trigger (every OS).
-│   ├── supabase_storage/         # Default counter backend.
-│   ├── google_sheets_storage/    # Sheets-backed counter (second impl).
+│   ├── volume_button_trigger/    # Volume-key trigger (skeleton, #74).
+│   ├── google_sheets_storage/    # Counter kept in a sheet you own.
+│   ├── like_cooldown/            # PreLikeAction.
 │   ├── archive_remove/           # PostLikeAction.
 │   ├── promote_to_best/          # PostLikeAction.
 │   └── follow_artist/            # PostLikeAction (needs Storage).
@@ -89,9 +90,10 @@ Same shape as macOS:
 
 ### Smaller wins
 
-- **`Storage` impls** — anything tabular works. Already shipped:
-  Supabase + Google Sheets. Wanted: SQLite (zero-config local) for users
-  who don't want a cloud backend.
+- **`Storage` impls** — anything tabular works. One ships today (Google
+  Sheets), which is exactly why this is the most useful seam to fill:
+  SQLite for a purely local counter, or whatever service you already
+  keep data in. The contract suite means you inherit the tests.
 - **`Trigger` impls** — global hotkey is one signal source; an MQTT
   trigger or a "shake your phone" → webhook flow would be a fun second
   resident trigger.
@@ -102,10 +104,10 @@ Same shape as macOS:
 
 The desktop framework has five extension points. Each one is a small
 ABC under `like_spotify/core/`; concrete impls live in
-`like_spotify/extensions/<your_domain>/`. The host discovers extensions
-via a filesystem convention (manifest + module-level factory) —
-modelled on Music Assistant's provider layout, with a typed-base per
-seam instead of a single generic `Plugin` (see
+`like_spotify/extensions/<your_domain>/`. Every extension has the same
+shape — a manifest plus a module-level factory — modelled on Music
+Assistant's provider layout, with a typed-base per seam instead of a
+single generic `Plugin` (see
 [docs/design/interfaces.md](docs/design/interfaces.md) §1 for the
 prior-art comparison and why we chose this shape over Pano's closed
 enum or MA's single-bag plugin).
@@ -123,8 +125,16 @@ like_spotify/extensions/<your_domain>/
 The factory name is fixed per extension point — `TRIGGER`,
 `MUSIC_PROVIDER`, `STORAGE`, `PRE_LIKE_ACTION`, or `POST_LIKE_ACTION`
 — and it's a plain callable that returns one configured instance.
-The host imports the package and calls the factory with whatever
-kwargs the manifest declares.
+
+**There is no automatic discovery yet.** A host picks your extension up
+because someone imported it and registered its factory in
+`like_spotify/hosts/_common.py` — one builder function and one entry in
+the matching registry (`_STORAGE_BUILDERS`, `PROVIDER_BUILDERS`,
+`_ACTION_EXTENSION_BUILDERS`). That is the whole wiring cost, and the
+checklist below walks it. Scanning `extensions/` for manifests and
+loading them without that edit is [#144](https://github.com/Osasuwu/like-current-song/issues/144);
+the manifest shape here is what that work will read, which is why it is
+worth filling in properly now.
 
 Example manifest:
 
@@ -141,9 +151,12 @@ Example manifest:
 }
 ```
 
-`stage` is one of `experimental | stable | deprecated`. `requirements`
-is pip-compatible — the install bootstrap (see `install.ps1` / `install.sh`)
-resolves them at first enable.
+`stage` is one of `experimental | beta | stable | deprecated`, and it
+is documentation, not something enforced at runtime — nothing reads the
+manifest yet (see above). `requirements` is pip-compatible; resolving it
+at first enable is part of [#144](https://github.com/Osasuwu/like-current-song/issues/144),
+so for now declare a dependency there **and** say so in your extension's
+README.
 
 ### 1. `Trigger` — emit a like intent
 
@@ -302,16 +315,23 @@ backfill flag — on first encounter with `True`, seed `count=2` and a
 [#24](https://github.com/Osasuwu/like-current-song/issues/24)
 for why this exists.
 
-**Existing impls** (≥2, so the abstraction is real):
+**Existing impls**: `google_sheets_storage` — REST PUT/APPEND on a sheet
+you own. A Supabase backend shipped alongside it until the release after
+v1.1.0 and was removed: a hosted Postgres project was a lot of setup to
+ask of someone who wanted a like counter, and the Sheets impl covered the
+same job. What it left behind is the useful part — `core/storage.py` is
+written against neither, and the Android half arrives at the same counts
+through a separately-shaped Dart interface of its own
+(`lib/domain/repositories/like_count_repository.dart`) — same sheet, same
+rows, no shared code.
 
-- `supabase_storage` — Postgres RPC (`increment_track_like`).
-- `google_sheets_storage` — REST PUT/APPEND on a sheet.
-
-**Wanted next** (good-first-PR): `sqlite_storage` for users who don't
-want a cloud backend. The shared contract test in
-`tests/test_storage_contract.py` is parametrised over
-`(SupabaseStorage | GoogleSheetsStorage)` already — drop a SQLite
-fixture in there and you get all seven invariants for free.
+**Wanted next** (good-first-PR): `sqlite_storage`, for a counter that
+never leaves the machine. The shared contract test in
+`tests/test_storage_contract.py` is already parametrised over the
+`Storage` implementations rather than hard-coded to one — add a fixture
+and you get all seven invariants for free. A second implementation is
+what keeps that contract honest: until one exists, nothing stops the
+interface from quietly growing a Google-Sheets-shaped assumption.
 
 ### 4. `PreLikeAction` — veto a like before it happens
 
@@ -329,9 +349,15 @@ proceeds. **Independence is the contract** — if you need a hard veto
 that survives a raise, raise from inside `run` and the host will catch
 it; but plan around that as the rare case.
 
-No `PreLikeAction` ships in default flavor yet — first impl is the
-obvious good-first-PR. Examples: "skip likes on tracks shorter than
-30s", "skip on the first 10s of a track (probably a misclick)".
+**Existing impl**: `like_cooldown` — ignores a repeat like on the same
+track within a configurable window (10 minutes by default), local-only,
+no `Storage` round-trip. It is the one this seam ships, so it is also
+the shortest thing to read before writing your own.
+
+**Wanted next** (good-first-PR): a rule keyed on position rather than
+history — "skip likes on tracks shorter than 30s", or "skip in the first
+10s of a track, probably a misclick on the previous one". Either is
+about fifty lines.
 
 ### 5. `PostLikeAction` — react to a successful like
 
