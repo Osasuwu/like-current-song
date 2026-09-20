@@ -52,8 +52,6 @@ class SettingsWindow:
         self.v_volume_label = tk.StringVar()
 
         self.v_backend = tk.StringVar(value=s.storage_backend)
-        self.v_sb_url = tk.StringVar(value=s.supabase_url)
-        self.v_sb_key = tk.StringVar(value=s.supabase_anon_key)
         self.v_sheet_id = tk.StringVar(value=s.sheets_spreadsheet_id)
         self.v_g_id = tk.StringVar(value=g_id)
         self.v_g_secret = tk.StringVar(value=g_secret)
@@ -282,7 +280,7 @@ class SettingsWindow:
 
     def _build_storage(self, parent):
         box = self._section(parent, "Like counter (optional)")
-        ttk.Label(box, text="Storage").grid(row=0, column=0, sticky="w", **_PAD)
+        ttk.Label(box, text="Count likes in").grid(row=0, column=0, sticky="w", **_PAD)
         combo = ttk.Combobox(
             box,
             textvariable=self.v_backend,
@@ -294,15 +292,10 @@ class SettingsWindow:
         combo.bind("<<ComboboxSelected>>", lambda _e: self._on_backend_change())
         self._hint(
             box,
-            "Counts likes across your devices. Likes work without it; best "
-            "and follow-artist need it.",
+            "Google Sheets counts your likes across devices, into a spreadsheet "
+            "you own. Likes work without it; best and follow-artist need it.",
             1,
         )
-
-        self.supabase_frame = ttk.Frame(box)
-        self.supabase_frame.columnconfigure(1, weight=1)
-        self._entry(self.supabase_frame, "Project URL", self.v_sb_url, 0)
-        self._entry(self.supabase_frame, "Anon key", self.v_sb_key, 1, secret=True)
 
         self.sheets_frame = ttk.Frame(box)
         self.sheets_frame.columnconfigure(1, weight=1)
@@ -395,15 +388,18 @@ class SettingsWindow:
         self.connect_button.configure(text="Reconnect…" if connected else "Connect…")
 
     def _on_backend_change(self) -> None:
-        backend = self.v_backend.get()
-        self.supabase_frame.grid_remove()
-        self.sheets_frame.grid_remove()
-        if backend == "supabase":
-            self.supabase_frame.grid(row=2, column=0, columnspan=3, sticky="ew")
-        elif backend == "sheets":
+        """Show the Google Sheets fields iff the counter is switched on.
+
+        Sheets is the counter, not one option among several: the only other
+        choice is "none", so this hides the fields rather than swapping
+        between alternative backend panels.
+        """
+        if self.v_backend.get() == "sheets":
             self.sheets_frame.grid(row=2, column=0, columnspan=3, sticky="ew")
             connected = services.sheets_connected()
             self.v_sheets_status.set("✓ Google connected" if connected else "Google not connected")
+        else:
+            self.sheets_frame.grid_remove()
 
     def _on_volume_change(self) -> None:
         self.v_volume_label.set(f"{int(float(self.v_volume.get()))}%")
@@ -507,8 +503,6 @@ class SettingsWindow:
             provider=self.v_provider.get(),
             spotify_client_id=self.v_spotify_id.get().strip(),
             storage_backend=self.v_backend.get(),
-            supabase_url=self.v_sb_url.get().strip(),
-            supabase_anon_key=self.v_sb_key.get().strip(),
             sheets_spreadsheet_id=self.v_sheet_id.get().strip(),
             hotkey=self.v_hotkey.get().strip(),
             remove_hotkey=self.v_remove_hotkey.get().strip(),

@@ -6,11 +6,11 @@ from .types import CurrentTrack
 class Storage(ABC):
     """Persistence for per-track like counters.
 
-    Default impl is `SupabaseStorage` (cross-device counter); a future
-    `GoogleSheetsStorage` (#25) validates the abstraction with a second
-    backend. Failure is non-fatal — the like must succeed even if the
-    storage is misconfigured or unreachable; the host treats `None` as
-    'counter silently unavailable'.
+    The shipped impl is `GoogleSheetsStorage` (a cross-device counter in a
+    spreadsheet the user owns); `tests/test_storage_contract.py` holds the
+    invariants any further impl has to satisfy. Failure is non-fatal — the
+    like must succeed even if the storage is misconfigured or unreachable;
+    the host treats `None` as 'counter silently unavailable'.
 
     Track identity is delegated to the impl: most will key on
     `track.provider_track_id`, but a sheet-style impl may want
