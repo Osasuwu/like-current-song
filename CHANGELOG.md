@@ -155,6 +155,15 @@ Spotify/Supabase credentials (see [README](README.md)).
   "when online" even under YouTube Music, which neither queues likes nor replays
   the queue; under YouTube Music it now says the queued Spotify likes retry once
   Spotify is selected again.
+- **Android: the YouTube Music sign-in can be set up from the phone**
+  ([#118](https://github.com/Osasuwu/like-current-song/issues/118)). The block
+  used to point at the README with no way to reach it, so a user holding only
+  the phone was stuck at two empty fields. It now links straight to the Google
+  Cloud credentials page and to the README's setup steps, says the client must
+  be of type "TVs and Limited Input devices" with YouTube Data API v3 enabled,
+  explains that **Connect YouTube Music** stays off until the client ID and
+  secret are saved, and says the sign-in code `google.com/device` asks for
+  appears only after Connect.
 
 ## [1.0.3] - 2026-09-01
 

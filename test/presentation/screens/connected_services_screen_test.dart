@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:like_spotify_mobile_app/domain/entities/device_sign_in.dart';
@@ -9,7 +10,12 @@ import 'package:mocktail/mocktail.dart';
 import '../../helpers/app_controller_harness.dart';
 
 void main() {
-  setUpAll(registerAppControllerFallbacks);
+  setUpAll(() {
+    registerAppControllerFallbacks();
+    registerFallbackValue(
+      const OAuthClientCredentials(clientId: '', clientSecret: ''),
+    );
+  });
 
   setUp(silenceConnectivityChannel);
 
@@ -30,6 +36,25 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+  }
+
+  /// The URLs handed to url_launcher, in tap order. On the test host the
+  /// plugin is the plain method channel, so this sees exactly the URL a
+  /// device would be asked to open.
+  List<String> captureLaunchedUrls() {
+    const channel = MethodChannel('plugins.flutter.io/url_launcher');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final launched = <String>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'launch') {
+        final args = call.arguments as Map<Object?, Object?>;
+        launched.add(args['url']! as String);
+      }
+      return true;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    return launched;
   }
 
   SegmentedButton<MusicProvider> picker(WidgetTester tester) =>
@@ -98,6 +123,73 @@ void main() {
 
     verify(() => harness.signIn.startSignIn()).called(1);
     verifyNever(() => harness.ytmusic.connect());
+  });
+
+  testWidgets('YouTube Music setup is reachable from the phone, by link',
+      (tester) async {
+    final launched = captureLaunchedUrls();
+    await pumpScreen(
+      tester,
+      AppControllerHarness(selected: MusicProvider.ytmusic),
+    );
+
+    // The two things the field labels cannot tell you.
+    expect(find.textContaining('TVs and Limited Input devices'), findsOneWidget);
+    expect(find.textContaining('YouTube Data API v3'), findsOneWidget);
+
+    await tester.tap(find.text('Google Cloud credentials'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Setup steps'));
+    await tester.pumpAndSettle();
+
+    expect(
+      launched,
+      <String>[
+        'https://console.cloud.google.com/apis/credentials',
+        'https://github.com/Osasuwu/like-current-song#youtube-music-android',
+      ],
+      reason: 'a phone-only user has no other route to either page',
+    );
+  });
+
+  testWidgets('a disabled Connect says why, until the credentials are saved',
+      (tester) async {
+    const reason = 'Connect turns on once the client ID and secret are saved.';
+    final harness = AppControllerHarness(selected: MusicProvider.ytmusic);
+    when(() => harness.signIn.saveClientCredentials(any()))
+        .thenAnswer((_) async {});
+
+    await pumpScreen(tester, harness);
+
+    FilledButton connect() => tester.widget<FilledButton>(
+          find.widgetWithText(FilledButton, 'Connect YouTube Music'),
+        );
+
+    expect(connect().onPressed, isNull);
+    expect(find.text(reason), findsOneWidget);
+    // And where the code google.com/device asks for comes from.
+    expect(
+      find.text('The sign-in code appears after you tap Connect.'),
+      findsOneWidget,
+    );
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Client ID'),
+      'client-id',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Client secret'),
+      'client-secret',
+    );
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Save credentials'));
+    await tester.pumpAndSettle();
+
+    expect(connect().onPressed, isNotNull);
+    expect(
+      find.text(reason),
+      findsNothing,
+      reason: 'the button works now, so the explanation is just noise',
+    );
   });
 
   testWidgets('picking a service persists it and tells the native listener',
