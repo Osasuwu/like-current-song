@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../../domain/repositories/like_count_repository.dart';
+import 'counter_sheet_schema.dart';
 import 'shared_prefs_like_count_repository.dart';
 
 /// Tries the shared Google Sheet first, falls back to local SharedPreferences.
@@ -25,8 +26,8 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
 
   static const _apiBase = 'https://sheets.googleapis.com/v4/spreadsheets';
 
-  /// The tab, matching the desktop half's default.
-  static const sheetName = 'Likes';
+  /// The tab, from the schema all three halves share.
+  static const sheetName = CounterSheetSchema.likesTab;
 
   /// Same budget the counter has always had: a like must not hang on a sheet.
   static const _timeout = Duration(seconds: 5);
@@ -96,18 +97,23 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
 
       if (row != null) {
         final newCount = (_counts[key] ?? 0) + 1;
-        // Targeted update; column D (`backfilled`) is left as it was.
+        // Targeted update; `backfilled` is left as it was.
         await _update(
           spreadsheetId,
           token,
-          '$sheetName!C$row',
+          '$sheetName!${CounterSheetSchema.countColumn}$row',
           <Object>[newCount],
         );
         // The count is on the sheet now, so the press has been counted even
         // if the timestamp write fails; a stale `updated_at` is not worth
         // reporting a local number the sheet disagrees with.
         try {
-          await _update(spreadsheetId, token, '$sheetName!E$row', <Object>[now]);
+          await _update(
+            spreadsheetId,
+            token,
+            '$sheetName!${CounterSheetSchema.updatedAtColumn}$row',
+            <Object>[now],
+          );
         } catch (error) {
           debugPrint('Like counter timestamp not written: $error');
         }

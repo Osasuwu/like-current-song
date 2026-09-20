@@ -182,6 +182,17 @@ class _TriggerConfigScreenState extends ConsumerState<TriggerConfigScreen> {
                         AppConstants.defaultLikeCooldownMinutes,
               );
               await controller.saveTriggerConfig(config);
+              if (!context.mounted) return;
+              // A rejected trigger config stops the save here: carrying on
+              // would let a successful rule save clear the error, and the
+              // user would be told the trigger was saved when it was not.
+              final triggerError = ref.read(appControllerProvider).lastError;
+              if (triggerError != null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(triggerError)),
+                );
+                return;
+              }
               await controller.saveRuleConfig(ruleConfig);
               if (!context.mounted) return;
               final error = ref.read(appControllerProvider).lastError;

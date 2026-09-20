@@ -428,15 +428,12 @@ The counter is a **Google Sheet you own**. There is no service to sign up for,
 no database to run, and no backend operated by this project — the numbers are
 rows in a spreadsheet you can open, edit, chart or delete yourself.
 
-1. Create a Google Sheet. On a tab named `Likes`, put this header row:
+You do not have to build that sheet yourself — either half will make one for
+you, tabs and header rows and all, in the Drive of the Google account you sign
+in with. Pasting the ID of a sheet you already have keeps working, and is how
+a second device joins an existing count.
 
-   ```
-   user_id | track_id | count | backfilled | updated_at
-   ```
-
-   For the follow-artist rule, add a second tab named `ArtistTracks` with the
-   header row `user_id | artist_id | track_id`.
-2. At [console.cloud.google.com/apis/credentials](https://console.cloud.google.com/apis/credentials),
+1. At [console.cloud.google.com/apis/credentials](https://console.cloud.google.com/apis/credentials),
    enable the **Google Sheets API** and create an OAuth client. Which kind
    depends on the half, because the two sign in differently:
 
@@ -449,18 +446,43 @@ rows in a spreadsheet you can open, edit, chart or delete yourself.
    devices* client for YouTube Music, the phone can reuse that same client for
    the counter once the Sheets API is on — the two grants are still separate
    sign-ins with separate scopes.
-3. Run `like-current-song --setup`, pick `sheets` at the storage step, and
-   paste the spreadsheet ID (the long segment in the sheet's URL), the client
-   ID and the secret. A browser opens for the Google consent screen; the token
-   is refreshed automatically afterwards and lives in
-   `~/.like_spotify/google_token.json`.
-4. Point the Android app at the **same sheet** to share counts between
-   devices: *Connected services* → **Shared like counter (optional)**. Paste
-   the spreadsheet ID and the client ID and secret, then sign in. This is the
+2. Run `like-current-song --setup`, pick `sheets` at the storage step, and
+   enter the client ID and secret. A browser opens for the Google consent
+   screen; the token is refreshed automatically afterwards and lives in
+   `~/.like_spotify/google_token.json`. The wizard then asks about the
+   spreadsheet itself and takes one of three answers:
+
+   | Answer | What happens |
+   |---|---|
+   | `create` (default) | makes the sheet in your Drive and prints its ID |
+   | `paste` | counts into a sheet you name by ID — how a second device joins |
+   | `skip` | leaves the counter off; likes still work, nothing is counted |
+
+   The Windows settings window has the same **Create spreadsheet** button next
+   to the Spreadsheet ID box.
+3. Point the Android app at the **same sheet** to share counts between
+   devices: *Connected services* → **Shared like counter (optional)**. Enter
+   the client ID and secret, sign in, then either press **Create spreadsheet**
+   or paste the ID of the sheet the other device already uses. This is the
    counter's **own** Google sign-in, separate from the music service and
    asking for one scope, `spreadsheets` — so a Spotify user gets a shared
    counter without granting any YouTube permission, and disconnecting the
-   counter leaves the music service signed in.
+   counter leaves the music service signed in. Creating a sheet needs no extra
+   permission: `spreadsheets` already covers it.
+
+   Whichever half creates the sheet, the other one joins it by ID. Neither
+   will make a second sheet once one is configured — it says so instead, so a
+   stray tap cannot split your counts across two files.
+4. *Only if you would rather build the sheet by hand:* create a Google Sheet
+   with a tab named `Likes` carrying this header row:
+
+   ```
+   user_id | track_id | count | backfilled | updated_at
+   ```
+
+   For the follow-artist rule, add a second tab named `ArtistTracks` with the
+   header row `user_id | artist_id | track_id`. Then paste its ID at step 2
+   or 3 instead of creating one.
 
 Both halves address a row by your own account id — your Spotify user id, or
 the Google account id when the like came from YouTube Music — so two people

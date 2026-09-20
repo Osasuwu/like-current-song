@@ -8,6 +8,7 @@ import '../../domain/entities/music_provider.dart';
 import '../../domain/entities/music_routing.dart';
 import '../state/app_providers.dart';
 import '../state/device_sign_in_controller.dart';
+import '../state/service_credentials_controller.dart';
 import '../widgets/screen_padding.dart';
 
 class ConnectedServicesScreen extends ConsumerWidget {
@@ -511,10 +512,10 @@ class _SpotifyCredentialsState extends ConsumerState<_SpotifyCredentials> {
           const SizedBox(height: 4),
           const Text('Credentials saved.'),
         ],
-        if (credentials.error != null) ...<Widget>[
+        if (credentials.spotifyError != null) ...<Widget>[
           const SizedBox(height: 12),
           Text(
-            credentials.error!,
+            credentials.spotifyError!,
             style: TextStyle(color: theme.colorScheme.error),
           ),
         ],
@@ -573,7 +574,19 @@ class _SharedLikeCounterState extends ConsumerState<_SharedLikeCounter> {
       _spreadsheetId.text = credentials.counter.spreadsheetId;
     }
 
+    // A created sheet has to land in the field too, or the box the user reads
+    // as "the sheet in use" would still be empty next to a live counter.
+    ref.listen<ServiceCredentialsState>(
+      serviceCredentialsControllerProvider,
+      (previous, next) {
+        final id = next.counter.spreadsheetId;
+        if (id == previous?.counter.spreadsheetId) return;
+        if (_spreadsheetId.text != id) _spreadsheetId.text = id;
+      },
+    );
+
     final prompt = signIn.prompt;
+    final created = credentials.createdCounter;
     return ExpansionTile(
       title: const Text('Shared like counter (optional)'),
       childrenPadding: const EdgeInsets.only(bottom: 8),
@@ -587,8 +600,9 @@ class _SharedLikeCounterState extends ConsumerState<_SharedLikeCounter> {
         ),
         const SizedBox(height: 4),
         const Text(
-          'The sheet needs a tab named Likes whose first row is the header '
-          'user_id, track_id, count, backfilled, updated_at.',
+          'Sign in below and the app can make the sheet for you, or you can '
+          'paste the ID of one you already have — a sheet another device is '
+          'already counting in, say.',
         ),
         Align(
           alignment: Alignment.centerLeft,
@@ -771,7 +785,102 @@ class _SharedLikeCounterState extends ConsumerState<_SharedLikeCounter> {
         Text('Spreadsheet', style: theme.textTheme.titleSmall),
         const SizedBox(height: 4),
         const Text(
-          "The long part of the sheet's address, between /d/ and /edit.",
+          'The app can make one for you, in your own Google Drive, with both '
+          'tabs and their header rows already filled in. It uses the sign-in '
+          'above and asks for no permission beyond the one you already gave.',
+        ),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FilledButton.tonalIcon(
+            onPressed: credentials.counterCreating ||
+                    !credentials.counter.isSignedIn ||
+                    credentials.hasCounterSpreadsheet
+                ? null
+                : controller.createCounterSpreadsheet,
+            icon: credentials.counterCreating
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.note_add_outlined, size: 18),
+            label: Text(
+              credentials.counterCreating
+                  ? 'Creating...'
+                  : 'Create a sheet for me',
+            ),
+          ),
+        ),
+        // Why the button is off, rather than leaving the user to guess. The
+        // already-configured case comes first: it is the one where nothing
+        // is wrong and nothing needs fixing.
+        if (credentials.hasCounterSpreadsheet) ...<Widget>[
+          const SizedBox(height: 4),
+          const Text(
+            'A spreadsheet is already set up, so this will not make a second '
+            'one. Clear the ID below and save if you want a fresh sheet.',
+          ),
+        ] else if (!credentials.counter.isSignedIn) ...<Widget>[
+          const SizedBox(height: 4),
+          const Text('Sign in to Google above first.'),
+        ],
+        if (created != null) ...<Widget>[
+          const SizedBox(height: 8),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const Text(
+                    'Created "Like Current Song counters" in your Google '
+                    'Drive. Point your other devices at this same ID to share '
+                    'the count.',
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: SelectableText(
+                          created.spreadsheetId,
+                          style: theme.textTheme.bodySmall
+                              ?.copyWith(fontFamily: 'monospace'),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Copy spreadsheet ID',
+                        icon: const Icon(Icons.copy),
+                        onPressed: () => _copyToClipboard(
+                          context,
+                          created.spreadsheetId,
+                          'Spreadsheet ID copied',
+                        ),
+                      ),
+                    ],
+                  ),
+                  // Google usually returns the URL, but the id is what the
+                  // counter needs; a missing URL is not worth an error.
+                  if (created.url != null)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed: () =>
+                            _openExternalUrl(context, created.url!),
+                        icon: const Icon(Icons.open_in_new, size: 16),
+                        label: const Text('Open the sheet'),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(height: 12),
+        const Text(
+          'Already have a sheet? Paste its ID — the long part of its address, '
+          'between /d/ and /edit. It needs a tab named Likes whose first row '
+          'is the header user_id, track_id, count, backfilled, updated_at.',
         ),
         const SizedBox(height: 8),
         TextField(
@@ -795,6 +904,13 @@ class _SharedLikeCounterState extends ConsumerState<_SharedLikeCounter> {
         if (credentials.counterSaved) ...<Widget>[
           const SizedBox(height: 4),
           const Text('Counter settings saved.'),
+        ],
+        if (credentials.counterError != null) ...<Widget>[
+          const SizedBox(height: 12),
+          Text(
+            credentials.counterError!,
+            style: TextStyle(color: theme.colorScheme.error),
+          ),
         ],
       ],
     );

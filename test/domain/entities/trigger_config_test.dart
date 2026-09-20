@@ -85,6 +85,39 @@ void main() {
       });
     });
 
+    group('validate', () {
+      test('accepts a pattern that has events', () {
+        final config = TriggerConfig(
+          pattern: 'pause,play',
+          windowMs: 5000,
+          debounceMs: 500,
+        );
+
+        expect(config.validate(), isEmpty);
+      });
+
+      test('rejects an empty pattern, saying what is missing', () {
+        final config = TriggerConfig(
+          pattern: '',
+          windowMs: 5000,
+          debounceMs: 500,
+        );
+
+        expect(config.validate(), hasLength(1));
+        expect(config.validate().single, contains('at least one event'));
+      });
+
+      test('rejects a pattern that is only commas and whitespace', () {
+        final config = TriggerConfig(
+          pattern: ' , , ',
+          windowMs: 5000,
+          debounceMs: 500,
+        );
+
+        expect(config.validate(), hasLength(1));
+      });
+    });
+
     group('copyWith', () {
       test('updates pattern when provided', () {
         final original = TriggerConfig(

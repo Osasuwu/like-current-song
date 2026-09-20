@@ -364,6 +364,11 @@ class AppController extends StateNotifier<AppState> {
   }
 
   Future<void> saveTriggerConfig(TriggerConfig config) async {
+    final errors = config.validate();
+    if (errors.isNotEmpty) {
+      state = state.copyWith(lastError: errors.join(' '));
+      return;
+    }
     await _settingsRepository.saveTriggerConfig(config);
     await _platformServiceRepository.updateTriggerConfig(config);
     state = state.copyWith(triggerConfig: config, clearError: true);

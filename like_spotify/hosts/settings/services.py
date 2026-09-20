@@ -20,6 +20,10 @@ from __future__ import annotations
 import sys
 
 from like_spotify.auth import google as google_auth
+from like_spotify.extensions.google_sheets_storage.create import (
+    CreatedSpreadsheet,
+    create_counter_spreadsheet,
+)
 
 from .. import _common
 
@@ -91,6 +95,21 @@ def connect_sheets(client_id: str, client_secret: str) -> None:
         client_id=client_id,
         client_secret=client_secret,
         token_path=_common.GOOGLE_TOKEN_FILE,
+    )
+
+
+def create_counter_sheet() -> CreatedSpreadsheet:
+    """Make the counter spreadsheet in the signed-in account's Drive.
+
+    Blocking like the `connect_*` functions above, for the same reason: one
+    HTTP round-trip the window runs on a worker thread. Whether one is
+    already configured is the caller's call — the window refuses that, so
+    nobody makes a second sheet the counts then split across.
+    """
+    if not sheets_connected():
+        raise ValueError("connect Google first — creating a sheet needs the tokens")
+    return create_counter_spreadsheet(
+        google_auth.make_token_provider(_common.GOOGLE_TOKEN_FILE)
     )
 
 

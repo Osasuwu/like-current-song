@@ -245,7 +245,16 @@ def validate(s: Settings) -> Validation:
     if s.storage_backend not in STORAGE_BACKENDS:
         err("storage_backend", f"Unknown storage backend '{s.storage_backend}'.")
     elif s.storage_backend == "sheets" and not s.sheets_spreadsheet_id.strip():
-        err("sheets_spreadsheet_id", "Google Sheets needs the spreadsheet ID.")
+        # A warning, not an error: the window can now make the spreadsheet,
+        # and blocking Save would trap the user in a dialog they must fill
+        # before they can reach the button that would fill it.
+        warnings.append(
+            Issue(
+                "sheets_spreadsheet_id",
+                "No spreadsheet yet — create one or paste an ID, or counts "
+                "stay on this device.",
+            )
+        )
 
     problem = hotkey_problem(s.hotkey)
     if problem:
