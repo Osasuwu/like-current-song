@@ -100,12 +100,30 @@
 <h2>The optional shared counter</h2>
 
 <p>
-  The app can keep the like counter across several of your own devices. This is off
-  unless whoever builds the app supplies a database, and that database belongs to them,
-  not to this project. When it is configured, one request per like is sent to that
-  database containing an identifier for your music-service account and the identifier of
-  the track. No song titles, no listening history, no personal profile. If it is not
-  configured, the counter stays entirely local.
+  The app can keep the like counter across several of your own devices. The place it
+  keeps it is <strong>a Google Sheet you own</strong>. There is no database and no
+  server operated by this project, and nothing is shared with anyone: the numbers are
+  rows in a spreadsheet in your own Google Drive, which you can open, edit, export or
+  delete at any time.
+</p>
+
+<p>
+  It is off until you supply a spreadsheet. When you do, the app asks you to sign in to
+  Google a second time, separately from YouTube Music, and requests exactly one scope:
+</p>
+
+<ul>
+  <li><code>https://www.googleapis.com/auth/spreadsheets</code> — to read and write the
+      counter's own spreadsheet. This sign-in is used for nothing else, and it is
+      independent of which music service you use, so a Spotify user can have a shared
+      counter without ever granting a YouTube permission.</li>
+</ul>
+
+<p>
+  One like writes one row: an identifier for your music-service account, the identifier
+  of the track, the count, whether the first count was backfilled, and the time. No song
+  titles, no artist names, no listening history, no personal profile. If no spreadsheet
+  is configured, the counter stays entirely local and no Google sign-in is asked for.
 </p>
 
 <h2>What is never done</h2>
@@ -140,6 +158,8 @@
       deletes its stored tokens. Uninstalling the app (or deleting
       <code>~/.like_spotify/</code> on desktop) removes the settings, the log and the
       local counters.</li>
+  <li><strong>The shared counter</strong> — its rows live in your own spreadsheet, so
+      deleting them is deleting rows, or the sheet itself. Nobody else has a copy.</li>
 </ul>
 
 <p>
