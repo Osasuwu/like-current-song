@@ -512,10 +512,10 @@ class _SpotifyCredentialsState extends ConsumerState<_SpotifyCredentials> {
           const SizedBox(height: 4),
           const Text('Credentials saved.'),
         ],
-        if (credentials.error != null) ...<Widget>[
+        if (credentials.spotifyError != null) ...<Widget>[
           const SizedBox(height: 12),
           Text(
-            credentials.error!,
+            credentials.spotifyError!,
             style: TextStyle(color: theme.colorScheme.error),
           ),
         ],
@@ -905,10 +905,10 @@ class _SharedLikeCounterState extends ConsumerState<_SharedLikeCounter> {
           const SizedBox(height: 4),
           const Text('Counter settings saved.'),
         ],
-        if (credentials.error != null) ...<Widget>[
+        if (credentials.counterError != null) ...<Widget>[
           const SizedBox(height: 12),
           Text(
-            credentials.error!,
+            credentials.counterError!,
             style: TextStyle(color: theme.colorScheme.error),
           ),
         ],

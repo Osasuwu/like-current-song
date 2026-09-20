@@ -127,8 +127,18 @@
   rows. That is the one file it creates; it is yours, it appears in your Drive like any
   other, and you can rename, move or delete it whenever you like — deleting it simply
   turns the shared counter off. No extra permission is involved: the same
-  <code>spreadsheets</code> scope above is what allows it, and the app still cannot see,
-  open or touch any other file in your Drive.
+  <code>spreadsheets</code> scope above is what allows it, and no Drive permission is
+  asked for, so nothing outside Google Sheets is reachable at all.
+</p>
+
+<p>
+  To be exact about that scope, because Google's consent screen is blunt about it: it
+  says the app may see, edit, create and delete <em>all</em> your spreadsheets, and that
+  is genuinely what the permission covers — Google offers no narrower one that can also
+  create a file. What the app actually does with it is fixed in code you can read: it
+  creates the one counter spreadsheet, and afterwards reads and writes only the
+  spreadsheet whose id is in your settings. It never lists your spreadsheets and never
+  opens one you did not name.
 </p>
 
 <p>

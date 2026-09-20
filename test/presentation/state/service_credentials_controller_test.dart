@@ -63,7 +63,8 @@ void main() {
     expect(controller.state.loaded, isTrue);
     expect(controller.state.hasSpotifyClientId, isFalse);
     expect(controller.state.counter, LikeCounterConfig.empty);
-    expect(controller.state.error, isNull);
+    expect(controller.state.spotifyError, isNull);
+    expect(controller.state.counterError, isNull);
   });
 
   test('saving a client ID writes it through, trimmed', () async {
@@ -74,7 +75,7 @@ void main() {
     expect(await tokenStore.readClientId(), 'client-abc');
     expect(controller.state.spotifyClientId, 'client-abc');
     expect(controller.state.spotifySaved, isTrue);
-    expect(controller.state.error, isNull);
+    expect(controller.state.spotifyError, isNull);
   });
 
   test('an empty client ID is refused rather than stored', () async {
@@ -84,7 +85,7 @@ void main() {
 
     expect(await tokenStore.readClientId(), isNull);
     expect(controller.state.spotifySaved, isFalse);
-    expect(controller.state.error, 'Enter your Spotify client ID.');
+    expect(controller.state.spotifyError, 'Enter your Spotify client ID.');
   });
 
   test('saving the spreadsheet tells the native side too', () async {
@@ -144,7 +145,7 @@ void main() {
     );
     expect(controller.state.counterCreating, isFalse);
     expect(controller.state.counterSaved, isTrue);
-    expect(controller.state.error, isNull);
+    expect(controller.state.counterError, isNull);
     expect(pushedToNative.single.spreadsheetId, 'made-1');
   });
 
@@ -157,8 +158,11 @@ void main() {
 
     expect(createCalls, 0);
     expect((await counterStore.read()).spreadsheetId, 'sheet-1');
-    expect(controller.state.error, contains('already set up'));
-    expect(controller.state.error, contains('sheet-1'));
+    expect(controller.state.counterError, contains('already set up'));
+    expect(controller.state.counterError, contains('sheet-1'));
+    // The Spotify card must not inherit a counter failure: the two errors
+    // render in different places and a shared field showed both in both.
+    expect(controller.state.spotifyError, isNull);
   });
 
   test('a refusal from Google is shown in its own words', () async {
@@ -171,9 +175,10 @@ void main() {
     await controller.createCounterSpreadsheet();
 
     expect(
-      controller.state.error,
+      controller.state.counterError,
       'Sign in to Google for the like counter first.',
     );
+    expect(controller.state.spotifyError, isNull);
     expect(controller.state.counterCreating, isFalse);
     expect(controller.state.createdCounter, isNull);
     expect((await counterStore.read()).spreadsheetId, isEmpty);

@@ -14,7 +14,8 @@ class ServiceCredentialsState {
     this.counterSaved = false,
     this.counterCreating = false,
     this.createdCounter,
-    this.error,
+    this.spotifyError,
+    this.counterError,
   });
 
   /// The Spotify app's client ID. PKCE means there is no secret beside it.
@@ -40,8 +41,11 @@ class ServiceCredentialsState {
   /// configured by pasting an id never sets it.
   final CreatedCounterSpreadsheet? createdCounter;
 
-  /// Last failure, ready to show as-is.
-  final String? error;
+  /// Last failure of each half, ready to show as-is, kept apart so a card
+  /// only ever shows what went wrong under it. One shared field put a counter
+  /// failure under the Spotify client ID box, where it explains nothing.
+  final String? spotifyError;
+  final String? counterError;
 
   bool get hasSpotifyClientId => spotifyClientId.isNotEmpty;
 
@@ -57,8 +61,10 @@ class ServiceCredentialsState {
     bool? counterCreating,
     CreatedCounterSpreadsheet? createdCounter,
     bool clearCreatedCounter = false,
-    String? error,
-    bool clearError = false,
+    String? spotifyError,
+    bool clearSpotifyError = false,
+    String? counterError,
+    bool clearCounterError = false,
   }) {
     return ServiceCredentialsState(
       spotifyClientId: spotifyClientId ?? this.spotifyClientId,
@@ -69,7 +75,10 @@ class ServiceCredentialsState {
       counterCreating: counterCreating ?? this.counterCreating,
       createdCounter:
           clearCreatedCounter ? null : (createdCounter ?? this.createdCounter),
-      error: clearError ? null : (error ?? this.error),
+      spotifyError:
+          clearSpotifyError ? null : (spotifyError ?? this.spotifyError),
+      counterError:
+          clearCounterError ? null : (counterError ?? this.counterError),
     );
   }
 }
@@ -121,7 +130,8 @@ class ServiceCredentialsController
       if (!mounted) return;
       state = state.copyWith(
         loaded: true,
-        error: 'Could not read saved credentials: $error',
+        spotifyError: 'Could not read saved credentials: $error',
+        counterError: 'Could not read saved credentials: $error',
       );
     }
   }
@@ -130,7 +140,7 @@ class ServiceCredentialsController
     final trimmed = clientId.trim();
     if (trimmed.isEmpty) {
       state = state.copyWith(
-        error: 'Enter your Spotify client ID.',
+        spotifyError: 'Enter your Spotify client ID.',
         spotifySaved: false,
       );
       return;
@@ -141,12 +151,12 @@ class ServiceCredentialsController
       state = state.copyWith(
         spotifyClientId: trimmed,
         spotifySaved: true,
-        clearError: true,
+        clearSpotifyError: true,
       );
     } catch (error) {
       if (!mounted) return;
       state = state.copyWith(
-        error: 'Could not save the client ID: $error',
+        spotifyError: 'Could not save the client ID: $error',
         spotifySaved: false,
       );
     }
@@ -164,7 +174,7 @@ class ServiceCredentialsController
       state = state.copyWith(
         counter: counter,
         counterSaved: true,
-        clearError: true,
+        clearCounterError: true,
         // A different sheet means the "here is what we made" panel is about
         // something the counter no longer writes to.
         clearCreatedCounter: trimmed != state.createdCounter?.spreadsheetId,
@@ -172,7 +182,7 @@ class ServiceCredentialsController
     } catch (error) {
       if (!mounted) return;
       state = state.copyWith(
-        error: 'Could not save the counter settings: $error',
+        counterError: 'Could not save the counter settings: $error',
         counterSaved: false,
       );
     }
@@ -190,7 +200,8 @@ class ServiceCredentialsController
     final existing = state.counter.spreadsheetId;
     if (existing.isNotEmpty) {
       state = state.copyWith(
-        error: 'A counter spreadsheet is already set up ($existing). Clear '
+        counterError:
+            'A counter spreadsheet is already set up ($existing). Clear '
             'the spreadsheet ID and save before making another one.',
         counterSaved: false,
       );
@@ -200,7 +211,7 @@ class ServiceCredentialsController
     state = state.copyWith(
       counterCreating: true,
       counterSaved: false,
-      clearError: true,
+      clearCounterError: true,
       clearCreatedCounter: true,
     );
     final CreatedCounterSpreadsheet created;
@@ -210,13 +221,14 @@ class ServiceCredentialsController
       // Its message already says what went wrong — Google's own words when
       // Google refused. Anything more general would throw that away.
       if (!mounted) return;
-      state = state.copyWith(counterCreating: false, error: error.message);
+      state =
+          state.copyWith(counterCreating: false, counterError: error.message);
       return;
     } catch (error) {
       if (!mounted) return;
       state = state.copyWith(
         counterCreating: false,
-        error: 'Could not create the spreadsheet: $error',
+        counterError: 'Could not create the spreadsheet: $error',
       );
       return;
     }
@@ -231,7 +243,7 @@ class ServiceCredentialsController
         createdCounter: created,
         counterCreating: false,
         counterSaved: true,
-        clearError: true,
+        clearCounterError: true,
       );
     } catch (error) {
       // The sheet is real and in the user's Drive; only remembering it
@@ -240,7 +252,8 @@ class ServiceCredentialsController
       state = state.copyWith(
         counterCreating: false,
         createdCounter: created,
-        error: 'The spreadsheet was created (${created.spreadsheetId}) but '
+        counterError:
+            'The spreadsheet was created (${created.spreadsheetId}) but '
             'could not be saved: $error',
       );
     }
@@ -256,7 +269,7 @@ class ServiceCredentialsController
     } catch (error) {
       if (!mounted) return;
       state = state.copyWith(
-        error: 'Could not read the counter settings: $error',
+        counterError: 'Could not read the counter settings: $error',
       );
     }
   }
