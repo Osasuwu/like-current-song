@@ -10,6 +10,7 @@ import 'package:like_spotify_mobile_app/domain/entities/music_routing.dart';
 import 'package:like_spotify_mobile_app/domain/entities/pending_like.dart';
 import 'package:like_spotify_mobile_app/domain/entities/rule_config.dart';
 import 'package:like_spotify_mobile_app/domain/entities/spotify_auth_state.dart';
+import 'package:like_spotify_mobile_app/domain/entities/supabase_config.dart';
 import 'package:like_spotify_mobile_app/domain/entities/trigger_config.dart';
 import 'package:like_spotify_mobile_app/domain/repositories/device_sign_in_repository.dart';
 import 'package:like_spotify_mobile_app/presentation/state/app_controller.dart';
@@ -146,12 +147,17 @@ class AppControllerHarness {
     when(() => signIn.cancelSignIn()).thenReturn(null);
   }
 
+  /// What the shared counter is configured with; unconfigured by default,
+  /// which is what a fresh install looks like.
+  SupabaseConfig supabaseConfig = SupabaseConfig.empty;
+
   AppController build() => AppController(
         settingsRepository: settings,
         platformServiceRepository: platform,
         musicServiceRepository: music,
         musicRoutingRepository: music,
         appLinks: appLinks,
+        readSupabaseConfig: () async => supabaseConfig,
       );
 
   /// Overrides that point `appControllerProvider` and the YouTube Music

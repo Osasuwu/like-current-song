@@ -88,7 +88,8 @@ flutter pub get           # Install dependencies
 flutter analyze           # Lint check
 flutter test              # Run all tests
 flutter test --coverage   # Run tests with coverage
-flutter build apk --release --dart-define-from-file=.env            # Build APK (reads .env)
+flutter build apk --release                                         # Build APK (credentials typed in-app)
+flutter build apk --release --dart-define-from-file=.env            # …or seed credentials from .env
 
 pip install -e .[dev]     # Desktop: install with dev extras
 pytest                    # Desktop: run Python tests
@@ -133,9 +134,15 @@ CI (`.github/workflows/ci.yml`) runs both: a `test` job (Flutter, ubuntu) and a
 
 Requires a Spotify Developer App:
 1. Create app at https://developer.spotify.com/dashboard
-2. Set redirect URI: `likespotify://auth-callback`
-3. Copy `.env.example` to `.env` and fill in values
-4. Build with `--dart-define-from-file=.env`
+2. Set redirect URI: `likespotify://auth-callback` (fixed — it is the Android
+   intent filter, exposed as `AppConstants.spotifyRedirectUri`)
+3. Paste the Client ID into the app, under *Connected services* → Spotify
+   credentials. It is kept in `FlutterSecureStorage` under `spotify_client_id`
+   and read lazily, so a prebuilt APK works.
+4. Optional shortcut for your own builds: copy `.env.example` to `.env` and
+   build with `--dart-define-from-file=.env`. Those values only *seed* a store
+   that has never been written; whatever the UI saved wins afterwards
+   (`_seedCompileTimeCredentials` in `lib/main.dart`).
 
 ## OSS conventions
 

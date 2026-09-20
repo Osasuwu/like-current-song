@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/app_constants.dart';
 import '../../domain/entities/music_provider.dart';
 import '../../domain/entities/music_routing.dart';
 import '../state/app_providers.dart';
@@ -21,6 +22,9 @@ class ConnectedServicesScreen extends ConsumerWidget {
     final signInBusy = isYouTubeMusic &&
         ref.watch(youTubeMusicSignInControllerProvider.select((s) => s.busy));
     final accountId = state.authState.connected ? state.authState.accountId : null;
+    final hasSpotifyClientId = ref.watch(
+      serviceCredentialsControllerProvider.select((s) => s.hasSpotifyClientId),
+    );
     // Automatic is offered only while it can be honoured; if it was on and the
     // gate closed, the controller falls back to the picker, so showing the
     // picked service here matches where a like would actually go.
@@ -88,12 +92,18 @@ class ConnectedServicesScreen extends ConsumerWidget {
             const SizedBox(height: 20),
             const _YouTubeMusicSignIn(),
           ],
+          if (!isYouTubeMusic) ...<Widget>[
+            const SizedBox(height: 20),
+            const _SpotifyCredentials(),
+          ],
           const SizedBox(height: 20),
           Row(
             children: <Widget>[
               if (!isYouTubeMusic) ...<Widget>[
                 FilledButton(
-                  onPressed: controller.connectMusicService,
+                  onPressed: hasSpotifyClientId
+                      ? controller.connectMusicService
+                      : null,
                   child: Text('Connect $name'),
                 ),
                 const SizedBox(width: 8),
@@ -104,6 +114,10 @@ class ConnectedServicesScreen extends ConsumerWidget {
               ),
             ],
           ),
+          if (!isYouTubeMusic && !hasSpotifyClientId) ...<Widget>[
+            const SizedBox(height: 4),
+            const Text('Connect turns on once the client ID is saved.'),
+          ],
           const SizedBox(height: 12),
           Align(
             alignment: Alignment.centerLeft,
@@ -112,12 +126,8 @@ class ConnectedServicesScreen extends ConsumerWidget {
               child: const Text('Refresh status'),
             ),
           ),
-          if (provider == MusicProvider.spotify) ...<Widget>[
-            const SizedBox(height: 20),
-            const Text(
-              'OAuth note: provide SPOTIFY_CLIENT_ID at build/run time using --dart-define.',
-            ),
-          ],
+          const SizedBox(height: 20),
+          const _SharedLikeCounter(),
         ],
       ),
     );
@@ -354,27 +364,256 @@ class _YouTubeMusicSignInState extends ConsumerState<_YouTubeMusicSignIn> {
     );
   }
 
-  Future<void> _copyCode(String code) async {
-    await Clipboard.setData(ClipboardData(text: code));
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Code copied')),
-    );
+  Future<void> _copyCode(String code) =>
+      _copyToClipboard(context, code, 'Code copied');
+
+  Future<void> _openUrl(String url) => _openExternalUrl(context, url);
+}
+
+/// Copies [text] and says so, the one way this screen confirms a copy.
+Future<void> _copyToClipboard(
+  BuildContext context,
+  String text,
+  String message,
+) async {
+  await Clipboard.setData(ClipboardData(text: text));
+  if (!context.mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(content: Text(message)),
+  );
+}
+
+/// Opens [url] in a browser, and falls back to telling the user the address
+/// when there is no browser to open it with.
+Future<void> _openExternalUrl(BuildContext context, String url) async {
+  final uri = Uri.tryParse(url);
+  var opened = false;
+  if (uri != null) {
+    try {
+      opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      opened = false;
+    }
+  }
+  if (opened || !context.mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(content: Text('Could not open a browser. Go to $url manually.')),
+  );
+}
+
+/// The Spotify app's client ID, plus the redirect URI that has to be pasted
+/// into the dashboard beside it.
+class _SpotifyCredentials extends ConsumerStatefulWidget {
+  const _SpotifyCredentials();
+
+  @override
+  ConsumerState<_SpotifyCredentials> createState() =>
+      _SpotifyCredentialsState();
+}
+
+class _SpotifyCredentialsState extends ConsumerState<_SpotifyCredentials> {
+  /// Where the app (and therefore the client ID) is created.
+  static const _dashboardUrl = 'https://developer.spotify.com/dashboard';
+
+  /// The README's Spotify section, so this card need not repeat the long form.
+  static const _setupGuideUrl =
+      'https://github.com/Osasuwu/like-current-song#1-spotify-developer-app';
+
+  final _clientId = TextEditingController();
+  bool _prefilled = false;
+
+  @override
+  void dispose() {
+    _clientId.dispose();
+    super.dispose();
   }
 
-  Future<void> _openUrl(String url) async {
-    final uri = Uri.tryParse(url);
-    var opened = false;
-    if (uri != null) {
-      try {
-        opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      } catch (_) {
-        opened = false;
-      }
+  @override
+  Widget build(BuildContext context) {
+    final credentials = ref.watch(serviceCredentialsControllerProvider);
+    final controller = ref.read(serviceCredentialsControllerProvider.notifier);
+    final theme = Theme.of(context);
+
+    if (!_prefilled && credentials.loaded) {
+      _prefilled = true;
+      _clientId.text = credentials.spotifyClientId;
     }
-    if (opened || !mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Could not open a browser. Go to $url manually.')),
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text('Spotify credentials', style: theme.textTheme.titleMedium),
+        const SizedBox(height: 4),
+        const Text(
+          'Uses an app from your own Spotify developer dashboard, so the likes '
+          'are made by you and count against your own quota. Create an app '
+          'with the Web API enabled and paste its client ID here. There is no '
+          'client secret: this app signs in with PKCE.',
+        ),
+        Wrap(
+          spacing: 8,
+          children: <Widget>[
+            TextButton.icon(
+              onPressed: () => _openExternalUrl(context, _dashboardUrl),
+              icon: const Icon(Icons.open_in_new, size: 16),
+              label: const Text('Spotify dashboard'),
+            ),
+            TextButton.icon(
+              onPressed: () => _openExternalUrl(context, _setupGuideUrl),
+              icon: const Icon(Icons.open_in_new, size: 16),
+              label: const Text('Setup steps'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        const Text(
+          'Add this redirect URI to the app in the dashboard, exactly as '
+          'shown. Sign-in fails without it.',
+        ),
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: SelectableText(
+                AppConstants.spotifyRedirectUri,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontFamily: 'monospace',
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Copy redirect URI',
+              icon: const Icon(Icons.copy),
+              onPressed: () => _copyToClipboard(
+                context,
+                AppConstants.spotifyRedirectUri,
+                'Redirect URI copied',
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _clientId,
+          autocorrect: false,
+          enableSuggestions: false,
+          decoration: const InputDecoration(
+            labelText: 'Client ID',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton(
+          onPressed: () => controller.saveSpotifyClientId(_clientId.text),
+          child: const Text('Save client ID'),
+        ),
+        if (credentials.spotifySaved) ...<Widget>[
+          const SizedBox(height: 4),
+          const Text('Credentials saved.'),
+        ],
+        if (credentials.error != null) ...<Widget>[
+          const SizedBox(height: 12),
+          Text(
+            credentials.error!,
+            style: TextStyle(color: theme.colorScheme.error),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// The optional Supabase project behind the cross-device like counter.
+/// Collapsed by default: everything above works without it.
+class _SharedLikeCounter extends ConsumerStatefulWidget {
+  const _SharedLikeCounter();
+
+  @override
+  ConsumerState<_SharedLikeCounter> createState() => _SharedLikeCounterState();
+}
+
+class _SharedLikeCounterState extends ConsumerState<_SharedLikeCounter> {
+  /// The README's counter section: the SQL and the project setup.
+  static const _setupGuideUrl =
+      'https://github.com/Osasuwu/like-current-song#4-cross-device-counters-optional';
+
+  final _url = TextEditingController();
+  final _anonKey = TextEditingController();
+  bool _prefilled = false;
+
+  @override
+  void dispose() {
+    _url.dispose();
+    _anonKey.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final credentials = ref.watch(serviceCredentialsControllerProvider);
+    final controller = ref.read(serviceCredentialsControllerProvider.notifier);
+
+    if (!_prefilled && credentials.loaded) {
+      _prefilled = true;
+      _url.text = credentials.supabase.url;
+      _anonKey.text = credentials.supabase.anonKey;
+    }
+
+    return ExpansionTile(
+      title: const Text('Shared like counter (optional)'),
+      childrenPadding: const EdgeInsets.only(bottom: 8),
+      expandedCrossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        const Text(
+          'Counts how often you like the same track across your devices, in a '
+          'Supabase project of your own. Leave both fields blank and likes are '
+          'counted on this device only.',
+        ),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: () => _openExternalUrl(context, _setupGuideUrl),
+            icon: const Icon(Icons.open_in_new, size: 16),
+            label: const Text('Setup steps'),
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _url,
+          autocorrect: false,
+          enableSuggestions: false,
+          keyboardType: TextInputType.url,
+          decoration: const InputDecoration(
+            labelText: 'Project URL',
+            hintText: 'https://your-project.supabase.co',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _anonKey,
+          autocorrect: false,
+          enableSuggestions: false,
+          decoration: const InputDecoration(
+            labelText: 'Anon key',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton(
+            onPressed: () => controller.saveSupabaseConfig(
+              url: _url.text,
+              anonKey: _anonKey.text,
+            ),
+            child: const Text('Save counter settings'),
+          ),
+        ),
+        if (credentials.supabaseSaved) ...<Widget>[
+          const SizedBox(height: 4),
+          const Text('Counter settings saved.'),
+        ],
+      ],
     );
   }
 }

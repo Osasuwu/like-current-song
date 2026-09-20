@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../core/app_constants.dart';
 import '../../domain/entities/app_log.dart';
 import '../../domain/entities/like_result.dart';
 import '../../domain/entities/pending_like.dart';
@@ -22,16 +23,17 @@ class SpotifyMusicServiceRepository implements MusicServiceRepository {
     required PlatformServiceRepository platformServiceRepository,
     required LikeCountRepository likeCountRepository,
     required SettingsRepository settingsRepository,
-    required String clientId,
-    required String redirectUri,
   })  : _spotifyClient = spotifyClient,
         _tokenStore = tokenStore,
         _platformServiceRepository = platformServiceRepository,
         _likeCountRepository = likeCountRepository,
         _settingsRepository = settingsRepository,
-        _clientId = clientId,
-        _redirectUri = redirectUri,
         _playlistService = SpotifyPlaylistService(spotifyClient);
+
+  /// What to do about a missing client ID, in the words of the screen that
+  /// takes it. Shown wherever the OAuth flow needs one and finds none.
+  static const missingClientIdMessage =
+      'Add your Spotify client ID in Connected services.';
 
   final SpotifyClient _spotifyClient;
   final SpotifyTokenStore _tokenStore;
@@ -39,11 +41,20 @@ class SpotifyMusicServiceRepository implements MusicServiceRepository {
   final LikeCountRepository _likeCountRepository;
   final SettingsRepository _settingsRepository;
   final SpotifyPlaylistService _playlistService;
-  final String _clientId;
-  final String _redirectUri;
 
   String? _pendingVerifier;
   String? _pendingState;
+
+  /// The user's client ID, read at call time: it is entered in the app, so a
+  /// value held at construction would be the one from before they typed it.
+  Future<String> _readClientId() async =>
+      (await _tokenStore.readClientId())?.trim() ?? '';
+
+  Future<String> _requireClientId() async {
+    final clientId = await _readClientId();
+    if (clientId.isEmpty) throw Exception(missingClientIdMessage);
+    return clientId;
+  }
 
   // ── Auth ───────────────────────────────────────────────────────
 
@@ -96,9 +107,10 @@ class SpotifyMusicServiceRepository implements MusicServiceRepository {
       throw Exception('Missing refresh token');
     }
 
+    final clientId = await _requireClientId();
     final refreshed = await _spotifyClient.refreshToken(
       refreshToken: refresh,
-      clientId: _clientId,
+      clientId: clientId,
     );
     final expiresAt = DateTime.now().toUtc().add(Duration(seconds: refreshed.expiresInSec));
     final expiresAtEpochSec = expiresAt.millisecondsSinceEpoch ~/ 1000;
@@ -113,7 +125,7 @@ class SpotifyMusicServiceRepository implements MusicServiceRepository {
       accessToken: refreshed.accessToken,
       refreshToken: refreshed.refreshToken,
       expiresAtEpochSec: expiresAtEpochSec,
-      clientId: _clientId,
+      clientId: clientId,
     );
 
     return SpotifyAuthState(
@@ -137,11 +149,7 @@ class SpotifyMusicServiceRepository implements MusicServiceRepository {
   // ── OAuth flow ─────────────────────────────────────────────────
 
   Future<Uri> beginSpotifyAuthorization() async {
-    if (_clientId.isEmpty) {
-      throw Exception(
-        'Missing SPOTIFY_CLIENT_ID. Pass --dart-define=SPOTIFY_CLIENT_ID=<id>.',
-      );
-    }
+    final clientId = await _requireClientId();
     final verifier = _spotifyClient.createCodeVerifier();
     final challenge = _spotifyClient.codeChallenge(verifier);
     final state = DateTime.now().millisecondsSinceEpoch.toString();
@@ -149,8 +157,8 @@ class SpotifyMusicServiceRepository implements MusicServiceRepository {
     _pendingState = state;
 
     return _spotifyClient.buildAuthorizeUri(
-      clientId: _clientId,
-      redirectUri: _redirectUri,
+      clientId: clientId,
+      redirectUri: AppConstants.spotifyRedirectUri,
       codeChallenge: challenge,
       state: state,
     );
@@ -167,10 +175,11 @@ class SpotifyMusicServiceRepository implements MusicServiceRepository {
       throw Exception('Spotify callback state mismatch');
     }
 
+    final clientId = await _requireClientId();
     final token = await _spotifyClient.exchangeCode(
       code: code,
-      clientId: _clientId,
-      redirectUri: _redirectUri,
+      clientId: clientId,
+      redirectUri: AppConstants.spotifyRedirectUri,
       codeVerifier: _pendingVerifier!,
     );
 
@@ -185,7 +194,7 @@ class SpotifyMusicServiceRepository implements MusicServiceRepository {
       accessToken: token.accessToken,
       refreshToken: token.refreshToken,
       expiresAtEpochSec: expiresAt.millisecondsSinceEpoch ~/ 1000,
-      clientId: _clientId,
+      clientId: clientId,
     );
 
     _pendingState = null;
@@ -220,7 +229,9 @@ class SpotifyMusicServiceRepository implements MusicServiceRepository {
 
   @override
   Future<bool> handleAuthCallback(Uri uri) async {
-    if (!uri.toString().startsWith(_redirectUri)) return false;
+    if (!uri.toString().startsWith(AppConstants.spotifyRedirectUri)) {
+      return false;
+    }
     try {
       await completeAuthorization(uri);
       return true;

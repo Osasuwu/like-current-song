@@ -1,6 +1,7 @@
 import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:like_spotify_mobile_app/core/app_constants.dart';
 import 'package:like_spotify_mobile_app/domain/entities/app_log.dart';
 import 'package:like_spotify_mobile_app/domain/entities/music_provider.dart';
@@ -8,6 +9,7 @@ import 'package:like_spotify_mobile_app/domain/entities/music_routing.dart';
 import 'package:like_spotify_mobile_app/domain/entities/pending_like.dart';
 import 'package:like_spotify_mobile_app/domain/entities/rule_config.dart';
 import 'package:like_spotify_mobile_app/domain/entities/spotify_auth_state.dart';
+import 'package:like_spotify_mobile_app/domain/entities/supabase_config.dart';
 import 'package:like_spotify_mobile_app/domain/entities/trigger_config.dart';
 import 'package:like_spotify_mobile_app/presentation/state/app_controller.dart';
 import 'package:like_spotify_mobile_app/presentation/state/app_providers.dart';
@@ -29,11 +31,22 @@ const _triggerConfig = TriggerConfig(
 ///
 /// [pendingLikes] is how many likes the offline queue holds; those entries are
 /// always Spotify's, which is the only service that queues.
+///
+/// [spotifyClientId] is what the credentials store already holds; the default
+/// stands for an app that has been set up, and `''` for one that has not.
 Widget hostScreen(
   Widget screen, {
   MusicProvider provider = MusicProvider.spotify,
   int pendingLikes = 0,
+  String spotifyClientId = 'test-client-id',
+  SupabaseConfig supabase = SupabaseConfig.empty,
 }) {
+  FlutterSecureStorage.setMockInitialValues(<String, String>{
+    if (spotifyClientId.isNotEmpty) 'spotify_client_id': spotifyClientId,
+    if (supabase.url.isNotEmpty) 'supabase_url': supabase.url,
+    if (supabase.anonKey.isNotEmpty) 'supabase_anon_key': supabase.anonKey,
+  });
+
   registerFallbackValue(MusicProvider.spotify);
   registerFallbackValue(MusicRoutingMode.defaultMode);
   registerFallbackValue(_triggerConfig);
@@ -95,6 +108,7 @@ Widget hostScreen(
 
   return ProviderScope(
     overrides: <Override>[
+      platformServiceRepositoryProvider.overrideWithValue(platform),
       appControllerProvider.overrideWith(
         (ref) => AppController(
           settingsRepository: settings,
@@ -102,6 +116,7 @@ Widget hostScreen(
           musicServiceRepository: music,
           musicRoutingRepository: routing,
           appLinks: appLinks,
+          readSupabaseConfig: () async => supabase,
         ),
       ),
     ],
