@@ -31,9 +31,21 @@ class MainScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 16),
               Text(
-                state.serviceEnabled ? 'ACTIVE' : 'INACTIVE',
-                style: Theme.of(context).textTheme.headlineMedium,
+                state.serviceEnabled
+                    ? (state.notificationListenerEnabled
+                        ? 'ACTIVE'
+                        : 'NOT LISTENING')
+                    : 'INACTIVE',
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                      color: state.serviceEnabled && !state.triggerCanFire
+                          ? Theme.of(context).colorScheme.error
+                          : null,
+                    ),
               ),
+              if (!state.notificationListenerEnabled) ...<Widget>[
+                const SizedBox(height: 16),
+                const _NotificationAccessWarning(),
+              ],
               const SizedBox(height: 20),
               ElevatedButton(
                 onPressed: state.liking ? null : controller.likeCurrentTrackNow,
@@ -75,6 +87,80 @@ class MainScreen extends ConsumerWidget {
                   ),
                 ),
               ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Says, where it cannot be missed, that the trigger has no way in.
+///
+/// Notification access is the whole mechanism — the media button goes to the
+/// player, so the app watches the player's pause/play state instead. Without
+/// the grant a pause-play produces nothing at all, not even a failed log line,
+/// which is exactly what made #153 so hard to diagnose.
+class _NotificationAccessWarning extends ConsumerWidget {
+  const _NotificationAccessWarning();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final controller = ref.read(appControllerProvider.notifier);
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Card(
+        color: theme.colorScheme.errorContainer,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  Icon(
+                    Icons.warning_amber_rounded,
+                    color: theme.colorScheme.onErrorContainer,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Notification access is off',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: theme.colorScheme.onErrorContainer,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'The headset button goes to the music app, not to us, so the '
+                "trigger reads the player's pause/play state — and that needs "
+                'notification access. Until you grant it, pause-play does '
+                'nothing.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onErrorContainer,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                children: <Widget>[
+                  FilledButton(
+                    onPressed: controller.openNotificationListenerSettings,
+                    child: const Text('Grant notification access'),
+                  ),
+                  TextButton(
+                    onPressed: controller.refreshNotificationListenerStatus,
+                    child: const Text('Recheck'),
+                  ),
+                ],
+              ),
             ],
           ),
         ),

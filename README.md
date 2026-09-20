@@ -130,7 +130,15 @@ that is expected for a sideloaded APK.
 Then open *Connected services* and paste the Client ID from step 1 into
 **Spotify credentials** → *Save client ID*. The redirect URI to add in the
 dashboard is shown right there, with a copy button. **Connect Spotify** turns on
-once the ID is saved. Then enable the listener service.
+once the ID is saved.
+
+**Then grant notification access — the trigger does not work without it.**
+Open *Permissions* → *Open notification access (required)* and switch the app
+on. Android gives the headset button to the music app, not to us, so the only
+way a pause-play reaches the app is by reading the player's own playback state,
+and that is what notification access is for. Without it the service starts,
+says so, and nothing ever happens. Finally, switch the service on from the main
+screen.
 
 The client ID lives in the app's encrypted storage, so it survives updates and
 a disconnect — you type it once, not once per build. The published APK carries

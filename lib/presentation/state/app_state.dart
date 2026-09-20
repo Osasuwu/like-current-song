@@ -34,6 +34,12 @@ class AppState {
   final bool liking;
   final int pendingLikesCount;
 
+  /// Whether a headset press can actually reach the trigger. Notification
+  /// access is not an extra: the media button belongs to the player, so
+  /// watching its playback state is the only way in. Without the grant the
+  /// service runs and hears nothing.
+  bool get triggerCanFire => serviceEnabled && notificationListenerEnabled;
+
   /// Whether automatic routing can be offered: it needs notification access
   /// to see media sessions, and two connected services to choose between.
   bool get canRouteAutomatically =>
