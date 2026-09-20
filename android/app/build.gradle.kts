@@ -18,16 +18,19 @@ val keystoreProperties = Properties().apply {
         keystorePropertiesFile.inputStream().use(::load)
     }
 }
-val hasReleaseKeystore = keystorePropertiesFile.exists()
-
-if (hasReleaseKeystore) {
-    val missing = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+val missingKeystoreProperties = if (keystorePropertiesFile.exists()) {
+    listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
         .filter { keystoreProperties.getProperty(it).isNullOrBlank() }
-    require(missing.isEmpty()) {
-        "android/key.properties is missing: ${missing.joinToString(", ")}. " +
-            "See android/key.properties.example."
-    }
+} else {
+    emptyList()
 }
+
+// A half-filled key.properties — the state it is in between copying the
+// example and finishing it — must not be treated as a key. It is reported
+// below, but only when a release is actually being built: an incomplete file
+// is no reason to break `flutter run`.
+val hasReleaseKeystore =
+    keystorePropertiesFile.exists() && missingKeystoreProperties.isEmpty()
 
 android {
     namespace = "com.osasuwu.like_spotify"
@@ -80,6 +83,14 @@ android {
 gradle.taskGraph.whenReady {
     val buildsRelease = hasTask(":app:assembleRelease") || hasTask(":app:bundleRelease")
     if (!buildsRelease) return@whenReady
+    if (missingKeystoreProperties.isNotEmpty()) {
+        throw GradleException(
+            "android/key.properties is incomplete - missing " +
+                "${missingKeystoreProperties.joinToString(", ")}. Fill it in " +
+                "(see android/key.properties.example) or delete it to build " +
+                "debug-signed. Refusing to silently sign with the debug key.",
+        )
+    }
     if (hasReleaseKeystore) {
         logger.warn("Warning: release signing uses the key from android/key.properties.")
     } else {
