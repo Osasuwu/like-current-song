@@ -102,6 +102,15 @@ class _YouTubeMusicSignIn extends ConsumerStatefulWidget {
 }
 
 class _YouTubeMusicSignInState extends ConsumerState<_YouTubeMusicSignIn> {
+  /// Where the "TVs and Limited Input devices" client is actually created.
+  static const _credentialsConsoleUrl =
+      'https://console.cloud.google.com/apis/credentials';
+
+  /// The README's *YouTube Music (Android)* section — the long form of setup,
+  /// so this card does not have to repeat it.
+  static const _setupGuideUrl =
+      'https://github.com/Osasuwu/like-current-song#youtube-music-android';
+
   final _clientId = TextEditingController();
   final _clientSecret = TextEditingController();
   bool _prefilled = false;
@@ -135,7 +144,22 @@ class _YouTubeMusicSignInState extends ConsumerState<_YouTubeMusicSignIn> {
         const SizedBox(height: 4),
         const Text(
           'Uses an OAuth client from your own Google Cloud project, of type '
-          '"TVs and Limited Input devices". See the README for setup.',
+          '"TVs and Limited Input devices", with YouTube Data API v3 enabled.',
+        ),
+        Wrap(
+          spacing: 8,
+          children: <Widget>[
+            TextButton.icon(
+              onPressed: () => _openUrl(_credentialsConsoleUrl),
+              icon: const Icon(Icons.open_in_new, size: 16),
+              label: const Text('Google Cloud credentials'),
+            ),
+            TextButton.icon(
+              onPressed: () => _openUrl(_setupGuideUrl),
+              icon: const Icon(Icons.open_in_new, size: 16),
+              label: const Text('Setup steps'),
+            ),
+          ],
         ),
         const SizedBox(height: 12),
         TextField(
@@ -188,6 +212,16 @@ class _YouTubeMusicSignInState extends ConsumerState<_YouTubeMusicSignIn> {
             ),
           ],
         ),
+        if (!signIn.hasCredentials) ...<Widget>[
+          const SizedBox(height: 4),
+          const Text(
+            'Connect turns on once the client ID and secret are saved.',
+          ),
+        ],
+        if (signIn.phase == DeviceSignInPhase.idle) ...<Widget>[
+          const SizedBox(height: 4),
+          const Text('The sign-in code appears after you tap Connect.'),
+        ],
         if (signIn.credentialsSaved) ...<Widget>[
           const SizedBox(height: 4),
           const Text('Credentials saved.'),
