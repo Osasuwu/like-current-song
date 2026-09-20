@@ -13,6 +13,8 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 	private var eventSink: EventChannel.EventSink? = null
@@ -23,6 +25,14 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 		@JvmStatic
 		var isFlutterAttached: Boolean = false
 			private set
+
+		private const val YTM_LIKE_WAKE_LOCK_MS = 45_000L
+
+		/**
+		 * Off-main-thread runner for YouTube Music likes. Process-wide (not per
+		 * activity) so a like in flight survives an activity recreate.
+		 */
+		private val ytmLikeExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 	}
 
 	override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -73,6 +83,38 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 						.putString(AppConstants.KEY_SPOTIFY_REFRESH_TOKEN, refreshToken)
 						.putLong(AppConstants.KEY_SPOTIFY_EXPIRES_AT, expiresAt)
 						.putString(AppConstants.KEY_SPOTIFY_CLIENT_ID, clientId)
+						.apply()
+					result.success(true)
+				}
+
+				"syncYouTubeMusicTokens" -> {
+					// Epoch ms exceeds Int range, so the channel delivers a Long;
+					// read it as Number to accept either.
+					val expiresAt = call.argument<Number>("expiresAtEpochMs")?.toLong() ?: 0L
+					val editor = prefs().edit()
+						.putString(AppConstants.KEY_YTM_ACCESS_TOKEN, call.argument<String>("accessToken"))
+						.putString(AppConstants.KEY_YTM_REFRESH_TOKEN, call.argument<String>("refreshToken"))
+						.putLong(AppConstants.KEY_YTM_TOKEN_EXPIRES_AT, expiresAt)
+						.putString(AppConstants.KEY_YTM_CLIENT_ID, call.argument<String>("clientId"))
+						.putString(AppConstants.KEY_YTM_CLIENT_SECRET, call.argument<String>("clientSecret"))
+					val userSub = call.argument<String>("userSub")
+					if (userSub.isNullOrEmpty()) {
+						editor.remove(AppConstants.KEY_YTM_USER_SUB)
+					} else {
+						editor.putString(AppConstants.KEY_YTM_USER_SUB, userSub)
+					}
+					editor.apply()
+					result.success(true)
+				}
+
+				"clearYouTubeMusicTokens" -> {
+					prefs().edit()
+						.remove(AppConstants.KEY_YTM_ACCESS_TOKEN)
+						.remove(AppConstants.KEY_YTM_REFRESH_TOKEN)
+						.remove(AppConstants.KEY_YTM_TOKEN_EXPIRES_AT)
+						.remove(AppConstants.KEY_YTM_CLIENT_ID)
+						.remove(AppConstants.KEY_YTM_CLIENT_SECRET)
+						.remove(AppConstants.KEY_YTM_USER_SUB)
 						.apply()
 					result.success(true)
 				}
@@ -207,6 +249,28 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 					val success = call.argument<Boolean>("success") ?: true
 					FeedbackPlayer.play(this, success)
 					result.success(true)
+				}
+
+				// Session-first YouTube Music like; Dart owns the tone and log line.
+				"likeYouTubeMusic" -> {
+					val appContext = applicationContext
+					val power = getSystemService(Context.POWER_SERVICE) as PowerManager
+					val wakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "LikeSpotify:ytmusic-like-ui")
+					wakeLock.setReferenceCounted(false)
+					wakeLock.acquire(YTM_LIKE_WAKE_LOCK_MS)
+					ytmLikeExecutor.execute {
+						val reply = try {
+							val liker = YouTubeMusicLiker(appContext)
+							val liked = liker.like()
+							// A counter failure never turns the like into a failure.
+							runCatching { liker.count(liked) }.getOrDefault(liked).toChannelMap()
+						} catch (e: Exception) {
+							mapOf("outcome" to "failed", "message" to (e.message ?: "unexpected error"))
+						} finally {
+							if (wakeLock.isHeld) wakeLock.release()
+						}
+						runOnUiThread { result.success(reply) }
+					}
 				}
 
 				else -> result.notImplemented()

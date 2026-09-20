@@ -18,6 +18,16 @@ object AppConstants {
     const val KEY_SPOTIFY_CLIENT_ID = "spotify_client_id"
     const val KEY_SPOTIFY_USER_ID = "spotify_user_id"
 
+    // YouTube Music (Google device-flow sign-in). Written by Dart via
+    // `syncYouTubeMusicTokens`; the native side writes refreshed tokens back
+    // to the same keys. Expiry is epoch milliseconds.
+    const val KEY_YTM_ACCESS_TOKEN = "ytm_access_token"
+    const val KEY_YTM_REFRESH_TOKEN = "ytm_refresh_token"
+    const val KEY_YTM_TOKEN_EXPIRES_AT = "ytm_token_expires_at"
+    const val KEY_YTM_CLIENT_ID = "ytm_client_id"
+    const val KEY_YTM_CLIENT_SECRET = "ytm_client_secret"
+    const val KEY_YTM_USER_SUB = "ytm_user_sub"
+
     const val KEY_RULE_ARCHIVE_REMOVE_ENABLED = "rule_archive_remove_enabled"
     const val KEY_RULE_ARCHIVE_PLAYLIST_NAME = "rule_archive_playlist_name"
     const val KEY_RULE_BEST_OF_ENABLED = "rule_best_of_enabled"
@@ -60,4 +70,8 @@ object AppConstants {
     const val NOTIFICATION_CHANNEL_ID = "like_spotify_service"
     const val NOTIFICATION_CHANNEL_NAME = "Like Spotify Listener"
     const val NOTIFICATION_ID = 11001
+
+    const val ACCOUNT_NOTIFICATION_CHANNEL_ID = "like_spotify_account"
+    const val ACCOUNT_NOTIFICATION_CHANNEL_NAME = "Account sign-in"
+    const val YTM_REAUTH_NOTIFICATION_ID = 11002
 }

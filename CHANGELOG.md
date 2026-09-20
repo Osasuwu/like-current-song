@@ -43,10 +43,37 @@ Spotify/Supabase credentials (see [README](README.md)).
 - **Android: Music service picker.** Connected services now lets you choose
   Spotify (the default) or YouTube Music; the ids match desktop's
   `music.provider`. The choice also decides which app's playback the listener
-  follows and which app "installed" checks and launches. YouTube Music shows as
-  not connected for now: sign-in lands in a later release, and until then a
-  trigger is logged as "Like skipped: YouTube Music not connected" and nothing
-  is sent to Spotify.
+  follows and which app "installed" checks and launches. With YouTube Music
+  selected nothing is ever sent to Spotify.
+- **Android: YouTube Music sign-in.** Connected services takes the client ID
+  and secret of your own Google "TVs and Limited Input devices" OAuth client.
+  **Connect** then shows a code to enter at google.com/device, with copy and
+  open-in-browser buttons. Declined, expired and cancelled sign-ins show a
+  plain message. The account id is shown once you are connected. Tokens are
+  kept apart from Spotify's, so switching services keeps both signed in. The
+  access token refreshes silently and is handed to the background listener.
+  Setup steps are in the [README](README.md#youtube-music-android).
+- **Android: YouTube Music likes, screen off.** With YouTube Music selected, the
+  trigger gives the playing song a thumbs-up through the YT Music app's media
+  session — no sign-in needed, same feedback tone, vibration and like cooldown
+  as Spotify. A song that is already liked counts as a success and is never
+  toggled off. If the session rating doesn't take and you have signed in to
+  YouTube Music, the like falls back to the YouTube Data API (same song match as
+  desktop); a used-up daily quota is logged as rate-limited, and a revoked
+  sign-in posts a "Sign in to YouTube Music again" notification. Offline likes
+  are never queued for YouTube Music (a later replay would like whatever is
+  playing then), and queued Spotify likes are only ever replayed on Spotify.
+- **Android: YouTube Music likes count in the shared counter**
+  ([#96](https://github.com/Osasuwu/like-current-song/issues/96)). A YouTube
+  Music like now adds to the same cross-device counter Spotify likes use, so
+  the log line shows the running total ("x3") and the phone and the desktop
+  app add to one count per account. Counting needs you to be signed in to
+  YouTube Music (the count is keyed by that account, never mixed with your
+  Spotify one) and a Supabase counter configured; otherwise the like just
+  isn't counted. Counting happens after the like, so a counter that is down
+  never turns a successful like into a failure — it only shows up in the log.
+  Each counted like costs one YouTube Data API search (100 quota units),
+  reusing the match the like itself made for the same song.
 
 ### Changed
 

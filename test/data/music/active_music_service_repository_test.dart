@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:like_spotify_mobile_app/data/music/active_music_service_repository.dart';
-import 'package:like_spotify_mobile_app/data/ytmusic/ytmusic_music_service_repository.dart';
 import 'package:like_spotify_mobile_app/domain/entities/like_result.dart';
 import 'package:like_spotify_mobile_app/domain/entities/music_provider.dart';
 import 'package:like_spotify_mobile_app/domain/entities/music_service_exceptions.dart';
+import 'package:like_spotify_mobile_app/domain/entities/pending_like.dart';
 import 'package:like_spotify_mobile_app/domain/entities/spotify_auth_state.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -128,33 +128,40 @@ void main() {
     );
   });
 
-  group('YouTubeMusicServiceRepository (stub)', () {
-    const yt = YouTubeMusicServiceRepository();
+  group('pending likes', () {
+    PendingLike queued(String id, MusicProvider provider) => PendingLike(
+          trackId: id,
+          trackName: id,
+          artistIds: const [],
+          artistNames: const [],
+          queuedAt: DateTime.utc(2025, 1, 1),
+          providerId: provider.id,
+        );
 
-    test('reports not connected', () async {
-      expect((await yt.getAuthState()).connected, isFalse);
+    final spotifyLike = queued('s1', MusicProvider.spotify);
+    final ytLike = queued('y1', MusicProvider.ytmusic);
+
+    setUpAll(() => registerFallbackValue(<PendingLike>[]));
+
+    test('only the selected service replays, and only its own likes', () async {
+      select(MusicProvider.spotify);
+      when(() => spotify.processPendingLikes(any())).thenAnswer((_) async => 1);
+
+      expect(await repo.processPendingLikes([spotifyLike, ytLike]), 1);
+
+      final handed = verify(() => spotify.processPendingLikes(captureAny()))
+          .captured
+          .single as List<PendingLike>;
+      expect(handed, [spotifyLike]);
+      verifyZeroInteractions(ytmusic);
     });
 
-    test('like throws MusicServiceNotConnectedException', () async {
-      await expectLater(
-        yt.likeCurrentTrack(),
-        throwsA(
-          isA<MusicServiceNotConnectedException>()
-              .having((e) => e.provider, 'provider', MusicProvider.ytmusic)
-              .having(
-                (e) => e.toString(),
-                'message',
-                'YouTube Music not connected',
-              ),
-        ),
-      );
-    });
+    test('a Spotify like is never handed to YouTube Music', () async {
+      select(MusicProvider.ytmusic);
 
-    test('does not claim auth callbacks', () async {
-      expect(
-        await yt.handleAuthCallback(Uri.parse('likespotify://auth-callback')),
-        isFalse,
-      );
+      expect(await repo.processPendingLikes([spotifyLike]), 0);
+      verifyZeroInteractions(ytmusic);
+      verifyZeroInteractions(spotify);
     });
   });
 }

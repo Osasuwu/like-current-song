@@ -6,12 +6,15 @@ import '../../domain/repositories/like_count_repository.dart';
 import '../../domain/repositories/music_service_repository.dart';
 import '../../domain/repositories/platform_service_repository.dart';
 import '../../domain/repositories/settings_repository.dart';
+import '../../domain/services/like_counter_user_id.dart';
 import '../likes/shared_prefs_like_count_repository.dart';
 import '../likes/supabase_like_count_repository.dart';
 import '../spotify/spotify_client.dart';
 import '../spotify/spotify_music_service_repository.dart';
 import '../spotify/spotify_token_store.dart';
+import '../ytmusic/google_oauth_client.dart';
 import '../ytmusic/ytmusic_music_service_repository.dart';
+import '../ytmusic/ytmusic_token_store.dart';
 import 'active_music_service_repository.dart';
 
 /// Build-time credentials for the music services and the shared counter.
@@ -40,6 +43,7 @@ MusicServiceRepository createMusicServiceRepository({
   required MusicServiceConfig config,
   required SettingsRepository settingsRepository,
   required PlatformServiceRepository platformServiceRepository,
+  required MusicServiceRepository youTubeMusic,
 }) {
   // SupabaseLikeCountRepository reads cachedUserId lazily at increment time,
   // so null on first call just falls back to local.
@@ -49,7 +53,12 @@ MusicServiceRepository createMusicServiceRepository({
       ? SupabaseLikeCountRepository(
           supabaseUrl: config.supabaseUrl,
           supabaseAnonKey: config.supabaseAnonKey,
-          userIdGetter: () => spotify.cachedUserId,
+          // Only Spotify likes go through this repository; YouTube Music
+          // likes are counted natively (YouTubeMusicLiker.kt) under the `sub`.
+          userIdGetter: () => likeCounterUserId(
+            MusicProvider.spotify,
+            spotifyUserId: spotify.cachedUserId,
+          ),
         )
       : SharedPrefsLikeCountRepository();
 
@@ -67,7 +76,19 @@ MusicServiceRepository createMusicServiceRepository({
     settingsRepository: settingsRepository,
     repositories: <MusicProvider, MusicServiceRepository>{
       MusicProvider.spotify: spotify,
-      MusicProvider.ytmusic: const YouTubeMusicServiceRepository(),
+      MusicProvider.ytmusic: youTubeMusic,
     },
+  );
+}
+
+/// YouTube Music with Google device-flow sign-in. Built separately because the
+/// Connected services screen also drives its sign-in directly.
+YouTubeMusicServiceRepository createYouTubeMusicRepository({
+  required PlatformServiceRepository platformServiceRepository,
+}) {
+  return YouTubeMusicServiceRepository(
+    oauthClient: GoogleOAuthClient(http.Client()),
+    tokenStore: YouTubeMusicTokenStore(const FlutterSecureStorage()),
+    platformServiceRepository: platformServiceRepository,
   );
 }
