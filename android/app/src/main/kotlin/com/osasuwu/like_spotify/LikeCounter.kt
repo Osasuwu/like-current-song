@@ -19,8 +19,8 @@ import java.util.TimeZone
  * the desktop app (`like_spotify/extensions/google_sheets_storage`). Keep the
  * three in step.
  *
- * The sheet has a tab named [SHEET] whose first row is the header
- * `user_id | track_id | count | backfilled | updated_at`. A row is keyed by
+ * The sheet has a tab named [SHEET] whose first row is
+ * [CounterSheetSchema.LIKES_HEADER]. A row is keyed by
  * (user id, track id), where both ids come from the music service the like
  * went through, so the phone and the computer add to the same count per
  * account.
@@ -29,8 +29,8 @@ object LikeCounter {
     private const val HTTP_TIMEOUT_MS = 5_000
     private const val API_BASE = "https://sheets.googleapis.com/v4/spreadsheets"
 
-    /** The tab the counts live on. */
-    const val SHEET = "Likes"
+    /** The tab the counts live on, from the schema all three halves share. */
+    const val SHEET = CounterSheetSchema.LIKES_TAB
 
     /** Where one like is counted. The access token is fetched per call. */
     data class Target(val spreadsheetId: String, val userId: String)
@@ -123,12 +123,14 @@ object LikeCounter {
                 val (row, current) = existing
                 val next = current + 1
                 val base = "$API_BASE/${target.spreadsheetId}/values"
-                if (!update(token, "$base/${encode("$SHEET!C$row")}", next.toString())) return null
-                // Column D (backfilled) is left alone: it records how the row
-                // started, not how it was last touched.
+                val countCell = encode("$SHEET!${CounterSheetSchema.COUNT_COLUMN}$row")
+                if (!update(token, "$base/$countCell", next.toString())) return null
+                // `backfilled` is left alone: it records how the row started,
+                // not how it was last touched.
                 // The count is already on the sheet at this point, so a failed
                 // timestamp write is reported as the success it mostly is.
-                update(token, "$base/${encode("$SHEET!E$row")}", now)
+                val stampCell = encode("$SHEET!${CounterSheetSchema.UPDATED_AT_COLUMN}$row")
+                update(token, "$base/$stampCell", now)
                 next
             } else {
                 val next = if (wasAlreadyLiked) 2 else 1

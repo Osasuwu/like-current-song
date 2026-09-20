@@ -11,7 +11,7 @@
 
 <header>
   <h1>Privacy Policy</h1>
-  <p class="meta">Like Current Song · effective 20 September 2026</p>
+  <p class="meta">Like Current Song · effective 21 September 2026</p>
 </header>
 
 <nav>
@@ -108,8 +108,9 @@
 </p>
 
 <p>
-  It is off until you supply a spreadsheet. When you do, the app asks you to sign in to
-  Google a second time, separately from YouTube Music, and requests exactly one scope:
+  It is off until a spreadsheet is configured. When you turn it on, the app asks you to
+  sign in to Google a second time, separately from YouTube Music, and requests exactly
+  one scope:
 </p>
 
 <ul>
@@ -118,6 +119,27 @@
       independent of which music service you use, so a Spotify user can have a shared
       counter without ever granting a YouTube permission.</li>
 </ul>
+
+<p>
+  You can either name a spreadsheet you already have, or ask the app to make one. If you
+  ask it to, <strong>it creates a new spreadsheet file in your Google Drive</strong>,
+  named for this app and containing only the counter's two empty tabs and their header
+  rows. That is the one file it creates; it is yours, it appears in your Drive like any
+  other, and you can rename, move or delete it whenever you like — deleting it simply
+  turns the shared counter off. No extra permission is involved: the same
+  <code>spreadsheets</code> scope above is what allows it, and no Drive permission is
+  asked for, so nothing outside Google Sheets is reachable at all.
+</p>
+
+<p>
+  To be exact about that scope, because Google's consent screen is blunt about it: it
+  says the app may see, edit, create and delete <em>all</em> your spreadsheets, and that
+  is genuinely what the permission covers — Google offers no narrower one that can also
+  create a file. What the app actually does with it is fixed in code you can read: it
+  creates the one counter spreadsheet, and afterwards reads and writes only the
+  spreadsheet whose id is in your settings. It never lists your spreadsheets and never
+  opens one you did not name.
+</p>
 
 <p>
   One like writes one row: an identifier for your music-service account, the identifier
