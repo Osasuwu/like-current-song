@@ -35,29 +35,46 @@
 <h2>What the app accesses</h2>
 
 <p>
-  When you connect an account, the app asks that service for permission to do exactly
-  what it needs to save a song:
+  When you connect an account, the app asks that service for one fixed set of
+  permissions. The set is the same for everyone and is requested in full at sign-in,
+  whether or not you later switch on the optional features — the in-app toggles control
+  what the app <em>does</em>, not what it is allowed to do.
 </p>
 
 <h3>Spotify</h3>
+
+<p>The app requests, and the consent screen lists:</p>
+
 <ul>
-  <li><strong>What is playing right now</strong> — to know which song to save.</li>
-  <li><strong>Your saved tracks</strong> — to add the song, and to check whether it is
-      already there.</li>
-  <li><strong>Your playlists</strong> and <strong>followed artists</strong> — only if you
-      switch on the optional extra actions (archive clean-up, best-of playlist, follow
-      artist).</li>
+  <li><strong>What is playing right now</strong>
+      (<code>user-read-playback-state</code>) — to know which song to save.</li>
+  <li><strong>Your saved tracks</strong>, read and write
+      (<code>user-library-read</code>, <code>user-library-modify</code>) — to add the
+      song, and to check whether it is already there.</li>
+  <li><strong>Your playlists</strong>, read and write
+      (<code>playlist-read-private</code>, <code>playlist-read-collaborative</code>,
+      <code>playlist-modify-private</code>, <code>playlist-modify-public</code>) and
+      <strong>following artists</strong> (<code>user-follow-modify</code>, and
+      <code>user-follow-read</code> on desktop).</li>
 </ul>
+
+<p>
+  The playlist and follow permissions are used only by the optional extra actions —
+  archive clean-up, best-of playlist and follow-artist. If you leave those switched off,
+  the app never calls them, but the permission is still granted at sign-in, and you can
+  see and revoke it at any time (see below).
+</p>
 
 <h3>YouTube Music</h3>
 <ul>
   <li>The thumbs-up itself uses the media session that YouTube Music publishes on your
       phone. It needs <em>no</em> Google account and no sign-in.</li>
-  <li>If you choose to sign in, the app requests the
-      <code>https://www.googleapis.com/auth/youtube</code> scope and uses it to look up
-      the playing song through the YouTube Data API, rate it, and — only if you switch on
-      the optional extra actions — edit your own playlists and channel subscriptions.
-      Nothing else is read or written.</li>
+  <li>If you choose to sign in, the app requests the single
+      <code>https://www.googleapis.com/auth/youtube</code> scope. It is used to look up
+      the playing song through the YouTube Data API and rate it; the same scope also
+      covers editing your own playlists and channel subscriptions, which happens only
+      when you switch on the optional extra actions. Nothing else is read or written,
+      and no other scope is requested.</li>
 </ul>
 
 <h2>What is stored, and where</h2>
