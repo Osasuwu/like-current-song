@@ -270,41 +270,10 @@ class SpotifyLikeWorker(
     // ---- Like counting -------------------------------------------------
 
     private fun incrementTrackLikeCount(prefs: SharedPreferences, trackId: String): Int {
-        val supabaseUrl = prefs.getString(AppConstants.KEY_SUPABASE_URL, null)
-        val supabaseKey = prefs.getString(AppConstants.KEY_SUPABASE_ANON_KEY, null)
-        val userId = prefs.getString(AppConstants.KEY_SPOTIFY_USER_ID, null)
-        if (!supabaseUrl.isNullOrBlank() && !supabaseKey.isNullOrBlank() && !userId.isNullOrBlank()) {
-            val remoteCount = incrementTrackLikeCountRemote(supabaseUrl, supabaseKey, userId, trackId)
-            if (remoteCount != null) return remoteCount
+        LikeCounter.target(prefs, MusicProvider.SPOTIFY)?.let { target ->
+            LikeCounter.increment(target, trackId)?.let { return it }
         }
         return incrementLocalCount(prefs, AppConstants.KEY_TRACK_LIKE_COUNTS, trackId)
-    }
-
-    private fun incrementTrackLikeCountRemote(
-        supabaseUrl: String,
-        supabaseAnonKey: String,
-        userId: String,
-        trackId: String
-    ): Int? {
-        return try {
-            val connection = URL("$supabaseUrl/rest/v1/rpc/increment_track_like").openConnection() as HttpURLConnection
-            connection.requestMethod = "POST"
-            connection.doOutput = true
-            connection.connectTimeout = 5000
-            connection.readTimeout = 5000
-            connection.setRequestProperty("Content-Type", "application/json")
-            connection.setRequestProperty("apikey", supabaseAnonKey)
-            connection.setRequestProperty("Authorization", "Bearer $supabaseAnonKey")
-            val body = JSONObject()
-                .put("p_user_id", userId)
-                .put("p_track_id", trackId)
-                .toString()
-            OutputStreamWriter(connection.outputStream).use { it.write(body) }
-            if (connection.responseCode !in 200..299) return null
-            readBody(connection)?.trim()?.toIntOrNull()
-        } catch (_: Exception) {
-            null
-        }
     }
 
     private fun incrementLocalCount(prefs: SharedPreferences, key: String, id: String): Int {

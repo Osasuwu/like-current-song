@@ -63,6 +63,17 @@ Spotify/Supabase credentials (see [README](README.md)).
   sign-in posts a "Sign in to YouTube Music again" notification. Offline likes
   are never queued for YouTube Music (a later replay would like whatever is
   playing then), and queued Spotify likes are only ever replayed on Spotify.
+- **Android: YouTube Music likes count in the shared counter**
+  ([#96](https://github.com/Osasuwu/like-current-song/issues/96)). A YouTube
+  Music like now adds to the same cross-device counter Spotify likes use, so
+  the log line shows the running total ("x3") and the phone and the desktop
+  app add to one count per account. Counting needs you to be signed in to
+  YouTube Music (the count is keyed by that account, never mixed with your
+  Spotify one) and a Supabase counter configured; otherwise the like just
+  isn't counted. Counting happens after the like, so a counter that is down
+  never turns a successful like into a failure — it only shows up in the log.
+  Each counted like costs one YouTube Data API search (100 quota units),
+  reusing the match the like itself made for the same song.
 
 ### Changed
 

@@ -101,7 +101,14 @@ Install the APK, connect Spotify in the app, enable the listener service.
 trigger then gives the playing song a thumbs-up through the YT Music app's own
 media session, so it works with the screen off and needs **no sign-in**, only
 the notification access the listener already uses. Signing in is optional: it
-adds a YouTube Data API fallback for when the session rating doesn't take.
+adds a YouTube Data API fallback for when the session rating doesn't take, and
+it lets your likes count in the shared counter (the same one the desktop app
+uses, keyed by your Google account, and only when Supabase is configured).
+Counting looks the song up through the Data API the first time it is
+liked, which costs 100 of the 10,000 daily quota units — about 100 new
+songs a day; repeats of a song already looked up are free. Past that,
+likes still work, they just stop counting until the quota resets at
+midnight Pacific time.
 
 To sign in, you use your own Google OAuth client. Nothing goes in
 `.env`: you enter the client in the app. It takes about 5 minutes, once.

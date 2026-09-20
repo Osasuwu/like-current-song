@@ -162,8 +162,12 @@ class MediaButtonForegroundService : Service() {
         val submitted = runCatching {
             likeExecutor.execute {
                 try {
-                    val outcome = YouTubeMusicLiker(appContext).like()
-                    FeedbackPlayer.play(appContext, outcome.positive)
+                    val liker = YouTubeMusicLiker(appContext)
+                    val liked = liker.like()
+                    FeedbackPlayer.play(appContext, liked.positive)
+                    // After the tone: counting may take a search and an RPC,
+                    // and it never changes whether the like succeeded.
+                    val outcome = runCatching { liker.count(liked) }.getOrDefault(liked)
                     log(
                         outcome.logLine(),
                         actionType = "like_track",

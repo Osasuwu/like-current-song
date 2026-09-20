@@ -369,6 +369,28 @@ void main() {
       expect(result.alreadyLiked, isTrue);
     });
 
+    test('a counted like carries the shared counter value', () async {
+      likeReply({'outcome': 'liked', 'trackName': 'Song', 'likeCount': 3});
+
+      expect((await repo.likeCurrentTrack()).trackLikeCount, 3);
+    });
+
+    test('an already-liked song carries its count too', () async {
+      likeReply({
+        'outcome': 'already_liked',
+        'trackName': 'Song',
+        'likeCount': 2,
+      });
+
+      expect((await repo.likeCurrentTrack()).trackLikeCount, 2);
+    });
+
+    test('an uncounted like has no count', () async {
+      likeReply({'outcome': 'liked', 'trackName': 'Song', 'likeCount': null});
+
+      expect((await repo.likeCurrentTrack()).trackLikeCount, 0);
+    });
+
     test('a cooldown skip is not a like', () async {
       likeReply({'outcome': 'cooldown', 'trackName': 'Song'});
 

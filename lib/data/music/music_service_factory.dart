@@ -6,6 +6,7 @@ import '../../domain/repositories/like_count_repository.dart';
 import '../../domain/repositories/music_service_repository.dart';
 import '../../domain/repositories/platform_service_repository.dart';
 import '../../domain/repositories/settings_repository.dart';
+import '../../domain/services/like_counter_user_id.dart';
 import '../likes/shared_prefs_like_count_repository.dart';
 import '../likes/supabase_like_count_repository.dart';
 import '../spotify/spotify_client.dart';
@@ -52,7 +53,12 @@ MusicServiceRepository createMusicServiceRepository({
       ? SupabaseLikeCountRepository(
           supabaseUrl: config.supabaseUrl,
           supabaseAnonKey: config.supabaseAnonKey,
-          userIdGetter: () => spotify.cachedUserId,
+          // Only Spotify likes go through this repository; YouTube Music
+          // likes are counted natively (YouTubeMusicLiker.kt) under the `sub`.
+          userIdGetter: () => likeCounterUserId(
+            MusicProvider.spotify,
+            spotifyUserId: spotify.cachedUserId,
+          ),
         )
       : SharedPrefsLikeCountRepository();
 

@@ -35,9 +35,12 @@ import java.net.URLEncoder
  *    or the rating does not stick: `search.list` with the desktop pick order,
  *    then `videos.rate`. Needs the device-flow tokens from #94.
  *
- * Blocking (sleeps and HTTP): call [like] off the main thread. The caller
- * owns the outcome's feedback tone and final log line; this class only logs
- * the intermediate steps.
+ * After a like goes through, [count] adds it to the shared Supabase counter
+ * under the Google account's `sub`, the key desktop YouTube Music uses (#96).
+ *
+ * Blocking (sleeps and HTTP): call [like] and [count] off the main thread. The
+ * caller owns the outcome's feedback tone and final log line; this class only
+ * logs the intermediate steps.
  */
 class YouTubeMusicLiker(context: Context) {
     private val context = context.applicationContext
@@ -53,6 +56,10 @@ class YouTubeMusicLiker(context: Context) {
         /** Why a like failed; null otherwise. */
         val error: String? = null,
         val httpCode: Int? = null,
+        /** The song the outcome is about; null when nothing is playing. */
+        val nowPlaying: NowPlaying? = null,
+        /** The shared counter's new value; null when the like was not counted. */
+        val likeCount: Int? = null,
     ) {
         /** Whether the user should hear the success tone. */
         val positive: Boolean get() = kind != Kind.FAILED
@@ -61,7 +68,8 @@ class YouTubeMusicLiker(context: Context) {
         fun logLine(): String {
             val name = trackName ?: "YouTube Music"
             return when (kind) {
-                Kind.LIKED -> "Liked: $name"
+                // "(xN)" matches the Dart log line (AppController._likedMessage).
+                Kind.LIKED -> if (likeCount != null) "Liked: $name (x$likeCount)" else "Liked: $name"
                 Kind.ALREADY_LIKED -> "Already liked: $name"
                 Kind.COOLDOWN -> "Like skipped (cooldown): $name"
                 Kind.FAILED -> "Like failed: ${error ?: "unknown error"}"
@@ -79,14 +87,57 @@ class YouTubeMusicLiker(context: Context) {
             "trackName" to trackName,
             "message" to error,
             "httpCode" to httpCode,
+            "likeCount" to likeCount,
         )
     }
 
-    private data class NowPlaying(val title: String, val artist: String) {
+    /** Title and (cleaned) artist read from the YouTube Music session. */
+    data class NowPlaying(val title: String, val artist: String) {
         val display: String get() = if (artist.isBlank()) title else "$title — $artist"
     }
 
     fun like(): Outcome = synchronized(LOCK) { likeLocked() }
+
+    /**
+     * Adds a successful like to the shared counter and returns [outcome] with
+     * the new [Outcome.likeCount]. Only when the user is signed in to YouTube
+     * Music (the `sub` is known) and Supabase is configured; otherwise, or
+     * when the like did not go through, [outcome] comes back unchanged.
+     *
+     * Never flips the outcome: a counter failure is logged and the like still
+     * counts as a success.
+     */
+    fun count(outcome: Outcome): Outcome = synchronized(LOCK) { countLocked(outcome) }
+
+    private fun countLocked(outcome: Outcome): Outcome {
+        val nowPlaying = outcome.nowPlaying ?: return outcome
+        if (outcome.kind != Kind.LIKED && outcome.kind != Kind.ALREADY_LIKED) return outcome
+        val target = LikeCounter.target(prefs, MusicProvider.YTMUSIC) ?: return outcome
+
+        val videoId = try {
+            resolveVideoId(nowPlaying)
+        } catch (failure: ApiFailure) {
+            log("Like not counted: ${failure.outcomeError}", actionType = COUNT_ACTION, httpCode = failure.httpCode)
+            return outcome
+        } catch (e: Exception) {
+            log("Like not counted: network error: ${e.message}", actionType = COUNT_ACTION)
+            return outcome
+        }
+        if (videoId == null) {
+            log("Like not counted: no YouTube match for this song", actionType = COUNT_ACTION)
+            return outcome
+        }
+        val newCount = LikeCounter.increment(
+            target,
+            trackId = videoId,
+            wasAlreadyLiked = outcome.kind == Kind.ALREADY_LIKED,
+        )
+        if (newCount == null) {
+            log("Like not counted: the shared counter did not answer", actionType = COUNT_ACTION)
+            return outcome
+        }
+        return outcome.copy(likeCount = newCount)
+    }
 
     private fun likeLocked(): Outcome {
         // Without a session there is no title/artist either, so the Data API
@@ -99,14 +150,14 @@ class YouTubeMusicLiker(context: Context) {
         val cooldown = cooldownMinutes()
         val key = cooldownKey(nowPlaying.title, nowPlaying.artist)
         if (cooldown != null && isWithinCooldown(key, cooldown)) {
-            return Outcome(Kind.COOLDOWN, nowPlaying.display)
+            return Outcome(Kind.COOLDOWN, nowPlaying.display, nowPlaying = nowPlaying)
         }
 
         val outcome = when (sessionLike(controller)) {
             SessionResult.ALREADY_LIKED -> Outcome(Kind.ALREADY_LIKED, nowPlaying.display)
             SessionResult.LIKED -> Outcome(Kind.LIKED, nowPlaying.display)
             SessionResult.UNSUPPORTED, SessionResult.DID_NOT_STICK -> apiLike(nowPlaying)
-        }
+        }.copy(nowPlaying = nowPlaying)
         if (outcome.positive) recordLikedAt(key)
         return outcome
     }
@@ -408,10 +459,15 @@ class YouTubeMusicLiker(context: Context) {
 
     // ---- Logging -------------------------------------------------
 
-    private fun log(message: String, result: String = "info", httpCode: Int? = null) {
+    private fun log(
+        message: String,
+        result: String = "info",
+        httpCode: Int? = null,
+        actionType: String = "like_track",
+    ) {
         val intent = Intent(AppConstants.ACTION_LOG_EVENT)
             .putExtra(AppConstants.EXTRA_LOG, message)
-            .putExtra(AppConstants.EXTRA_LOG_ACTION_TYPE, "like_track")
+            .putExtra(AppConstants.EXTRA_LOG_ACTION_TYPE, actionType)
             .putExtra(AppConstants.EXTRA_LOG_RESULT, result)
         if (httpCode != null) intent.putExtra(AppConstants.EXTRA_LOG_HTTP_CODE, httpCode)
         LocalBroadcastManager.getInstance(context).sendBroadcast(intent)
@@ -425,6 +481,9 @@ class YouTubeMusicLiker(context: Context) {
         private const val REAUTH_REQUEST_CODE = 6
         private const val RESOLVED_CACHE_SIZE = 64
 
+        /** Log action type for the shared-counter step. */
+        private const val COUNT_ACTION = "like_count"
+
         /** Serialises likes from the service and the Flutter channel. */
         private val LOCK = Any()
 
@@ -435,7 +494,7 @@ class YouTubeMusicLiker(context: Context) {
          */
         private const val SEP = "\u001F"
 
-        /** cooldownKey -> videoId: saves 100 quota units on a repeat fallback. */
+        /** cooldownKey -> videoId: saves 100 quota units on a repeat fallback or count. */
         private val RESOLVED = LinkedHashMap<String, String>()
 
         /**
