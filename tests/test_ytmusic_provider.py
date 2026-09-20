@@ -657,18 +657,18 @@ async def test_archive_remove_action_missing_playlist_is_a_no_op(
 
 
 @pytest.mark.asyncio
-async def test_promote_to_best_of_action_runs_against_youtube(
+async def test_promote_to_best_action_runs_against_youtube(
     monkeypatch, tmp_path
 ) -> None:
     from like_spotify.core.types import LikeContext
-    from like_spotify.extensions.promote_to_best_of import PromoteToBestOfAction
+    from like_spotify.extensions.promote_to_best import PromoteToBestAction
 
     http = FakeHttp(monkeypatch, {
         ("GET", "playlists"): [FakeResponse(200, _playlists_page())],
         ("POST", "playlists"): [FakeResponse(200, {"id": "best"})],
         ("POST", "playlistItems"): [FakeResponse(200, {"id": "item"})],
     })
-    await PromoteToBestOfAction("Best", threshold=3).run(
+    await PromoteToBestAction("Best", threshold=3).run(
         LikeContext(
             track=_yt_track("vid"), like_count=3, music_provider=_provider(tmp_path)
         )

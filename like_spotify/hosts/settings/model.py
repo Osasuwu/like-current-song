@@ -33,8 +33,8 @@ from like_spotify.extensions.follow_artist import (
     DEFAULT_THRESHOLD as DEFAULT_FOLLOW_THRESHOLD,
 )
 from like_spotify.extensions.like_cooldown import DEFAULT_MINUTES as DEFAULT_COOLDOWN_MINUTES
-from like_spotify.extensions.promote_to_best_of import (
-    DEFAULT_THRESHOLD as DEFAULT_BEST_OF_THRESHOLD,
+from like_spotify.extensions.promote_to_best import (
+    DEFAULT_THRESHOLD as DEFAULT_BEST_THRESHOLD,
 )
 from like_spotify.extensions.tray_hotkey_trigger import DEFAULT_HOTKEY
 
@@ -53,7 +53,7 @@ ACTION_HINTS: dict[str, str] = {
         "Liking a track removes it from this playlist (e.g. a saved copy of "
         "Discover Weekly). Also turns on the remove-without-like hotkey."
     ),
-    "promote_to_best_of": (
+    "promote_to_best": (
         "Adds a track to this playlist once you've liked it N times "
         "(needs counter storage)."
     ),
@@ -86,9 +86,9 @@ class Settings:
 
     archive_enabled: bool = False
     archive_playlist: str = ""
-    best_of_enabled: bool = False
-    best_of_playlist: str = ""
-    best_of_threshold: int = DEFAULT_BEST_OF_THRESHOLD
+    best_enabled: bool = False
+    best_playlist: str = ""
+    best_threshold: int = DEFAULT_BEST_THRESHOLD
     follow_enabled: bool = False
     follow_threshold: int = DEFAULT_FOLLOW_THRESHOLD
     cooldown_enabled: bool = False
@@ -98,10 +98,15 @@ class Settings:
 # Field groups that are written together (a change to one rewrites the group).
 _ACTION_GROUPS: dict[str, tuple[str, ...]] = {
     "archive_remove": ("archive_enabled", "archive_playlist"),
-    "promote_to_best_of": ("best_of_enabled", "best_of_playlist", "best_of_threshold"),
+    "promote_to_best": ("best_enabled", "best_playlist", "best_threshold"),
     "follow_artist": ("follow_enabled", "follow_threshold"),
     "like_cooldown": ("cooldown_enabled", "cooldown_minutes"),
 }
+
+
+# Pre-v1.1.1 spellings of an action block. Read as a fallback, dropped once
+# the window rewrites the block under its current name.
+_LEGACY_ACTION_NAMES: dict[str, str] = {"promote_to_best": "promote_to_best_of"}
 
 
 # ── Reading ────────────────────────────────────────────────────────────
@@ -146,7 +151,9 @@ def settings_from_config(cfg: dict) -> Settings:
     trigger = _section(cfg, "trigger")
     actions = _section(cfg, "actions")
     archive = _section(actions, "archive_remove")
-    best_of = _section(actions, "promote_to_best_of")
+    # `promote_to_best_of` is the pre-v1.1.1 name of the block; it is still
+    # read so an existing config keeps its rule, and never written back.
+    best = _section(actions, "promote_to_best") or _section(actions, "promote_to_best_of")
     follow = _section(actions, "follow_artist")
     cooldown = _section(actions, "like_cooldown")
 
@@ -156,8 +163,8 @@ def settings_from_config(cfg: dict) -> Settings:
         or cfg.get("archive_playlist_name")
         or ""
     )
-    best_of_name = (
-        best_of.get("playlist_name")
+    best_name = (
+        best.get("playlist_name")
         or actions.get("best_of_playlist_name")
         or cfg.get("best_of_playlist_name")
         or ""
@@ -178,11 +185,11 @@ def settings_from_config(cfg: dict) -> Settings:
             not fresh and bool(archive_name) and bool(archive.get("enabled", True))
         ),
         archive_playlist=archive_name,
-        best_of_enabled=(
-            not fresh and bool(best_of_name) and bool(best_of.get("enabled", True))
+        best_enabled=(
+            not fresh and bool(best_name) and bool(best.get("enabled", True))
         ),
-        best_of_playlist=best_of_name,
-        best_of_threshold=_as_int(best_of.get("threshold"), DEFAULT_BEST_OF_THRESHOLD),
+        best_playlist=best_name,
+        best_threshold=_as_int(best.get("threshold"), DEFAULT_BEST_THRESHOLD),
         follow_enabled=not fresh and bool(follow.get("enabled", True)),
         follow_threshold=_as_int(follow.get("threshold"), DEFAULT_FOLLOW_THRESHOLD),
         cooldown_enabled=not fresh and bool(cooldown.get("enabled", True)),
@@ -265,20 +272,20 @@ def validate(s: Settings) -> Validation:
 
     if s.archive_enabled and not s.archive_playlist.strip():
         err("archive_playlist", "Archive clean-up needs a playlist name.")
-    if s.best_of_enabled:
-        if not s.best_of_playlist.strip():
-            err("best_of_playlist", "Best-of needs a playlist name.")
-        if s.best_of_threshold < 1:
-            err("best_of_threshold", "Best-of threshold must be at least 1.")
+    if s.best_enabled:
+        if not s.best_playlist.strip():
+            err("best_playlist", "Best needs a playlist name.")
+        if s.best_threshold < 1:
+            err("best_threshold", "Best threshold must be at least 1.")
     if s.follow_enabled and s.follow_threshold < 1:
         err("follow_threshold", "Follow-artist threshold must be at least 1.")
     if s.cooldown_enabled and s.cooldown_minutes < 1:
         err("cooldown_minutes", "Cooldown must be at least 1 minute.")
 
     if s.storage_backend == "none":
-        if s.best_of_enabled:
+        if s.best_enabled:
             warnings.append(
-                Issue("best_of_enabled", "Best-of stays inactive until counter storage is set.")
+                Issue("best_enabled", "Best stays inactive until counter storage is set.")
             )
         if s.follow_enabled:
             warnings.append(
@@ -353,8 +360,14 @@ def apply_settings(cfg: dict, s: Settings, baseline: Settings | None = None) -> 
     for name, group in _ACTION_GROUPS.items():
         if not _changed(s, baseline, *group):
             continue
-        block = _ensure(_ensure(out, "actions"), name)
+        actions_out = _ensure(out, "actions")
+        block = _ensure(actions_out, name)
         _write_action(name, block, s)
+        # The block just written is authoritative, so drop the superseded
+        # spelling rather than leave two blocks disagreeing.
+        legacy = _LEGACY_ACTION_NAMES.get(name)
+        if legacy is not None:
+            actions_out.pop(legacy, None)
 
     return out
 
@@ -364,11 +377,11 @@ def _write_action(name: str, block: dict, s: Settings) -> None:
         block["enabled"] = s.archive_enabled
         if s.archive_playlist.strip():
             block["playlist_name"] = s.archive_playlist.strip()
-    elif name == "promote_to_best_of":
-        block["enabled"] = s.best_of_enabled
-        if s.best_of_playlist.strip():
-            block["playlist_name"] = s.best_of_playlist.strip()
-        block["threshold"] = s.best_of_threshold
+    elif name == "promote_to_best":
+        block["enabled"] = s.best_enabled
+        if s.best_playlist.strip():
+            block["playlist_name"] = s.best_playlist.strip()
+        block["threshold"] = s.best_threshold
     elif name == "follow_artist":
         block["enabled"] = s.follow_enabled
         block["threshold"] = s.follow_threshold

@@ -66,8 +66,8 @@ void main() {
 
         expect(state.ruleConfig.archiveRemoveEnabled, isFalse);
         expect(state.ruleConfig.archivePlaylistName, isEmpty);
-        expect(state.ruleConfig.bestOfEnabled, isFalse);
-        expect(state.ruleConfig.bestOfPlaylistName, isEmpty);
+        expect(state.ruleConfig.bestEnabled, isFalse);
+        expect(state.ruleConfig.bestPlaylistName, isEmpty);
         expect(state.ruleConfig.followArtistEnabled, isFalse);
       });
 
@@ -253,7 +253,7 @@ void main() {
         ];
         final ruleConfig = RuleConfig.defaults().copyWith(
           archivePlaylistName: 'Custom Archive',
-          bestOfPlaylistName: 'Custom Best Of',
+          bestPlaylistName: 'Custom Best Of',
         );
 
         final state = buildState(
@@ -277,7 +277,7 @@ void main() {
         expect(state.musicAppInstalled, equals(true));
         expect(state.authState.connected, equals(true));
         expect(state.ruleConfig.archivePlaylistName, equals('Custom Archive'));
-        expect(state.ruleConfig.bestOfPlaylistName, equals('Custom Best Of'));
+        expect(state.ruleConfig.bestPlaylistName, equals('Custom Best Of'));
         expect(state.logs.length, equals(1));
         expect(state.lastError, equals('Custom error'));
       });

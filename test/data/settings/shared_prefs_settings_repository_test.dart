@@ -27,10 +27,10 @@ void main() {
 
       expect(config.toJson(), equals(RuleConfig.defaults().toJson()));
       expect(config.archiveRemoveEnabled, isFalse);
-      expect(config.bestOfEnabled, isFalse);
+      expect(config.bestEnabled, isFalse);
       expect(config.followArtistEnabled, isFalse);
       expect(config.archivePlaylistName, isEmpty);
-      expect(config.bestOfPlaylistName, isEmpty);
+      expect(config.bestPlaylistName, isEmpty);
       // Persisted so later launches (which will have logs etc.) cannot flip it.
       expect(await savedRuleConfig(), equals(RuleConfig.defaults().toJson()));
     });
@@ -43,7 +43,7 @@ void main() {
       final config = await repo.loadRuleConfig();
 
       expect(config.archiveRemoveEnabled, isFalse);
-      expect(config.bestOfEnabled, isFalse);
+      expect(config.bestEnabled, isFalse);
       expect(config.followArtistEnabled, isFalse);
     });
 
@@ -51,9 +51,9 @@ void main() {
       final saved = <String, dynamic>{
         'archiveRemoveEnabled': true,
         'archivePlaylistName': 'My Archive',
-        'bestOfEnabled': true,
-        'bestOfPlaylistName': 'Top Picks',
-        'bestOfThreshold': 4,
+        'bestEnabled': true,
+        'bestPlaylistName': 'Top Picks',
+        'bestThreshold': 4,
         'followArtistEnabled': false,
         'followArtistThreshold': 7,
         'likeCooldownEnabled': true,
@@ -78,8 +78,8 @@ void main() {
 
       expect(config.archiveRemoveEnabled, isTrue);
       expect(config.archivePlaylistName, 'Old Archive');
-      expect(config.bestOfEnabled, isTrue);
-      expect(config.bestOfPlaylistName, AppConstants.legacyBestOfPlaylistName);
+      expect(config.bestEnabled, isTrue);
+      expect(config.bestPlaylistName, AppConstants.legacyBestPlaylistName);
       expect(config.followArtistEnabled, isTrue);
       expect(await savedRuleConfig(), equals(config.toJson()));
     });

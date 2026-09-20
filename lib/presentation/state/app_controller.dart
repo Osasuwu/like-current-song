@@ -365,7 +365,7 @@ class AppController extends StateNotifier<AppState> {
   Future<void> saveRuleConfig(RuleConfig config) async {
     final normalized = config.copyWith(
       archivePlaylistName: config.archivePlaylistName.trim(),
-      bestOfPlaylistName: config.bestOfPlaylistName.trim(),
+      bestPlaylistName: config.bestPlaylistName.trim(),
     );
     final errors = normalized.validate();
     if (errors.isNotEmpty) {
@@ -453,11 +453,11 @@ class AppController extends StateNotifier<AppState> {
           message: 'Removed from archive playlist',
         );
       }
-      if (result.addedToBestOf) {
+      if (result.addedToBest) {
         await addLog(
-          actionType: 'best_of_add',
+          actionType: 'best_add',
           result: LogResult.success,
-          message: 'Added to best-of playlist',
+          message: 'Added to best playlist',
         );
       }
       if (result.followedArtistNames.isNotEmpty) {
@@ -736,11 +736,11 @@ class AppController extends StateNotifier<AppState> {
           message: 'Removed from archive playlist',
         );
       }
-      if (result.addedToBestOf) {
+      if (result.addedToBest) {
         await addLog(
-          actionType: 'best_of_add',
+          actionType: 'best_add',
           result: LogResult.success,
-          message: 'Added to best-of playlist',
+          message: 'Added to best playlist',
         );
       }
       if (result.followedArtistNames.isNotEmpty) {

@@ -71,7 +71,7 @@ The `music_provider` field carries the resolved provider instance so that **prov
 Rationale tie:
 
 - `provider` + `provider_track_id` instead of a synthetic global ID — Pano stores per-account caches keyed on `UserAccountSerializable`; same lesson, IDs don't cross providers.
-- `LikeContext.like_count` flows through the chain because PostLikeActions need to gate on it (best-of promote at threshold = 3). MA's event bus pattern (`subscribe(handle_event, EventType.MEDIA_ITEM_PLAYED)`) is the alternative — pub/sub. Rejected for Phase 1: explicit ordering matters here (count must be incremented before promote checks it), and the chain is short (~5 actions).
+- `LikeContext.like_count` flows through the chain because PostLikeActions need to gate on it (best promote at threshold = 3). MA's event bus pattern (`subscribe(handle_event, EventType.MEDIA_ITEM_PLAYED)`) is the alternative — pub/sub. Rejected for Phase 1: explicit ordering matters here (count must be incremented before promote checks it), and the chain is short (~5 actions).
 
 Typed errors used by host branching are stubbed in `core/errors.py` (full surface in #21):
 
@@ -204,7 +204,7 @@ class PostLikeAction(ABC):
 
 Rationale tie:
 
-- Sequential, not concurrent: the existing best-of flow needs `Storage.increment_and_get_count` to populate `ctx.like_count` *before* `PromoteToBestOfAction` reads it. Concurrent breaks the gate.
+- Sequential, not concurrent: the existing best flow needs `Storage.increment_and_get_count` to populate `ctx.like_count` *before* `PromoteToBestAction` reads it. Concurrent breaks the gate.
 - Failures isolated: an unreachable Supabase shouldn't block archive-remove. (Today's `desktop/like_spotify.py` already does this implicitly — every step is a try-or-fall-through; we make the contract explicit.)
 
 ### 2.6 Storage
@@ -258,7 +258,7 @@ class Storage(ABC):
 
 Rationale tie:
 
-- `increment_and_get_count` returns `int | None`, not `Result`-style — `None` semantically encodes "I don't know" (see today's `supabase_increment` returning `None` on failure, and the best-of gate quietly skipping). Promotes the existing implicit contract to explicit.
+- `increment_and_get_count` returns `int | None`, not `Result`-style — `None` semantically encodes "I don't know" (see today's `supabase_increment` returning `None` on failure, and the best gate quietly skipping). Promotes the existing implicit contract to explicit.
 - Key is `(user_id, provider_track_id)` — single-provider scope for Phase 1 matches today's `desktop/like_spotify.py` reality. The `LikeRecord.provider` field carries the source for the audit log so backfill can disambiguate later, but the live counter is single-keyed.
 - **Multi-provider migration path** (when a second `MusicProvider` lands): add `provider: str` arg to `increment_and_get_count`, default it to the configured single-provider domain for backwards compat, and migrate the live counter table by treating the existing rows as belonging to that provider. Storage authors landing in Phase 1 can rely on the single-key semantics; the migration is additive, not breaking.
 - `backfill` is on the same interface (not a separate `Backfillable`): MA's lesson — capability flags on a single base class read better than a proliferation of optional mixins, **as long as the count is small** (we have one optional method, not ten).

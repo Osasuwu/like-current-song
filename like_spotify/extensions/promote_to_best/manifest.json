@@ -1,0 +1,10 @@
+{
+  "domain": "promote_to_best",
+  "extension_point": "post_like_action",
+  "name": "Promote to Best",
+  "description": "Adds a track to a 'best' playlist when its like count crosses a configured threshold (Spotify, YouTube Music).",
+  "codeowners": ["@Osasuwu"],
+  "requirements": ["requests>=2.31"],
+  "documentation": "https://github.com/Osasuwu/like-current-song/blob/main/like_spotify/extensions/promote_to_best/README.md",
+  "stage": "stable"
+}

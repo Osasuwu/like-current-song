@@ -41,7 +41,7 @@ void main() {
         trackLiked: true,
       );
       expect(result.removedFromArchive, false);
-      expect(result.addedToBestOf, false);
+      expect(result.addedToBest, false);
       expect(result.followedArtistNames, isEmpty);
       expect(result.trackLikeCount, 0);
       expect(result.errorMessage, isNull);

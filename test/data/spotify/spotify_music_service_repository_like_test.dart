@@ -70,9 +70,9 @@ void main() {
       (_) async => const RuleConfig(
         archiveRemoveEnabled: true,
         archivePlaylistName: '',
-        bestOfEnabled: true,
-        bestOfPlaylistName: '',
-        bestOfThreshold: 3,
+        bestEnabled: true,
+        bestPlaylistName: '',
+        bestThreshold: 3,
         followArtistEnabled: true,
         followArtistThreshold: 5,
       ),
@@ -101,7 +101,7 @@ void main() {
       expect(result.trackLiked, true);
       expect(result.trackName, 'Test Song');
       expect(result.trackLikeCount, 1);
-      expect(result.addedToBestOf, false);
+      expect(result.addedToBest, false);
       expect(result.followedArtistNames, isEmpty);
       verify(() => mockClient.likeTrack(
             trackId: 'track-123',
@@ -109,7 +109,7 @@ void main() {
           )).called(1);
     });
 
-    test('adds to best-of playlist when track reaches 3 likes', () async {
+    test('adds to best playlist when track reaches 3 likes', () async {
       when(() => mockClient.likeTrack(
             trackId: any(named: 'trackId'),
             accessToken: any(named: 'accessToken'),
@@ -122,32 +122,32 @@ void main() {
         (_) async => const RuleConfig(
           archiveRemoveEnabled: true,
           archivePlaylistName: '',
-          bestOfEnabled: true,
-          bestOfPlaylistName: 'Best Of',
-          bestOfThreshold: 3,
+          bestEnabled: true,
+          bestPlaylistName: 'Best Of',
+          bestThreshold: 3,
           followArtistEnabled: true,
           followArtistThreshold: 5,
         ),
       );
       when(() => mockClient.getUserPlaylists(any(), offset: 0)).thenAnswer(
         (_) async => const models.SpotifyPlaylistPage(
-          items: [models.SpotifyPlaylistItem(id: 'bestof-id', name: 'Best Of')],
+          items: [models.SpotifyPlaylistItem(id: 'best-id', name: 'Best Of')],
           total: 1,
         ),
       );
       when(() => mockClient.addTracksToPlaylist(
             any(),
-            playlistId: 'bestof-id',
+            playlistId: 'best-id',
             trackUris: ['spotify:track:track-123'],
           )).thenAnswer((_) async {});
 
       final result = await repo.likeTrack(trackInfo);
 
-      expect(result.addedToBestOf, true);
+      expect(result.addedToBest, true);
       expect(result.trackLikeCount, 3);
     });
 
-    test('does not add to best-of when count is not exactly 3', () async {
+    test('does not add to best when count is not exactly 3', () async {
       when(() => mockClient.likeTrack(
             trackId: any(named: 'trackId'),
             accessToken: any(named: 'accessToken'),
@@ -159,7 +159,7 @@ void main() {
 
       final result = await repo.likeTrack(trackInfo);
 
-      expect(result.addedToBestOf, false);
+      expect(result.addedToBest, false);
     });
 
     test('auto-follows artist when they reach 5 likes', () async {
@@ -204,9 +204,9 @@ void main() {
         (_) async => const RuleConfig(
           archiveRemoveEnabled: true,
           archivePlaylistName: 'Discover Weekly Archive',
-          bestOfEnabled: true,
-          bestOfPlaylistName: '',
-          bestOfThreshold: 3,
+          bestEnabled: true,
+          bestPlaylistName: '',
+          bestThreshold: 3,
           followArtistEnabled: true,
           followArtistThreshold: 5,
         ),
@@ -277,9 +277,9 @@ void main() {
         (_) async => const RuleConfig(
           archiveRemoveEnabled: true,
           archivePlaylistName: '',
-          bestOfEnabled: true,
-          bestOfPlaylistName: '',
-          bestOfThreshold: 3,
+          bestEnabled: true,
+          bestPlaylistName: '',
+          bestThreshold: 3,
           followArtistEnabled: true,
           followArtistThreshold: 5,
           likeCooldownEnabled: false,

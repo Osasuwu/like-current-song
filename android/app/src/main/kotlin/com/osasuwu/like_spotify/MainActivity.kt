@@ -229,11 +229,11 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 				"setRuleConfig" -> {
 					val archiveRemoveEnabled = call.argument<Boolean>("archiveRemoveEnabled") ?: false
 					val archiveName = call.argument<String>("archivePlaylistName")?.trim().orEmpty()
-					val bestOfEnabled = call.argument<Boolean>("bestOfEnabled") ?: false
-					val bestOfName = call.argument<String>("bestOfPlaylistName")?.trim().orEmpty()
-					val bestOfThreshold = call.argument<Int>("bestOfThreshold")
+					val bestEnabled = call.argument<Boolean>("bestEnabled") ?: false
+					val bestName = call.argument<String>("bestPlaylistName")?.trim().orEmpty()
+					val bestThreshold = call.argument<Int>("bestThreshold")
 						?.takeIf { it >= 1 }
-						?: AppConstants.DEFAULT_BEST_OF_THRESHOLD
+						?: AppConstants.DEFAULT_BEST_THRESHOLD
 					val followArtistEnabled = call.argument<Boolean>("followArtistEnabled") ?: false
 					val followArtistThreshold = call.argument<Int>("followArtistThreshold")
 						?.takeIf { it >= 1 }
@@ -246,9 +246,9 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 					prefs().edit()
 						.putBoolean(AppConstants.KEY_RULE_ARCHIVE_REMOVE_ENABLED, archiveRemoveEnabled)
 						.putString(AppConstants.KEY_RULE_ARCHIVE_PLAYLIST_NAME, archiveName)
-						.putBoolean(AppConstants.KEY_RULE_BEST_OF_ENABLED, bestOfEnabled)
-						.putString(AppConstants.KEY_RULE_BEST_OF_PLAYLIST_NAME, bestOfName)
-						.putInt(AppConstants.KEY_RULE_BEST_OF_THRESHOLD, bestOfThreshold)
+						.putBoolean(AppConstants.KEY_RULE_BEST_ENABLED, bestEnabled)
+						.putString(AppConstants.KEY_RULE_BEST_PLAYLIST_NAME, bestName)
+						.putInt(AppConstants.KEY_RULE_BEST_THRESHOLD, bestThreshold)
 						.putBoolean(AppConstants.KEY_RULE_FOLLOW_ARTIST_ENABLED, followArtistEnabled)
 						.putInt(AppConstants.KEY_RULE_FOLLOW_ARTIST_THRESHOLD, followArtistThreshold)
 						.putBoolean(AppConstants.KEY_RULE_LIKE_COOLDOWN_ENABLED, likeCooldownEnabled)

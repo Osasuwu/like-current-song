@@ -10,6 +10,22 @@ credentials of its own: you paste your Spotify Client ID into the app after
 installing (see [README](README.md)). Building it yourself still works and is
 still the only option for the desktop half.
 
+## [Unreleased]
+
+### Changed
+
+- **The "best-of" playlist rule is now just "best".** "Best of" reads like it
+  wants a qualifier ("best of electronic"), but there is only ever one general
+  best playlist, so the rule is called **best** everywhere: in the app and the
+  desktop settings window, in `config.json` (`actions.promote_to_best`), in the
+  docs, and in the code (`PromoteToBestAction`, `bestPlaylistName`,
+  `rule_best_*`). **Existing settings migrate themselves** — an upgrade reads
+  the old `bestOf*` / `rule_best_of_*` / `promote_to_best_of` spellings when the
+  new ones are absent and writes only the new ones from then on, so nothing has
+  to be re-entered. Playlist names you already have on Spotify are untouched.
+  Log rows written from now on say `best_add`; older rows keep saying
+  `best_of_add`.
+
 ## [1.1.0] - 2026-09-20
 
 ### Added

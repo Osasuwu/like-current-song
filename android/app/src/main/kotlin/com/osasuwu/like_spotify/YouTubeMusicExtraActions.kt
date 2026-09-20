@@ -6,7 +6,7 @@ import java.net.URLEncoder
 
 /**
  * The opt-in actions that follow a YouTube Music like: drop the song from an
- * archive playlist, promote it to a best-of playlist once it has been liked
+ * archive playlist, promote it to a best playlist once it has been liked
  * often enough, and subscribe to the artist's channel once they have. The
  * Spotify twins live in [SpotifyLikeWorker]; the semantics come from the
  * desktop provider (`like_spotify/extensions/ytmusic/__init__.py`).
@@ -33,7 +33,7 @@ class YouTubeMusicExtraActions(
     /** Whether any action is on — false means the caller can skip the lookup entirely. */
     fun anyEnabled(): Boolean =
         (rules.archiveRemoveEnabled && rules.archivePlaylistName.isNotBlank()) ||
-            (rules.bestOfEnabled && rules.bestOfPlaylistName.isNotBlank()) ||
+            (rules.bestEnabled && rules.bestPlaylistName.isNotBlank()) ||
             rules.followArtistEnabled
 
     /**
@@ -47,13 +47,13 @@ class YouTubeMusicExtraActions(
                 .onFailure { report("Archive removal failed", ARCHIVE_ACTION, it) }
         }
 
-        if (rules.bestOfEnabled && rules.bestOfPlaylistName.isNotBlank()) {
+        if (rules.bestEnabled && rules.bestPlaylistName.isNotBlank()) {
             // The shared counter already counted this like; the local map is
             // only the fallback for when there is no counter to ask.
             val count = sharedLikeCount ?: incrementLocalCount(AppConstants.KEY_TRACK_LIKE_COUNTS, match.videoId)
-            if (reachedThreshold(count, rules.bestOfThreshold)) {
-                runCatching { promoteToBestOf(rules.bestOfPlaylistName, match.videoId) }
-                    .onFailure { report("Best-of promotion failed", BEST_OF_ACTION, it) }
+            if (reachedThreshold(count, rules.bestThreshold)) {
+                runCatching { promoteToBest(rules.bestPlaylistName, match.videoId) }
+                    .onFailure { report("Best promotion failed", BEST_ACTION, it) }
             }
         }
 
@@ -99,7 +99,7 @@ class YouTubeMusicExtraActions(
         log("Removed from archive playlist: $name", ARCHIVE_ACTION, "success", null)
     }
 
-    private fun promoteToBestOf(name: String, videoId: String) {
+    private fun promoteToBest(name: String, videoId: String) {
         val playlistId = ensurePlaylist(name) ?: return
         val body = JSONObject().put(
             "snippet",
@@ -111,7 +111,7 @@ class YouTubeMusicExtraActions(
                 ),
         ).toString()
         apiCall("POST", "${YouTubeDataApi.API_BASE}/playlistItems?part=snippet", body)
-        log("Added to best-of playlist: $name", BEST_OF_ACTION, "success", null)
+        log("Added to best playlist: $name", BEST_ACTION, "success", null)
     }
 
     private fun followChannel(channelId: String) {
@@ -176,7 +176,7 @@ class YouTubeMusicExtraActions(
             apiCall("POST", "${YouTubeDataApi.API_BASE}/playlists?part=snippet,status", body)
         ) ?: return null
         savePlaylistCache(loadPlaylistCache().put(name, id))
-        log("Created playlist: $name", BEST_OF_ACTION, "success", null)
+        log("Created playlist: $name", BEST_ACTION, "success", null)
         return id
     }
 
@@ -215,9 +215,9 @@ class YouTubeMusicExtraActions(
     private data class Rules(
         val archiveRemoveEnabled: Boolean,
         val archivePlaylistName: String,
-        val bestOfEnabled: Boolean,
-        val bestOfPlaylistName: String,
-        val bestOfThreshold: Int,
+        val bestEnabled: Boolean,
+        val bestPlaylistName: String,
+        val bestThreshold: Int,
         val followArtistEnabled: Boolean,
         val followArtistThreshold: Int,
     )
@@ -227,12 +227,9 @@ class YouTubeMusicExtraActions(
     private fun loadRules() = Rules(
         archiveRemoveEnabled = prefs.getBoolean(AppConstants.KEY_RULE_ARCHIVE_REMOVE_ENABLED, false),
         archivePlaylistName = prefs.getString(AppConstants.KEY_RULE_ARCHIVE_PLAYLIST_NAME, null)?.trim().orEmpty(),
-        bestOfEnabled = prefs.getBoolean(AppConstants.KEY_RULE_BEST_OF_ENABLED, false),
-        bestOfPlaylistName = prefs.getString(AppConstants.KEY_RULE_BEST_OF_PLAYLIST_NAME, null)?.trim().orEmpty(),
-        bestOfThreshold = prefs.getInt(
-            AppConstants.KEY_RULE_BEST_OF_THRESHOLD,
-            AppConstants.DEFAULT_BEST_OF_THRESHOLD,
-        ).takeIf { it >= 1 } ?: AppConstants.DEFAULT_BEST_OF_THRESHOLD,
+        bestEnabled = AppConstants.bestRuleEnabled(prefs),
+        bestPlaylistName = AppConstants.bestRulePlaylistName(prefs),
+        bestThreshold = AppConstants.bestRuleThreshold(prefs),
         followArtistEnabled = prefs.getBoolean(AppConstants.KEY_RULE_FOLLOW_ARTIST_ENABLED, false),
         followArtistThreshold = prefs.getInt(
             AppConstants.KEY_RULE_FOLLOW_ARTIST_THRESHOLD,
@@ -257,7 +254,7 @@ class YouTubeMusicExtraActions(
 
         /** Log action types, shared with the Spotify pipeline so the log screen groups them. */
         private const val ARCHIVE_ACTION = "archive_remove"
-        private const val BEST_OF_ACTION = "best_of_add"
+        private const val BEST_ACTION = "best_add"
         private const val FOLLOW_ACTION = "follow_artist"
 
         /**

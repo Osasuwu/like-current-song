@@ -47,8 +47,8 @@ from like_spotify.extensions.like_cooldown import (
     DEFAULT_MINUTES as DEFAULT_LIKE_COOLDOWN_MINUTES,
     build_like_cooldown,
 )
-from like_spotify.extensions.promote_to_best_of import (
-    POST_LIKE_ACTION as make_promote_to_best_of_action,
+from like_spotify.extensions.promote_to_best import (
+    POST_LIKE_ACTION as make_promote_to_best_action,
 )
 from like_spotify.extensions.spotify import MUSIC_PROVIDER as make_spotify_provider
 from like_spotify.extensions.supabase_storage import STORAGE as make_supabase_storage
@@ -232,27 +232,33 @@ def _build_archive_remove_actions(
         return None, None
 
 
-def _build_promote_to_best_of_actions(
+def _build_promote_to_best_actions(
     cfg: dict, _storage: Storage | None
 ) -> tuple[PreLikeAction | None, PostLikeAction | None]:
     nested = cfg.get("actions") if isinstance(cfg.get("actions"), dict) else {}
-    best_of_cfg = (
-        nested.get("promote_to_best_of")
-        if isinstance(nested.get("promote_to_best_of"), dict)
-        else {}
+    # `promote_to_best_of` is what this block was called up to v1.1.0; it is
+    # still read so an existing config keeps working, and only the current name
+    # is ever written back (see the settings window's `_write_action`).
+    best_cfg = next(
+        (
+            nested[key]
+            for key in ("promote_to_best", "promote_to_best_of")
+            if isinstance(nested.get(key), dict)
+        ),
+        {},
     )
-    best_of_name = (
-        best_of_cfg.get("playlist_name")
+    best_name = (
+        best_cfg.get("playlist_name")
         or nested.get("best_of_playlist_name")
         or cfg.get("best_of_playlist_name")  # legacy flat
         or ""
     )
-    if not best_of_name or not best_of_cfg.get("enabled", True):
+    if not best_name or not best_cfg.get("enabled", True):
         return None, None
     try:
-        return None, make_promote_to_best_of_action(
-            playlist_name=best_of_name,
-            threshold=int(best_of_cfg.get("threshold", 3)),
+        return None, make_promote_to_best_action(
+            playlist_name=best_name,
+            threshold=int(best_cfg.get("threshold", 3)),
         )
     except Exception:
         return None, None
@@ -285,7 +291,7 @@ def _build_follow_artist_actions(
 _ACTION_EXTENSION_BUILDERS: list[tuple[str, _ActionChainBuilder]] = [
     ("like_cooldown", _build_like_cooldown_actions),
     ("archive_remove", _build_archive_remove_actions),
-    ("promote_to_best_of", _build_promote_to_best_of_actions),
+    ("promote_to_best", _build_promote_to_best_actions),
     ("follow_artist", _build_follow_artist_actions),
 ]
 

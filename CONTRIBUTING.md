@@ -30,7 +30,7 @@ like_spotify/
 │   ├── supabase_storage/         # Default counter backend.
 │   ├── google_sheets_storage/    # Sheets-backed counter (second impl).
 │   ├── archive_remove/           # PostLikeAction.
-│   ├── promote_to_best_of/       # PostLikeAction.
+│   ├── promote_to_best/          # PostLikeAction.
 │   └── follow_artist/            # PostLikeAction (needs Storage).
 └── hosts/
     ├── windows/          # Resident tray + global hotkey + autostart.
@@ -344,9 +344,9 @@ class PostLikeAction(ABC):
 Each action runs independently; a raise is logged and the chain
 continues (mirrors the Pre-action rule). The `ctx.like_count` field
 is populated by Storage *before* the post-chain runs — that's how
-`PromoteToBestOfAction` gates on "liked 3+ times".
+`PromoteToBestAction` gates on "liked 3+ times".
 
-Existing impls: `archive_remove`, `promote_to_best_of`, `follow_artist`.
+Existing impls: `archive_remove`, `promote_to_best`, `follow_artist`.
 
 `archive_remove` reads its target playlist from
 `actions.archive_remove.playlist_name` in `config.json`; a blank name
@@ -377,7 +377,7 @@ Your action checks `isinstance(ctx.music_provider, PlaylistCapableProvider)`
 and stays silent when the provider doesn't qualify. The protocol is
 structural, so a provider opts in by implementing all six methods, with no
 inheritance. Both `spotify` and `ytmusic` do, so archive-remove,
-promote-to-best-of and follow-artist run on either unchanged. A provider
+promote-to-best and follow-artist run on either unchanged. A provider
 that can't name a track's artist leaves `artist_ids` empty, and
 follow-artist skips that track. For an API that only one provider has,
 downcast to the concrete class and ship the action in a folder named

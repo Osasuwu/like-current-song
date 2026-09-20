@@ -1,4 +1,4 @@
-"""Tests for PromoteToBestOfAction (#26)."""
+"""Tests for PromoteToBestAction (#26)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import pytest
 
 from like_spotify.core.errors import AuthError
 from like_spotify.core.types import CurrentTrack, LikeContext
-from like_spotify.extensions.promote_to_best_of import PromoteToBestOfAction
+from like_spotify.extensions.promote_to_best import PromoteToBestAction
 from like_spotify.extensions.spotify import SpotifyMusicProvider
 
 
@@ -67,7 +67,7 @@ def _ctx(count: int) -> LikeContext:
 @pytest.mark.asyncio
 async def test_no_action_below_threshold() -> None:
     provider = FakeSpotifyProvider(existing_playlist_id="pl1")
-    action = PromoteToBestOfAction(playlist_name="Best", threshold=3)
+    action = PromoteToBestAction(playlist_name="Best", threshold=3)
 
     ctx = _ctx(2)
     ctx.music_provider = provider
@@ -80,7 +80,7 @@ async def test_no_action_below_threshold() -> None:
 @pytest.mark.asyncio
 async def test_action_fires_on_threshold_press() -> None:
     provider = FakeSpotifyProvider(existing_playlist_id="pl1")
-    action = PromoteToBestOfAction(playlist_name="Best", threshold=3)
+    action = PromoteToBestAction(playlist_name="Best", threshold=3)
 
     ctx = _ctx(3)
     ctx.music_provider = provider
@@ -94,7 +94,7 @@ async def test_action_fires_on_threshold_press() -> None:
 async def test_action_does_not_fire_after_threshold() -> None:
     """AC: like a 4th time → not re-added (idempotent)."""
     provider = FakeSpotifyProvider(existing_playlist_id="pl1")
-    action = PromoteToBestOfAction(playlist_name="Best", threshold=3)
+    action = PromoteToBestAction(playlist_name="Best", threshold=3)
 
     for c in [4, 5, 6, 100]:
         ctx = _ctx(c)
@@ -107,7 +107,7 @@ async def test_action_does_not_fire_after_threshold() -> None:
 @pytest.mark.asyncio
 async def test_playlist_id_cached_across_runs() -> None:
     provider = FakeSpotifyProvider(existing_playlist_id="pl1")
-    action = PromoteToBestOfAction(playlist_name="Best", threshold=3)
+    action = PromoteToBestAction(playlist_name="Best", threshold=3)
 
     # First trigger at threshold.
     ctx1 = _ctx(3)
@@ -133,7 +133,7 @@ async def test_playlist_id_cached_across_runs() -> None:
 
 @pytest.mark.asyncio
 async def test_non_spotify_provider_is_noop() -> None:
-    action = PromoteToBestOfAction(playlist_name="Best", threshold=3)
+    action = PromoteToBestAction(playlist_name="Best", threshold=3)
     ctx = _ctx(3)
     ctx.music_provider = object()  # not a SpotifyMusicProvider
     await action.run(ctx)  # should not raise
@@ -144,7 +144,7 @@ async def test_storage_unavailable_count_none_is_noop() -> None:
     """When the Pipeline could not increment Storage, like_count is None.
     Without a real count we can't decide threshold — silent skip."""
     provider = FakeSpotifyProvider(existing_playlist_id="pl1")
-    action = PromoteToBestOfAction(playlist_name="Best", threshold=3)
+    action = PromoteToBestAction(playlist_name="Best", threshold=3)
 
     ctx = LikeContext(track=_track(), music_provider=provider)
     ctx.like_count = None
@@ -157,11 +157,11 @@ async def test_storage_unavailable_count_none_is_noop() -> None:
 @pytest.mark.asyncio
 async def test_constructor_validates_inputs() -> None:
     with pytest.raises(ValueError):
-        PromoteToBestOfAction(playlist_name="")
+        PromoteToBestAction(playlist_name="")
     with pytest.raises(ValueError):
-        PromoteToBestOfAction(playlist_name="   ")
+        PromoteToBestAction(playlist_name="   ")
     with pytest.raises(ValueError):
-        PromoteToBestOfAction(playlist_name="Best", threshold=0)
+        PromoteToBestAction(playlist_name="Best", threshold=0)
 
 
 @pytest.mark.asyncio
@@ -169,7 +169,7 @@ async def test_auth_error_logged_not_raised(caplog) -> None:
     provider = FakeSpotifyProvider(
         find_or_create_raises=AuthError("scope expired")
     )
-    action = PromoteToBestOfAction(playlist_name="Best", threshold=3)
+    action = PromoteToBestAction(playlist_name="Best", threshold=3)
     ctx = _ctx(3)
     ctx.music_provider = provider
 
