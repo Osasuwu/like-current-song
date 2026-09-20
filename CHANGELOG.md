@@ -35,6 +35,13 @@ Spotify/Supabase credentials (see [README](README.md)).
   builds stay configured across the upgrade. From then on whatever
   *Connected services* saved wins, and a field you cleared stays cleared
   through a rebuild.
+- **Release builds can be signed with a real keystore**
+  ([#132](https://github.com/Osasuwu/like-current-song/issues/132)). Gradle now
+  reads `android/key.properties` when it is there, and the build prints which
+  key it used. Without that file nothing changes — the build still succeeds,
+  debug-signed, which is all a local test needs — but a debug-signed APK can
+  never be upgraded in place by a build from another machine, so it must not be
+  published. Groundwork for attaching a prebuilt APK to a release.
 
 ### Removed
 

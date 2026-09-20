@@ -420,6 +420,43 @@ the default host is Windows-bound). A PR must also carry a linked issue in its
 body (`Closes #123`) or the `[no-issue]` marker for trivial drive-bys — see
 `.github/workflows/pr-body-check.yml`.
 
+## Signing an Android release
+
+Day to day you need none of this: with no `android/key.properties` present,
+`flutter build apk --release` signs with the per-machine debug key and says so.
+That is fine for testing on your own phone and it is what CI does.
+
+It is *not* fine for anything you hand to someone else. A debug key is
+generated per machine, so an APK signed with yours can never be upgraded in
+place by a build signed anywhere else — including the next official release.
+
+To produce a publishable APK, generate a keystore once:
+
+```bash
+keytool -genkey -v -keystore ../like-current-song.jks \
+  -keyalg RSA -keysize 2048 -validity 10000 -alias like-current-song
+```
+
+Then copy `android/key.properties.example` to `android/key.properties` and fill
+in `storeFile`, `storePassword`, `keyAlias`, `keyPassword`. Both the keystore
+and that file are gitignored, and nothing reads them but Gradle.
+
+**Keep the keystore.** Losing it means every existing install is stranded on
+the version it has: the only way forward is a new application ID, which reads
+as a different app. Back it up somewhere that is not this repository and not
+the machine you build on.
+
+Gradle warns which key it used whenever a release is assembled, but
+`flutter build` hides Gradle's output, so before publishing anything check the
+artifact itself:
+
+```bash
+apksigner verify --print-certs build/app/outputs/flutter-apk/app-release.apk
+```
+
+A debug-signed APK names `CN=Android Debug, O=Android, C=US`. Anything you
+publish must not.
+
 ## Conventions
 
 - **One Spotify development-mode app per developer.** Spotify limits each

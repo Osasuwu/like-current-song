@@ -1,0 +1,15 @@
+# Copy to android/key.properties and fill in. That file is gitignored: the
+# keystore and its passwords must never be committed.
+#
+# Generate the keystore once, and keep it somewhere you will not lose it —
+# losing it means no existing install can ever be upgraded in place again:
+#
+#   keytool -genkey -v -keystore <path>/like-current-song.jks \
+#     -keyalg RSA -keysize 2048 -validity 10000 -alias like-current-song
+#
+# storeFile is resolved relative to android/, or given as an absolute path.
+# Keeping the keystore outside the repository is the safer choice.
+storeFile=../../like-current-song.jks
+storePassword=
+keyAlias=like-current-song
+keyPassword=
