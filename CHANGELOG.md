@@ -12,6 +12,28 @@ still the only option for the desktop half.
 
 ## [Unreleased]
 
+### Added
+
+- **The shared like counter can make its own spreadsheet.** Setting the counter
+  up used to start with homework: open Google Sheets, make a file, name a tab
+  `Likes`, type five column headers exactly right, add an `ArtistTracks` tab,
+  then find the id in the URL — and getting a header wrong failed later, in a
+  background job, as a like that quietly did not count. Now every entry point
+  offers to do it for you. On Android it is a **Create spreadsheet** button in
+  *Connected services* → *Shared like counter*, which shows the new sheet's id
+  and a link to open it. On the desktop it is the `create` answer in
+  `like-current-song --setup` (now the default, and asked *after* the Google
+  sign-in rather than before it) and a **Create spreadsheet** button in the
+  settings window. Both tabs and both header rows come out right by
+  construction. **Pasting an id still works everywhere** — it is how a second
+  device joins a count that already exists, and the setup wizard's third
+  answer, `skip`, leaves the counter off entirely. No new Google permission is
+  involved: the `spreadsheets` scope the counter already asks for is what
+  allows it, and the app still cannot see any other file in your Drive.
+  Whichever half you are on, once a spreadsheet is configured, asking again
+  tells you so instead of quietly making a second one and splitting your counts
+  across two files.
+
 ### Fixed
 
 - **Android: the trigger configuration screen no longer takes an empty
@@ -50,7 +72,8 @@ still the only option for the desktop half.
   `user_id | track_id | count | backfilled | updated_at` — so a phone and a PC
   finally add up to one number. Set it up under *Connected services* → *Shared
   like counter*: paste a Google OAuth client, sign in on another device with
-  the code the app shows, and give it the spreadsheet id from the sheet's URL.
+  the code the app shows, and either create the sheet or give it the
+  spreadsheet id from an existing sheet's URL.
   The counter signs in to Google separately from YouTube Music, with only the
   spreadsheets scope; the same OAuth client works for both once the Google
   Sheets API is enabled on its project. Leave the spreadsheet empty and likes

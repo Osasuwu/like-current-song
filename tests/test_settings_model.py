@@ -253,7 +253,6 @@ def test_spotify_needs_client_id_but_ytmusic_does_not() -> None:
     [
         ({"provider": "tidal"}, "provider"),
         ({"storage_backend": "supabase"}, "storage_backend"),
-        ({"storage_backend": "sheets"}, "sheets_spreadsheet_id"),
         ({"hotkey": ""}, "hotkey"),
         ({"hotkey": "ctrl++w"}, "hotkey"),
         ({"feedback_volume": 1.5}, "feedback_volume"),
@@ -274,6 +273,14 @@ def test_validation_errors(changes, field) -> None:
 
 def test_remove_hotkey_only_checked_when_archive_on() -> None:
     assert model.validate(replace(Settings(), spotify_client_id="x", remove_hotkey="")).ok
+
+
+def test_sheets_without_a_spreadsheet_warns_rather_than_blocking_save() -> None:
+    """The window can make the sheet now, so Save must not be held hostage."""
+    s = replace(Settings(), spotify_client_id="x", storage_backend="sheets")
+    result = model.validate(s)
+    assert result.ok
+    assert "sheets_spreadsheet_id" in {i.field for i in result.warnings}
 
 
 def test_storage_dependent_actions_warn_without_storage() -> None:
@@ -407,6 +414,37 @@ def test_saved_google_client_prefills_from_token_files(tmp_paths) -> None:
     assert services.saved_google_client("ytmusic") == ("yt", "s1")
     assert services.saved_google_client("sheets") == ("", "")
     assert not services.sheets_connected()
+
+
+def test_create_counter_sheet_refuses_before_google_is_connected(
+    tmp_paths, monkeypatch
+) -> None:
+    """No tokens, no call — and a reason the window can print as-is."""
+    called = {"n": 0}
+    monkeypatch.setattr(
+        services, "create_counter_spreadsheet", lambda *_a, **_k: called.update(n=1)
+    )
+    with pytest.raises(ValueError, match="connect Google first"):
+        services.create_counter_sheet()
+    assert called["n"] == 0
+
+
+def test_create_counter_sheet_passes_a_token_provider(tmp_paths, monkeypatch) -> None:
+    _write(
+        _common.GOOGLE_TOKEN_FILE,
+        {"refresh_token": "rt", "access_token": "at", "expires_at": 9999999999},
+    )
+    seen: list = []
+
+    def _fake_create(token_provider, **_kw):
+        seen.append(token_provider)
+        return services.CreatedSpreadsheet(spreadsheet_id="made-1", url="u")
+
+    monkeypatch.setattr(services, "create_counter_spreadsheet", _fake_create)
+
+    created = services.create_counter_sheet()
+    assert created.spreadsheet_id == "made-1"
+    assert callable(seen[0])
 
 
 def test_autostart_unsupported_off_windows(monkeypatch) -> None:
