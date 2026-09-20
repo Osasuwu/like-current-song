@@ -15,7 +15,37 @@ class SpotifyClient {
   final http.Client _http;
   static const _timeout = Duration(seconds: 10);
 
+  /// Set once the generic `/me/library` endpoint has proven unavailable to this
+  /// client ID *and* the legacy endpoint has answered in its place, so the rest
+  /// of the process skips the doomed first request. Static on purpose: the
+  /// answer depends on the client ID, not on the [SpotifyClient] instance.
+  static bool _useLegacyLibraryEndpoints = false;
+
+  /// Statuses that mean "this client cannot use `/me/library`", so the legacy
+  /// endpoint is worth one retry:
+  ///
+  /// * **404** — the generic path is not routed for this client at all.
+  /// * **403** — Spotify's restricted-access model rejects endpoints outside a
+  ///   client's granted set with Forbidden, which is what a client ID
+  ///   grandfathered onto the entity-specific endpoints sees here.
+  ///
+  /// Deliberately excluded: **401** (token — must surface so the caller
+  /// refreshes), **429** (rate limit — must surface unchanged), **400** (our own
+  /// payload; a retry cannot fix it) and **5xx** (transient). A 403 caused by a
+  /// missing scope rather than by endpoint access fails on both forms, and
+  /// because the fallback is only remembered after the legacy call *succeeds*,
+  /// such a 403 never pins the process to the legacy endpoint.
+  static bool _libraryEndpointUnavailable(int statusCode) =>
+      statusCode == 403 || statusCode == 404;
+
   SpotifyClient(this._http);
+
+  /// Forgets the cached `/me/library` availability decision.
+  ///
+  /// Only useful in tests: the decision is meant to live for the whole process.
+  static void resetLibraryEndpointCacheForTesting() {
+    _useLegacyLibraryEndpoints = false;
+  }
 
   String createCodeVerifier({int length = 64}) {
     const chars =
@@ -142,18 +172,62 @@ class SpotifyClient {
     return item?['id'] as String?;
   }
 
+  /// PUT /me/library with `spotify:track:<id>` — saves the track to the user's
+  /// library, falling back to the legacy `PUT /me/tracks?ids=` for client IDs
+  /// that are still on the entity-specific endpoints.
   Future<void> likeTrack({
     required String trackId,
     required String accessToken,
   }) async {
-    final response = await _http.put(
-      Uri.parse('${AppConstants.spotifyApiBase}/me/tracks?ids=$trackId'),
-      headers: <String, String>{'Authorization': 'Bearer $accessToken'},
-    ).timeout(_timeout);
+    await _saveToLibrary(
+      accessToken: accessToken,
+      uris: <String>['spotify:track:$trackId'],
+      legacyRequest: () => _http.put(
+        Uri.parse('${AppConstants.spotifyApiBase}/me/tracks?ids=$trackId'),
+        headers: <String, String>{'Authorization': 'Bearer $accessToken'},
+      ),
+      failureMessage: 'Spotify like track failed',
+    );
+  }
 
-    if (response.statusCode < 200 || response.statusCode > 299) {
-      throw SpotifyApiException(response.statusCode, 'Spotify like track failed');
+  /// Saves/follows [uris] through the generic `PUT /me/library` endpoint that
+  /// replaced `PUT /me/tracks`, `PUT /me/following` and friends in Spotify's
+  /// February 2026 API migration.
+  ///
+  /// Client IDs registered before 2026-02-11 were grandfathered onto the
+  /// entity-specific endpoints, so when `/me/library` is not available to this
+  /// client ([_libraryEndpointUnavailable]) the [legacyRequest] runs once
+  /// instead. A successful legacy call is remembered for the process lifetime,
+  /// so only the first write of a session pays two round trips.
+  Future<void> _saveToLibrary({
+    required String accessToken,
+    required List<String> uris,
+    required Future<http.Response> Function() legacyRequest,
+    required String failureMessage,
+  }) async {
+    if (!_useLegacyLibraryEndpoints) {
+      final response = await _http.put(
+        Uri.parse('${AppConstants.spotifyApiBase}/me/library'),
+        headers: <String, String>{
+          'Authorization': 'Bearer $accessToken',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(<String, dynamic>{'uris': uris}),
+      ).timeout(_timeout);
+
+      if (response.statusCode >= 200 && response.statusCode <= 299) {
+        return;
+      }
+      if (!_libraryEndpointUnavailable(response.statusCode)) {
+        throw SpotifyApiException(response.statusCode, failureMessage);
+      }
     }
+
+    final legacy = await legacyRequest().timeout(_timeout);
+    if (legacy.statusCode < 200 || legacy.statusCode > 299) {
+      throw SpotifyApiException(legacy.statusCode, failureMessage);
+    }
+    _useLegacyLibraryEndpoints = true;
   }
 
   /// Returns full track info (id, name, artists) for the currently playing track.
@@ -309,23 +383,28 @@ class SpotifyClient {
     }
   }
 
-  /// PUT /me/following?type=artist — follow artists.
+  /// PUT /me/library with `spotify:artist:<id>` — follows artists, falling back
+  /// to the legacy `PUT /me/following?type=artist` for client IDs that are
+  /// still on the entity-specific endpoints.
   Future<void> followArtists(
     String accessToken, {
     required List<String> artistIds,
   }) async {
-    final response = await _http.put(
-      Uri.parse(
-        '${AppConstants.spotifyApiBase}/me/following?type=artist&ids=${artistIds.join(",")}',
+    await _saveToLibrary(
+      accessToken: accessToken,
+      uris: artistIds.map((id) => 'spotify:artist:$id').toList(growable: false),
+      legacyRequest: () => _http.put(
+        Uri.parse(
+          '${AppConstants.spotifyApiBase}/me/following?type=artist&ids=${artistIds.join(",")}',
+        ),
+        headers: <String, String>{'Authorization': 'Bearer $accessToken'},
       ),
-      headers: <String, String>{'Authorization': 'Bearer $accessToken'},
-    ).timeout(_timeout);
-    if (response.statusCode < 200 || response.statusCode > 299) {
-      throw SpotifyApiException(response.statusCode, 'Spotify follow artists failed');
-    }
+      failureMessage: 'Spotify follow artists failed',
+    );
   }
 
-  /// GET /me/tracks — paginated saved (liked) tracks.
+  /// GET /me/tracks — paginated saved (liked) tracks. Reading the library is
+  /// not among the endpoints replaced by `/me/library`, so this one stays.
   Future<SpotifySavedTrackPage> getSavedTracks(
     String accessToken, {
     int offset = 0,
