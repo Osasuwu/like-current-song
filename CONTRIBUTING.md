@@ -327,9 +327,9 @@ through its own independent implementation of this interface.
 never leaves the machine. The shared contract test in
 `tests/test_storage_contract.py` is already parametrised over the
 `Storage` implementations rather than hard-coded to one — add a fixture
-and you get all seven invariants for free. This is currently the only
-seam with a single shipped implementation, so it is also the one where a
-second impl does the most to keep the interface honest.
+and you get all seven invariants for free. A second implementation is
+what keeps that contract honest: until one exists, nothing stops the
+interface from quietly growing a Google-Sheets-shaped assumption.
 
 ### 4. `PreLikeAction` — veto a like before it happens
 
