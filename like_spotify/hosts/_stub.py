@@ -75,14 +75,14 @@ def _resolved_provider_or_hint():
     if provider is None:
         _common.msgbox(
             "Not configured. Run:\n\n    like-current-song --setup\n",
-            title="Like Spotify — setup required",
+            title="Like Current Song — setup required",
         )
         return None, 2, cfg
 
     if not provider.has_tokens:
         _common.msgbox(
             "Not authenticated. Run:\n\n    like-current-song --setup\n",
-            title="Like Spotify — auth required",
+            title="Like Current Song — auth required",
         )
         return None, 2, cfg
     return provider, None, cfg
@@ -116,7 +116,7 @@ def _run_remove_once() -> int:
     if pipeline is None:
         _common.msgbox(
             "No archive playlist configured. Run:\n\n    like-current-song --setup\n",
-            title="Like Spotify — setup required",
+            title="Like Current Song — setup required",
         )
         return 2
     return _common.run_one_shot(pipeline, feedback)

@@ -58,7 +58,7 @@ def _release_single_instance(handle) -> None:
 # ── Error reporting ────────────────────────────────────────────────────
 
 
-def _msgbox(text: str, title: str = "Like Spotify", icon: int = 0x10) -> None:
+def _msgbox(text: str, title: str = "Like Current Song", icon: int = 0x10) -> None:
     try:
         ctypes.windll.user32.MessageBoxW(0, text, title, icon)
         return
@@ -79,13 +79,13 @@ def _resolved_provider_or_hint():
     if provider is None:
         _msgbox(
             "Not configured. Run from a terminal:\n\n    like-current-song --setup\n",
-            title="Like Spotify — setup required",
+            title="Like Current Song — setup required",
         )
         return None, 2, cfg
     if not provider.has_tokens:
         _msgbox(
             "Not authenticated. Run from a terminal:\n\n    like-current-song --setup\n",
-            title="Like Spotify — auth required",
+            title="Like Current Song — auth required",
         )
         return None, 2, cfg
     return provider, None, cfg
@@ -120,7 +120,7 @@ def _run_remove_once() -> int:
         _msgbox(
             "No archive playlist configured. Run from a terminal:\n\n"
             "    like-current-song --setup\n",
-            title="Like Spotify — setup required",
+            title="Like Current Song — setup required",
         )
         return 2
     return _common.run_one_shot(pipeline, feedback)
@@ -453,7 +453,7 @@ class _SettingsLauncher:
             self._on_saved()
 
 
-def _ask_yes_no(text: str, title: str = "Like Spotify") -> bool:
+def _ask_yes_no(text: str, title: str = "Like Current Song") -> bool:
     MB_YESNO, MB_ICONWARNING, IDYES = 0x04, 0x30, 6
     try:
         return ctypes.windll.user32.MessageBoxW(0, text, title, MB_YESNO | MB_ICONWARNING) == IDYES
@@ -491,9 +491,9 @@ def _run_resident_host() -> int:
             break
         except _NotReady as e:
             configured = _common.build_provider(cfg) is not None
-            title = "Like Spotify — " + ("sign-in required" if configured else "setup required")
+            title = "Like Current Song — " + ("sign-in required" if configured else "setup required")
             before = _config_snapshot()
-            if not _offer_settings(f"Like Spotify can't start: {e}.", title):
+            if not _offer_settings(f"Like Current Song can't start: {e}.", title):
                 return 2
             if _config_snapshot() == before and not configured:
                 return 2  # window closed without saving — don't loop forever
@@ -525,7 +525,7 @@ def _run_resident_host() -> int:
         try:
             _spawn(_self_command())
         except OSError as e:
-            _msgbox(f"Couldn't restart Like Spotify: {e}\n\nStart it again from the Start menu.")
+            _msgbox(f"Couldn't restart Like Current Song: {e}\n\nStart it again from the Start menu.")
         loop.call_soon_threadsafe(loop.stop)
         icon.stop()
 
@@ -537,7 +537,7 @@ def _run_resident_host() -> int:
                 f"Settings saved, but {e} yet, so the tray keeps using the "
                 "previous settings. Connect your account in Settings… to "
                 "switch over.",
-                title="Like Spotify — settings",
+                title="Like Current Song — settings",
                 icon=0x40,
             )
             return
@@ -547,8 +547,8 @@ def _run_resident_host() -> int:
             _log("live settings reload failed:\n" + traceback.format_exc())
             if _ask_yes_no(
                 "Settings saved, but the running tray couldn't switch to them "
-                f"({e}).\n\nA restart is needed. Restart Like Spotify now?",
-                title="Like Spotify — restart needed",
+                f"({e}).\n\nA restart is needed. Restart Like Current Song now?",
+                title="Like Current Song — restart needed",
             ):
                 restart()
             return
@@ -556,7 +556,7 @@ def _run_resident_host() -> int:
         icon.update_menu()
         try:
             icon.notify(
-                f"Settings applied. Like: {runtime.wiring.hotkey.upper()}", "Like Spotify"
+                f"Settings applied. Like: {runtime.wiring.hotkey.upper()}", "Like Current Song"
             )
         except Exception:
             pass
@@ -566,7 +566,7 @@ def _run_resident_host() -> int:
     def on_settings(_icon, _item):
         if not settings.open():
             try:
-                icon.notify("Settings is already open", "Like Spotify")
+                icon.notify("Settings is already open", "Like Current Song")
             except Exception:
                 pass
 
@@ -579,7 +579,7 @@ def _run_resident_host() -> int:
         try:
             os.startfile(log_file)  # noqa: S606 — user-owned path, tray click only
         except OSError:
-            _msgbox(f"No log file yet:\n\n{log_file}", title="Like Spotify — log")
+            _msgbox(f"No log file yet:\n\n{log_file}", title="Like Current Song — log")
 
     icon = tray.build_icon(
         feedback=feedback,
@@ -599,7 +599,7 @@ def _run_resident_host() -> int:
         if remove_enabled:
             msg += f"\n{remove_hotkey.upper()} removes it from the archive"
         try:
-            icon.notify(msg, "Like Spotify")
+            icon.notify(msg, "Like Current Song")
         except Exception:
             pass
 

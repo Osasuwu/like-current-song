@@ -19,7 +19,7 @@ from .autostart import _autostart_enabled
 
 
 def icon_title(hotkey: str) -> str:
-    return f"Like Spotify  [{hotkey.upper()}]"
+    return f"Like Current Song  [{hotkey.upper()}]"
 
 
 def build_icon(

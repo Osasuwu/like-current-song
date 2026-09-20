@@ -1,4 +1,4 @@
--- Like Spotify — Supabase schema for the cross-device like counter
+-- Like Current Song — Supabase schema for the cross-device like counter
 -- and per-artist track tracking.
 --
 -- Fully idempotent: safe on fresh projects and on existing ones being

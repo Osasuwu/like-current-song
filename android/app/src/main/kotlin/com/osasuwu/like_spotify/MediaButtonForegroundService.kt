@@ -258,7 +258,7 @@ class MediaButtonForegroundService : Service() {
         )
 
         return NotificationCompat.Builder(this, AppConstants.NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("Like Spotify is ${if (active) "active" else "inactive"}")
+            .setContentTitle("Like Current Song is ${if (active) "active" else "inactive"}")
             .setContentText("Listening for headset pattern")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setOngoing(true)

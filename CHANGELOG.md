@@ -121,6 +121,17 @@ still the only option for the desktop half.
 
 ### Changed
 
+- **The app is called Like Current Song everywhere it is visible.** The project
+  was renamed, and since it started liking on YouTube Music too the old name
+  was also wrong on the facts, but the Android launcher icon, the notification,
+  the Windows tray and settings window, the installers and the docs still said
+  *Like Spotify*. They now all say *Like Current Song*, and the Spotify
+  provider writes the same `Managed by Like Current Song` playlist description
+  the YouTube Music one already did. Nothing that a machine reads changed: the
+  `com.osasuwu.like_spotify` application ID, the `likespotify://auth-callback`
+  redirect URI registered in everyone's Spotify dashboard, the notification
+  channel ID, the `LikeSpotify` autostart entry and `~/.like_spotify` are all
+  untouched, so this is a relabel and not an upgrade barrier.
 - **Desktop: the package and commands are now `like-current-song`**
   ([#101](https://github.com/Osasuwu/like-current-song/issues/101)).
   The pip/pipx package is `like-current-song`, and the commands are

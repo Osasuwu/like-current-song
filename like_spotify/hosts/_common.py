@@ -493,7 +493,7 @@ def print_config_paths() -> int:
 # ── Error reporting (cross-platform fallback) ──────────────────────────
 
 
-def msgbox(text: str, title: str = "Like Spotify") -> None:
+def msgbox(text: str, title: str = "Like Current Song") -> None:
     """Surface a user-visible error.
 
     Windows host overrides with a real MessageBoxW; here we just print so

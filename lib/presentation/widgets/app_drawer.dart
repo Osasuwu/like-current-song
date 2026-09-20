@@ -10,7 +10,7 @@ class AppDrawer extends StatelessWidget {
         padding: EdgeInsets.zero,
         children: <Widget>[
           const DrawerHeader(
-            child: Text('Like Spotify', style: TextStyle(fontSize: 22)),
+            child: Text('Like Current Song', style: TextStyle(fontSize: 22)),
           ),
           _item(context, 'Trigger configuration', '/trigger-config'),
           _item(context, 'Connected services', '/connected-services'),

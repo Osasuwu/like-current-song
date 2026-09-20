@@ -1,4 +1,4 @@
-# CLAUDE.md — Like Spotify Mobile App
+# CLAUDE.md — Like Current Song
 
 ## What this is
 

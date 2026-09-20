@@ -17,7 +17,7 @@ class AboutScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                const Text('Like Spotify Mobile App'),
+                const Text('Like Current Song'),
                 const SizedBox(height: 8),
                 Text('Version: $version'),
                 const SizedBox(height: 16),

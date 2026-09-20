@@ -394,7 +394,7 @@ class SpotifyMusicProvider(MusicProvider):
             json={
                 "name": name,
                 "public": False,
-                "description": "Managed by Like Spotify",
+                "description": "Managed by Like Current Song",
             },
             timeout=5,
         )

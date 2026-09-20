@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    One-liner installer for Like Spotify on Windows.
+    One-liner installer for Like Current Song on Windows.
 
 .DESCRIPTION
     Checks for Python 3.11+, installs pipx if missing, installs the
