@@ -17,64 +17,66 @@ class MainScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Like Current Song')),
       drawer: const AppDrawer(),
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Transform.scale(
-              scale: 1.6,
-              child: Switch(
-                value: state.serviceEnabled,
-                onChanged: (value) => controller.toggleService(value),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              state.serviceEnabled ? 'ACTIVE' : 'INACTIVE',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: state.liking ? null : controller.likeCurrentTrackNow,
-              child: state.liking
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Like current track now'),
-            ),
-            if (state.pendingLikesCount > 0) ...<Widget>[
-              const SizedBox(height: 8),
-              Text(
-                // The queue is Spotify-only — YouTube Music likes are never
-                // queued — so under YouTube Music it waits for the switch back.
-                state.musicProvider == MusicProvider.spotify
-                    ? '${state.pendingLikesCount} like(s) queued — will retry when online'
-                    : '${state.pendingLikesCount} Spotify like(s) queued — will retry when Spotify is selected',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.outline,
-                    ),
-              ),
-            ],
-            if (state.lastLikeResult != null) ...<Widget>[
-              const SizedBox(height: 16),
-              _LikeResultCard(result: state.lastLikeResult!),
-            ],
-            if (state.lastError != null) ...<Widget>[
-              const SizedBox(height: 16),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Text(
-                  state.lastError!,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.error,
-                  ),
+      body: SafeArea(
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Transform.scale(
+                scale: 1.6,
+                child: Switch(
+                  value: state.serviceEnabled,
+                  onChanged: (value) => controller.toggleService(value),
                 ),
               ),
+              const SizedBox(height: 16),
+              Text(
+                state.serviceEnabled ? 'ACTIVE' : 'INACTIVE',
+                style: Theme.of(context).textTheme.headlineMedium,
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: state.liking ? null : controller.likeCurrentTrackNow,
+                child: state.liking
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Like current track now'),
+              ),
+              if (state.pendingLikesCount > 0) ...<Widget>[
+                const SizedBox(height: 8),
+                Text(
+                  // The queue is Spotify-only — YouTube Music likes are never
+                  // queued — so under YouTube Music it waits for the switch back.
+                  state.musicProvider == MusicProvider.spotify
+                      ? '${state.pendingLikesCount} like(s) queued — will retry when online'
+                      : '${state.pendingLikesCount} Spotify like(s) queued — will retry when Spotify is selected',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.outline,
+                      ),
+                ),
+              ],
+              if (state.lastLikeResult != null) ...<Widget>[
+                const SizedBox(height: 16),
+                _LikeResultCard(result: state.lastLikeResult!),
+              ],
+              if (state.lastError != null) ...<Widget>[
+                const SizedBox(height: 16),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Text(
+                    state.lastError!,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );

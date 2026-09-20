@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/entities/app_log.dart';
 import '../state/app_providers.dart';
+import '../widgets/screen_padding.dart';
 
 class LogsScreen extends ConsumerWidget {
   const LogsScreen({super.key});
@@ -31,6 +32,7 @@ class LogsScreen extends ConsumerWidget {
       body: logs.isEmpty
           ? const Center(child: Text('No logs yet'))
           : ListView.separated(
+              padding: scrollBodyPadding(context, base: EdgeInsets.zero),
               itemCount: logs.length,
               separatorBuilder: (_, index) => const Divider(height: 1),
               itemBuilder: (context, index) {
