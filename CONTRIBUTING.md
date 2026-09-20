@@ -102,10 +102,10 @@ Same shape as macOS:
 
 The desktop framework has five extension points. Each one is a small
 ABC under `like_spotify/core/`; concrete impls live in
-`like_spotify/extensions/<your_domain>/`. The host discovers extensions
-via a filesystem convention (manifest + module-level factory) —
-modelled on Music Assistant's provider layout, with a typed-base per
-seam instead of a single generic `Plugin` (see
+`like_spotify/extensions/<your_domain>/`. Every extension has the same
+shape — a manifest plus a module-level factory — modelled on Music
+Assistant's provider layout, with a typed-base per seam instead of a
+single generic `Plugin` (see
 [docs/design/interfaces.md](docs/design/interfaces.md) §1 for the
 prior-art comparison and why we chose this shape over Pano's closed
 enum or MA's single-bag plugin).
@@ -123,8 +123,16 @@ like_spotify/extensions/<your_domain>/
 The factory name is fixed per extension point — `TRIGGER`,
 `MUSIC_PROVIDER`, `STORAGE`, `PRE_LIKE_ACTION`, or `POST_LIKE_ACTION`
 — and it's a plain callable that returns one configured instance.
-The host imports the package and calls the factory with whatever
-kwargs the manifest declares.
+
+**There is no automatic discovery yet.** A host picks your extension up
+because someone imported it and registered its factory in
+`like_spotify/hosts/_common.py` — one builder function and one entry in
+the matching registry (`_STORAGE_BUILDERS`, `PROVIDER_BUILDERS`,
+`_ACTION_EXTENSION_BUILDERS`). That is the whole wiring cost, and the
+checklist below walks it. Scanning `extensions/` for manifests and
+loading them without that edit is [#28](https://github.com/Osasuwu/like-current-song/issues/28);
+the manifest shape here is what that work will read, which is why it is
+worth filling in properly now.
 
 Example manifest:
 
@@ -141,9 +149,12 @@ Example manifest:
 }
 ```
 
-`stage` is one of `experimental | stable | deprecated`. `requirements`
-is pip-compatible — the install bootstrap (see `install.ps1` / `install.sh`)
-resolves them at first enable.
+`stage` is one of `experimental | beta | stable | deprecated`, and it
+is documentation, not something enforced at runtime — nothing reads the
+manifest yet (see above). `requirements` is pip-compatible; resolving it
+at first enable is part of [#28](https://github.com/Osasuwu/like-current-song/issues/28),
+so for now declare a dependency there **and** say so in your extension's
+README.
 
 ### 1. `Trigger` — emit a like intent
 
