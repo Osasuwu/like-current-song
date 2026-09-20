@@ -184,7 +184,7 @@ def _setup_storage(cfg: dict, *, reauth: bool) -> None:
     print(
         "  Optional. 'none' keeps every like working and just doesn't count\n"
         "  them; 'sheets' counts them into a Google Sheet you own, which is\n"
-        "  what best-of and follow-artist read."
+        "  what best and follow-artist read."
     )
     current_backend = (cfg.get("storage", {}) or {}).get("backend", "")
     # A retired backend must not become the default — `_prompt_choice`
