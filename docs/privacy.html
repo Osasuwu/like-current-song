@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy — Like Current Song</title>
+<meta name="description" content="What Like Current Song accesses, where it is stored, and how to revoke it.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <h1>Privacy Policy</h1>
+  <p class="meta">Like Current Song · effective 20 September 2026</p>
+</header>
+
+<nav>
+  <a href="index.html">Home</a>
+  <a href="privacy.html">Privacy</a>
+  <a href="terms.html">Terms</a>
+  <a href="https://github.com/Osasuwu/like-current-song">Source</a>
+</nav>
+
+<main>
+
+<h2>The short version</h2>
+
+<p>
+  Like Current Song runs entirely on your own device and talks only to the music
+  service you connect it to. The project operates no server, collects no analytics, and
+  the maintainer receives no data from your installation. Your access tokens never leave
+  your device.
+</p>
+
+<h2>What the app accesses</h2>
+
+<p>
+  When you connect an account, the app asks that service for one fixed set of
+  permissions. The set is the same for everyone and is requested in full at sign-in,
+  whether or not you later switch on the optional features — the in-app toggles control
+  what the app <em>does</em>, not what it is allowed to do.
+</p>
+
+<h3>Spotify</h3>
+
+<p>The app requests, and the consent screen lists:</p>
+
+<ul>
+  <li><strong>What is playing right now</strong>
+      (<code>user-read-playback-state</code>) — to know which song to save.</li>
+  <li><strong>Your saved tracks</strong>, read and write
+      (<code>user-library-read</code>, <code>user-library-modify</code>) — to add the
+      song, and to check whether it is already there.</li>
+  <li><strong>Your playlists</strong>, read and write
+      (<code>playlist-read-private</code>, <code>playlist-read-collaborative</code>,
+      <code>playlist-modify-private</code>, <code>playlist-modify-public</code>) and
+      <strong>following artists</strong> (<code>user-follow-modify</code>, and
+      <code>user-follow-read</code> on desktop).</li>
+</ul>
+
+<p>
+  The playlist and follow permissions are used only by the optional extra actions —
+  archive clean-up, best-of playlist and follow-artist. If you leave those switched off,
+  the app never calls them, but the permission is still granted at sign-in, and you can
+  see and revoke it at any time (see below).
+</p>
+
+<h3>YouTube Music</h3>
+<ul>
+  <li>The thumbs-up itself uses the media session that YouTube Music publishes on your
+      phone. It needs <em>no</em> Google account and no sign-in.</li>
+  <li>If you choose to sign in, the app requests exactly two scopes, and no others:
+      <ul>
+        <li><code>https://www.googleapis.com/auth/youtube</code> — to look up the playing
+            song through the YouTube Data API and rate it. The same scope also covers
+            editing your own playlists and channel subscriptions, which happens only when
+            you switch on the optional extra actions.</li>
+        <li><code>openid</code> — to obtain the account identifier that the like counter
+            is keyed by, so a count follows you across your own devices. It gives the app
+            no access to your name, email address or profile.</li>
+      </ul></li>
+</ul>
+
+<h2>What is stored, and where</h2>
+
+<ul>
+  <li><strong>Access and refresh tokens</strong> — on Android, in the operating system's
+      encrypted storage; on desktop, in files under <code>~/.like_spotify/</code>. They
+      stay on the device and are never transmitted anywhere except back to Spotify or
+      Google.</li>
+  <li><strong>Your own API credentials</strong> (the client ID and secret of the
+      application you register) — stored the same way, on the device only.</li>
+  <li><strong>Your settings and the in-app log</strong> — on the device only. The log
+      records what the app did (which song, which action, which error) so you can
+      diagnose a failed like. You can clear it from the Logs screen.</li>
+  <li><strong>A local like counter</strong> — how many times you liked a given track or
+      artist, kept on the device.</li>
+</ul>
+
+<h2>The optional shared counter</h2>
+
+<p>
+  The app can keep the like counter across several of your own devices. This is off
+  unless whoever builds the app supplies a database, and that database belongs to them,
+  not to this project. When it is configured, one request per like is sent to that
+  database containing an identifier for your music-service account and the identifier of
+  the track. No song titles, no listening history, no personal profile. If it is not
+  configured, the counter stays entirely local.
+</p>
+
+<h2>What is never done</h2>
+
+<ul>
+  <li>No analytics, telemetry, crash reporting or advertising SDK of any kind.</li>
+  <li>No data is sold, rented or shared with third parties.</li>
+  <li>The maintainer has no access to your account, your tokens or your listening
+      history.</li>
+</ul>
+
+<h2>Third-party services</h2>
+
+<p>
+  When you connect an account, your data is handled by that service under its own terms.
+  This application uses YouTube API Services; by using it you also accept the
+  <a href="https://www.youtube.com/t/terms">YouTube Terms of Service</a>, and Google's
+  handling of your information is described in the
+  <a href="https://policies.google.com/privacy">Google Privacy Policy</a>. For Spotify,
+  see the <a href="https://www.spotify.com/legal/privacy-policy/">Spotify Privacy
+  Policy</a>.
+</p>
+
+<h2>Revoking access and deleting data</h2>
+
+<ul>
+  <li><strong>Google / YouTube</strong> — revoke at
+      <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</li>
+  <li><strong>Spotify</strong> — revoke at
+      <a href="https://www.spotify.com/account/apps/">spotify.com/account/apps</a>.</li>
+  <li><strong>Everything on the device</strong> — disconnecting the service in the app
+      deletes its stored tokens. Uninstalling the app (or deleting
+      <code>~/.like_spotify/</code> on desktop) removes the settings, the log and the
+      local counters.</li>
+</ul>
+
+<p>
+  Because the project holds no data about you, there is nothing for the maintainer to
+  delete on your behalf.
+</p>
+
+<h2>Children</h2>
+
+<p>
+  The app is not directed at children under 13 and collects nothing from anyone.
+</p>
+
+<h2>Changes</h2>
+
+<p>
+  If this policy changes, the new version is published on this page with a new effective
+  date, and the change is recorded in the project's
+  <a href="https://github.com/Osasuwu/like-current-song/commits/main/docs/privacy.html">commit
+  history</a>.
+</p>
+
+<h2>Contact</h2>
+
+<p>
+  Questions about this policy: open an issue at
+  <a href="https://github.com/Osasuwu/like-current-song/issues">github.com/Osasuwu/like-current-song/issues</a>,
+  or email <a href="mailto:petrkudr2@gmail.com">petrkudr2@gmail.com</a>. Suspected
+  security problems should go through a private advisory, as described in
+  <a href="https://github.com/Osasuwu/like-current-song/blob/main/SECURITY.md">SECURITY.md</a>,
+  rather than a public issue.
+</p>
+
+</main>
+
+<footer>
+  <p>Like Current Song · MIT licence · not affiliated with Spotify AB or Google LLC.</p>
+</footer>
+
+</body>
+</html>
