@@ -103,7 +103,14 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
           '$sheetName!C$row',
           <Object>[newCount],
         );
-        await _update(spreadsheetId, token, '$sheetName!E$row', <Object>[now]);
+        // The count is on the sheet now, so the press has been counted even
+        // if the timestamp write fails; a stale `updated_at` is not worth
+        // reporting a local number the sheet disagrees with.
+        try {
+          await _update(spreadsheetId, token, '$sheetName!E$row', <Object>[now]);
+        } catch (error) {
+          debugPrint('Like counter timestamp not written: $error');
+        }
         _counts[key] = newCount;
         return newCount;
       }

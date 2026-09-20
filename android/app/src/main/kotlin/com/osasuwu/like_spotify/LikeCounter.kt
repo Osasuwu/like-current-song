@@ -113,20 +113,22 @@ object LikeCounter {
     ): Int? {
         val token = GoogleTokens.freshOrNull(prefs, GoogleTokens.COUNTER) ?: return null
         return try {
-            val existing = findRow(
-                get(token, "$API_BASE/${target.spreadsheetId}/values/${encode(SHEET)}"),
-                target.userId,
-                trackId,
-            )
+            // A read that failed is not the same as a pair with no row: append
+            // on a failed read would duplicate the row and restart its count.
+            val body = get(token, "$API_BASE/${target.spreadsheetId}/values/${encode(SHEET)}")
+                ?: return null
+            val existing = findRow(body, target.userId, trackId)
             val now = nowIso()
             if (existing != null) {
                 val (row, current) = existing
                 val next = current + 1
                 val base = "$API_BASE/${target.spreadsheetId}/values"
-                update(token, "$base/${encode("$SHEET!C$row")}", next.toString()) ?: return null
+                if (!update(token, "$base/${encode("$SHEET!C$row")}", next.toString())) return null
                 // Column D (backfilled) is left alone: it records how the row
                 // started, not how it was last touched.
-                update(token, "$base/${encode("$SHEET!E$row")}", now) ?: return null
+                // The count is already on the sheet at this point, so a failed
+                // timestamp write is reported as the success it mostly is.
+                update(token, "$base/${encode("$SHEET!E$row")}", now)
                 next
             } else {
                 val next = if (wasAlreadyLiked) 2 else 1
@@ -153,15 +155,14 @@ object LikeCounter {
         return readBody(connection)
     }
 
-    /** One cell write. Returns null when the sheet refused it. */
-    private fun update(token: String, url: String, value: String): String? {
+    /** One cell write. False when the sheet refused it. */
+    private fun update(token: String, url: String, value: String): Boolean {
         val connection = open(token, "$url?valueInputOption=RAW", "PUT")
         connection.doOutput = true
         connection.setRequestProperty("Content-Type", "application/json")
         val body = JSONObject().put("values", JSONArray().put(JSONArray().put(value)))
         OutputStreamWriter(connection.outputStream).use { it.write(body.toString()) }
-        if (connection.responseCode !in 200..299) return null
-        return readBody(connection)
+        return connection.responseCode in 200..299
     }
 
     /** Appends [row] to the tab. Returns null when the sheet refused it. */
