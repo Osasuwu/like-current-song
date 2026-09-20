@@ -157,9 +157,18 @@ the credentials at build time instead:
 
 ```bash
 cp .env.example .env
-# Edit .env — set SPOTIFY_CLIENT_ID (and optionally SUPABASE_URL/KEY)
+# Edit .env — fill in only the keys you use
 flutter build apk --release --dart-define-from-file=.env
 ```
+
+`.env.example` documents all six, and every one of them is optional:
+
+| Key | What it seeds |
+|---|---|
+| `SPOTIFY_CLIENT_ID` | Spotify sign-in |
+| `YTMUSIC_CLIENT_ID`, `YTMUSIC_CLIENT_SECRET` | the optional YouTube Music sign-in |
+| `COUNTER_SPREADSHEET_ID` | which sheet the [shared counter](#4-cross-device-counters-optional) writes to |
+| `COUNTER_GOOGLE_CLIENT_ID`, `COUNTER_GOOGLE_CLIENT_SECRET` | the counter's own Google sign-in |
 
 Those values only ever fill a field the app has never been told about. Anything
 saved in *Connected services* wins from then on, and clearing a field keeps it
@@ -187,8 +196,11 @@ logs which service it went to and why, on the *Logs* screen.
 It buys two things: a YouTube Data API fallback for when the session rating
 doesn't take, and likes that count in the shared counter (the same one the
 desktop app uses, keyed by your Google account, and only once the
-[shared like counter](#4-cross-device-counters-optional) is set up). It also costs a re-sign-in about once a week — see step 3. If
-that trade isn't worth it to you, stop here; the thumbs-up keeps working.
+[shared like counter](#4-cross-device-counters-optional) is set up). It costs
+setting up a Google Cloud project, and — if you leave that project in
+*Testing* — a re-sign-in about once a week; see step 3, which is also where
+that weekly reconnect is avoided. If the trade isn't worth it to you, stop
+here; the thumbs-up keeps working.
 
 Counting looks a song up through the Data API the first time it is liked.
 Since 1 June 2026 that lookup has its own budget: Google grants a project
@@ -208,23 +220,35 @@ To sign in, you use your own Google OAuth client. Nothing goes in
 2. Go to **APIs & Services → Library**, find **YouTube Data API v3** and
    click **Enable**.
 3. Go to **APIs & Services → OAuth consent screen** and choose **External**.
-   Fill in the app name and your email. Leave the app in **Testing** and add
-   your own Google account under *Test users*.
-   - **Don't click Publish app.** Google requires a home page, a privacy
-     policy link and a terms-of-service link for every external production
-     app, each on a domain you have verified in Search Console: "These links
-     are required for all external production apps. You will not be able to
-     submit your app for verification if it is missing these links"
-     ([source](https://support.google.com/cloud/answer/10311615)). Without
-     them, Publish only gets you *"To publish your app, you must complete
-     your configuration on the Branding page"*.
-   - **The cost of staying in Testing**: Google expires the refresh token
-     after **7 days**, so you have to repeat the sign-in (steps 6–7) roughly
-     once a week. There is no way around it for the `youtube` scope — the
-     7-day limit is waived only for the name/email/profile scopes.
-   - A Google account that is *not* on the *Test users* list gets "Access
-     blocked: … has not completed the Google verification process" instead of
-     a consent screen. Add the account there first.
+   Fill in the app name and your email. You now pick one of two states, and
+   the choice is worth a minute because one of them makes you reconnect every
+   week.
+
+   **Testing** — the quick way to try it. Add your own Google account under
+   *Test users* and carry on. The cost: Google expires the refresh token after
+   **7 days**, so you repeat the sign-in (steps 6–7) roughly once a week.
+   There is no way around that for the `youtube` scope — the 7-day limit is
+   waived only for the name/email/profile scopes. An account that is *not* on
+   the *Test users* list gets "Access blocked: … has not completed the Google
+   verification process" instead of a consent screen, so add it there first.
+
+   **In production** — click **Publish app**, and the 7-day expiry goes away.
+   Publishing is not the same as being verified by Google, and it does not
+   require a review. What it does require is a **Branding** page with a home
+   page, a privacy policy and a terms-of-service link, each on a domain you
+   have verified in Search Console: "These links are required for all external
+   production apps"
+   ([source](https://support.google.com/cloud/answer/10311615)). Without them
+   Publish only answers *"To publish your app, you must complete your
+   configuration on the Branding page"*. This repo ships those pages — they
+   are the GitHub Pages site under [`docs/`](docs/), served from
+   `osasuwu.github.io`, which is a domain you can verify if you fork. What
+   publishing does **not** remove: the "Google hasn't verified this app"
+   interstitial on every sign-in (step 7), because `youtube` is a sensitive
+   scope, and the **100-user** lifetime cap. Both need full verification, which
+   is a demo video and a review.
+
+   The project this repo is developed against runs in production, unverified.
 4. Go to **APIs & Services → Credentials → Create credentials → OAuth client
    ID**, and pick application type **TVs and Limited Input devices**. Other
    types (Android, Desktop app, Web) are rejected by the sign-in the app uses.
@@ -405,20 +429,34 @@ rows in a spreadsheet you can open, edit, chart or delete yourself.
    For the follow-artist rule, add a second tab named `ArtistTracks` with the
    header row `user_id | artist_id | track_id`.
 2. At [console.cloud.google.com/apis/credentials](https://console.cloud.google.com/apis/credentials),
-   create an OAuth client of type **Desktop app**, and enable the **Google
-   Sheets API** for that project. Note the client ID and secret. (If you also
-   set up YouTube Music, you can reuse the same Cloud project — but not the
-   same client: YT Music needs a *TVs and Limited Input devices* client.)
+   enable the **Google Sheets API** and create an OAuth client. Which kind
+   depends on the half, because the two sign in differently:
+
+   | Half | Client type | Why |
+   |---|---|---|
+   | Desktop | **Desktop app** | it opens a browser and catches the reply on `127.0.0.1` |
+   | Android | **TVs and Limited Input devices** | it shows a code you type at `google.com/device` |
+
+   One Cloud project covers both. If you already made a *TVs and Limited Input
+   devices* client for YouTube Music, the phone can reuse that same client for
+   the counter once the Sheets API is on — the two grants are still separate
+   sign-ins with separate scopes.
 3. Run `like-current-song --setup`, pick `sheets` at the storage step, and
    paste the spreadsheet ID (the long segment in the sheet's URL), the client
    ID and the secret. A browser opens for the Google consent screen; the token
    is refreshed automatically afterwards and lives in
    `~/.like_spotify/google_token.json`.
 4. Point the Android app at the **same sheet** to share counts between
-   devices. *Connected services* → **Shared like counter (optional)**.
+   devices: *Connected services* → **Shared like counter (optional)**. Paste
+   the spreadsheet ID and the client ID and secret, then sign in. This is the
+   counter's **own** Google sign-in, separate from the music service and
+   asking for one scope, `spreadsheets` — so a Spotify user gets a shared
+   counter without granting any YouTube permission, and disconnecting the
+   counter leaves the music service signed in.
 
-Both halves address a row by your own account id, so two people using one
-sheet do not collide.
+Both halves address a row by your own account id — your Spotify user id, or
+the Google account id when the like came from YouTube Music — so two people
+using one sheet do not collide.
 
 **Storage is a seam, not a hard-coded choice.** `Storage` is one of the five
 extension points, and `tests/test_storage_contract.py` holds the seven
@@ -427,12 +465,15 @@ shape for you, a different backend is a plugin — see
 [CONTRIBUTING.md](CONTRIBUTING.md). Google Sheets is simply the one that
 ships.
 
-> **Upgrading from the Supabase backend?** It was removed in the release after
-> v1.1.0. A config still saying `backend: "supabase"` breaks nothing — likes
-> keep working, they just stop being counted, and the app says so once at
-> startup. Re-run `--setup` (or open the settings window) and pick `sheets`.
-> Counts do not carry over. Your Supabase project is untouched and yours to
-> keep or delete.
+> **Upgrading from the Supabase backend?** Both halves had one; both dropped
+> it in the release after v1.1.0. Nothing breaks: likes keep working, they
+> just stop being counted until you point the half at a sheet.
+>
+> On the desktop, a config still saying `backend: "supabase"` says so once at
+> startup — re-run `--setup` (or open the settings window) and pick `sheets`.
+> On the phone, the old Supabase fields are gone from *Connected services*;
+> fill in **Shared like counter** instead. Counts do not carry over, on either
+> half. Your Supabase project is untouched and yours to keep or delete.
 
 ## Architecture
 
@@ -506,12 +547,14 @@ settings window (`like-current-song --settings`, or **Settings…** in the tray 
 | Remove-from-archive hotkey | n/a (one trigger on headphones) | `~/.like_spotify/config.json` → `trigger.remove_hotkey` (default `Ctrl+Shift+Alt+Q`) |
 | Archive playlist name | In-app UI | `~/.like_spotify/config.json` → `actions.archive_remove.playlist_name` (blank = archive-remove disabled) |
 | Music service | In-app UI (Spotify / YouTube Music / Automatic) | `~/.like_spotify/config.json` → `music.provider` (`spotify` / `ytmusic`, default `spotify`) |
-| YouTube Music tokens | n/a (planned) | `~/.like_spotify/youtube_token.json` (refreshed automatically) |
+| YouTube Music client ID / secret | In-app UI (*Connected services*), stored in `FlutterSecureStorage`; `.env` (`YTMUSIC_CLIENT_ID`, `YTMUSIC_CLIENT_SECRET`) seeds a build | `like-current-song --setup` → `~/.like_spotify/config.json` |
+| YouTube Music tokens | `FlutterSecureStorage` (refreshed automatically) | `~/.like_spotify/youtube_token.json` (refreshed automatically) |
 | Spotify client_id | In-app UI (*Connected services*), stored in `FlutterSecureStorage`; `.env` (`SPOTIFY_CLIENT_ID`) seeds a build | `like-current-song --setup` → `~/.like_spotify/config.json` |
 | Spotify tokens | `FlutterSecureStorage` | `~/.like_spotify/spotify_token.json` |
-| Supabase URL / anon key | In-app UI (*Connected services*), stored in `FlutterSecureStorage`; `.env` (`SUPABASE_URL`, `SUPABASE_ANON_KEY`) seeds a build | `like-current-song --setup` → `~/.like_spotify/config.json` |
-| Storage backend | (Supabase only; blank = counts stay on the device) | `~/.like_spotify/config.json` → `storage.backend` (`supabase` / `sheets` / `none`) |
-| Google Sheets tokens | n/a | `~/.like_spotify/google_token.json` (refreshed automatically) |
+| Counter spreadsheet ID | In-app UI (*Connected services* → *Shared like counter*), stored in `FlutterSecureStorage`; `.env` (`COUNTER_SPREADSHEET_ID`) seeds a build | `like-current-song --setup` → `~/.like_spotify/config.json` → `sheets.spreadsheet_id` |
+| Counter Google client ID / secret | In-app UI (*Shared like counter*); `.env` (`COUNTER_GOOGLE_CLIENT_ID`, `COUNTER_GOOGLE_CLIENT_SECRET`) seeds a build | `like-current-song --setup`, kept beside the tokens in `~/.like_spotify/google_token.json` |
+| Storage backend | Blank spreadsheet ID = counts stay on the device | `~/.like_spotify/config.json` → `storage.backend` (`sheets` / `none`) |
+| Counter Google tokens | `FlutterSecureStorage` (refreshed automatically) | `~/.like_spotify/google_token.json` (refreshed automatically) |
 | Best / follow | In-app UI | `~/.like_spotify/config.json` → `actions.{promote_to_best,follow_artist}` |
 
 ## Contributing
