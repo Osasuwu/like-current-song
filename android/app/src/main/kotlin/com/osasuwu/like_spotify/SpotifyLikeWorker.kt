@@ -360,7 +360,7 @@ class SpotifyLikeWorker(
         val body = JSONObject()
             .put("name", name)
             .put("public", false)
-            .put("description", "Managed by Like Spotify Mobile App")
+            .put("description", "Managed by Like Current Song")
             .toString()
 
         // Invalidate the cache before creating so a concurrent rebuild can't miss the new playlist.

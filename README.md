@@ -38,7 +38,7 @@ No. iOS doesn't let third-party apps observe another app's playback in the backg
 
 ## По-русски
 
-**Like Spotify** лайкает трек в Spotify, не доставая телефон: нажмите пауза → плей на наушниках, и песня попадёт в «Любимые треки», даже с выключенным экраном и заблокированным телефоном. Работает с любыми наушниками (проводными и Bluetooth), часами и магнитолой. На компьютере (Windows) то же самое делает глобальная горячая клавиша `Ctrl+Shift+Alt+W`, пока Spotify играет в фоне. Открытый исходный код, лицензия MIT.
+**Like Current Song** лайкает играющий трек — в Spotify или YouTube Music — не доставая телефон: нажмите пауза → плей на наушниках, и песня попадёт в «Любимые треки», даже с выключенным экраном и заблокированным телефоном. Работает с любыми наушниками (проводными и Bluetooth), часами и магнитолой. На компьютере (Windows) то же самое делает глобальная горячая клавиша `Ctrl+Shift+Alt+W`, пока Spotify играет в фоне. Открытый исходный код, лицензия MIT.
 
 ## How it works
 
@@ -57,7 +57,7 @@ Several desktop hotkey tools can like the current Spotify song. We haven't found
 
 | Project | One-press like | Headset trigger (phone) | Hotkey trigger (desktop) | Rule engine (archive/best-of/follow) | Cross-device counters | Pluggable | Use **theirs** when |
 |---|---|---|---|---|---|---|---|
-| **Like Spotify** (this) | ✓ | ✓ Android | ✓ Windows tray + mac/linux CLI | ✓ | ✓ Supabase / Sheets | ✓ 5 typed seams + manifest discovery | n/a |
+| **Like Current Song** (this) | ✓ | ✓ Android | ✓ Windows tray + mac/linux CLI | ✓ | ✓ Supabase / Sheets | ✓ 5 typed seams + manifest discovery | n/a |
 | [Pano Scrobbler](https://github.com/kawaiiDango/pano-scrobbler) | partial (love via UI) | — (notification scrape) | — | — (scrobble target only) | — | provider seam only (write target) | you want **scrobbling history** to last.fm/listenbrainz/librefm/pleroma. Pano is the right answer for "where did my listens go" — we don't try to replace it. |
 | [BeatBind](https://github.com/justinknguyen/BeatBind) | ✓ (save / remove) | — | ✓ Windows tray (.NET) | — | — | — | you want a polished **Windows-only** global-hotkey app for full playback control (play/pause, skip, volume, seek) as well as saving tracks. |
 | [Spotikey](https://github.com/dannj90/Spotikey) | ✓ | — | ✓ Windows (`Ctrl+Alt+L`) | — | — | — | you want **only** a like hotkey, as a single small executable. |

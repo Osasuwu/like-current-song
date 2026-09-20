@@ -22,7 +22,7 @@ from tkinter import messagebox, ttk
 
 from . import model, services
 
-_TITLE = "Like Spotify — Settings"
+_TITLE = "Like Current Song — Settings"
 _PAD = {"padx": 8, "pady": 3}
 _HINT_WRAP = 460
 
@@ -326,7 +326,7 @@ class SettingsWindow:
             return None
         box = self._section(parent, "Startup")
         ttk.Checkbutton(
-            box, text="Start Like Spotify when I sign in to Windows", variable=self.v_autostart
+            box, text="Start Like Current Song when I sign in to Windows", variable=self.v_autostart
         ).grid(row=0, column=0, columnspan=3, sticky="w", **_PAD)
         return box
 

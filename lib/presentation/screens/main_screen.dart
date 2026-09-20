@@ -15,7 +15,7 @@ class MainScreen extends ConsumerWidget {
     final controller = ref.read(appControllerProvider.notifier);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Like Spotify Listener')),
+      appBar: AppBar(title: const Text('Like Current Song')),
       drawer: const AppDrawer(),
       body: Center(
         child: Column(

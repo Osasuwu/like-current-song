@@ -159,7 +159,7 @@ class TrayFeedback:
         threading.Thread(target=self._flash, args=(success,), daemon=True).start()
         if self._icon is not None:
             try:
-                self._icon.notify(message or title, "Like Spotify")
+                self._icon.notify(message or title, "Like Current Song")
             except Exception:
                 pass
 

@@ -615,7 +615,7 @@ class AppController extends StateNotifier<AppState> {
 
       final jsonText = const JsonEncoder.withIndent('  ').convert(bundle);
       await SharePlus.instance.share(
-        ShareParams(text: jsonText, subject: 'Like Spotify diagnostics export'),
+        ShareParams(text: jsonText, subject: 'Like Current Song diagnostics export'),
       );
       await addLog(
         actionType: 'export_diagnostics',

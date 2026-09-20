@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# One-liner installer for Like Spotify on macOS / Linux.
+# One-liner installer for Like Current Song on macOS / Linux.
 #
 # Checks for Python 3.11+, installs pipx if missing, installs the
 # like-current-song package from this repo, then runs the interactive setup

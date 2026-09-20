@@ -321,7 +321,7 @@ class SpotifyClient {
     required String userId,
     required String name,
     bool public = false,
-    String description = 'Managed by Like Spotify Mobile App',
+    String description = 'Managed by Like Current Song',
   }) async {
     final response = await _http.post(
       Uri.parse('${AppConstants.spotifyApiBase}/users/$userId/playlists'),

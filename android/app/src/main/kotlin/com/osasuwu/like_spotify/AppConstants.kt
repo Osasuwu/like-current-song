@@ -89,7 +89,7 @@ object AppConstants {
     const val CHANNEL_EVENTS = "like_spotify_mobile_app/events"
 
     const val NOTIFICATION_CHANNEL_ID = "like_spotify_service"
-    const val NOTIFICATION_CHANNEL_NAME = "Like Spotify Listener"
+    const val NOTIFICATION_CHANNEL_NAME = "Like Current Song listener"
     const val NOTIFICATION_ID = 11001
 
     const val ACCOUNT_NOTIFICATION_CHANNEL_ID = "like_spotify_account"

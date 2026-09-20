@@ -251,9 +251,8 @@ class YouTubeMusicExtraActions(
 
     companion object {
         private const val PAGE_SIZE = 50
-        // Same wording the desktop YouTube Music provider writes, and not the
-        // Spotify path's "Like Spotify" — a YouTube playlist should not name a
-        // service it has nothing to do with.
+        // Same wording the desktop YouTube Music provider and the Spotify path
+        // write — a playlist this app manages says so the same way everywhere.
         private const val PLAYLIST_DESCRIPTION = "Managed by Like Current Song"
 
         /** Log action types, shared with the Spotify pipeline so the log screen groups them. */

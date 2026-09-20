@@ -77,7 +77,7 @@ def do_setup(reauth: bool = False) -> int:
     invalidate the other backend's tokens, so a user can flip
     supabase ↔ sheets without redoing OAuth.
     """
-    print("Like Spotify — interactive setup")
+    print("Like Current Song — interactive setup")
     print("--------------------------------")
     cfg = _common.load_config()
     try:
@@ -315,7 +315,7 @@ def _setup_autostart() -> None:
                 "    Exec=like-current-song like-once\n"
                 "    Hidden=false\n"
                 "    NoDisplay=false\n"
-                "    Name=Like Spotify"
+                "    Name=Like Current Song"
             )
         print("  (See CONTRIBUTING.md for the full hosts/macos.py / linux.py story.)")
         return
@@ -332,7 +332,7 @@ def _setup_autostart() -> None:
     label = (
         "  Autostart is currently ENABLED — keep it on?"
         if already
-        else "  Start Like Spotify when you log in to Windows?"
+        else "  Start Like Current Song when you log in to Windows?"
     )
     if _prompt_yes_no(label, default=True):
         _win._autostart_set(True)
