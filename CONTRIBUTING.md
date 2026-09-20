@@ -320,8 +320,10 @@ you own. A Supabase backend shipped alongside it until the release after
 v1.1.0 and was removed: a hosted Postgres project was a lot of setup to
 ask of someone who wanted a like counter, and the Sheets impl covered the
 same job. What it left behind is the useful part — `core/storage.py` is
-written against neither, and the Android half keeps the same counts
-through its own independent implementation of this interface.
+written against neither, and the Android half arrives at the same counts
+through a separately-shaped Dart interface of its own
+(`lib/domain/repositories/like_count_repository.dart`) — same sheet, same
+rows, no shared code.
 
 **Wanted next** (good-first-PR): `sqlite_storage`, for a counter that
 never leaves the machine. The shared contract test in
