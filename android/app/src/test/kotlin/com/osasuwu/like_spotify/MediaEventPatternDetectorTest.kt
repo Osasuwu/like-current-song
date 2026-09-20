@@ -225,10 +225,9 @@ class MediaEventPatternDetectorTest {
 
     @Test
     fun `an empty pattern never fires`() {
-        // A pattern that parsed to nothing (blank pref) is inert here. The Dart
-        // twin treats the same input as a zero-length pattern that matches every
-        // event; this half is the one that runs unattended in the background, so
-        // it refuses rather than firing on every media button.
+        // A pattern that parsed to nothing (blank pref) is inert. The Dart twin,
+        // SignalPatternMatcher, guards it in the same place and answers the same
+        // way -- it used to fire on every event instead, which is what #157 was.
         val detector = detector(emptyList())
 
         assertFalse(detector.onEvent("play", t0))

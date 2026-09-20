@@ -10,6 +10,15 @@ class SignalPatternMatcher {
       return false;
     }
 
+    // An empty pattern means "no trigger configured", not "trigger on
+    // everything": without this guard the empty tail below would equal the
+    // empty pattern and every play or pause would fire. The Kotlin twin,
+    // MediaEventPatternDetector, guards it in the same place.
+    final pattern = config.events;
+    if (pattern.isEmpty) {
+      return false;
+    }
+
     _events.add(_StampedEvent(event, now));
     _events.removeWhere(
       (e) => now.difference(e.at).inMilliseconds > config.windowMs,
@@ -20,7 +29,6 @@ class SignalPatternMatcher {
       return false;
     }
 
-    final pattern = config.events;
     if (_events.length < pattern.length) {
       return false;
     }

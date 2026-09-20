@@ -14,6 +14,20 @@ class TriggerConfig {
   List<String> get events =>
       pattern.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
 
+  /// Returns human-readable validation errors, empty when the config is valid.
+  ///
+  /// A pattern with no events is the one thing this rejects: it is not "match
+  /// nothing" to a user, it is a trigger they forgot to type, and both
+  /// matchers answer it with silence.
+  List<String> validate() {
+    if (events.isEmpty) {
+      return <String>[
+        'Trigger pattern needs at least one event, for example pause,play.',
+      ];
+    }
+    return <String>[];
+  }
+
   TriggerConfig copyWith({
     String? pattern,
     int? windowMs,
