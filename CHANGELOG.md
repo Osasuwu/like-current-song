@@ -148,6 +148,13 @@ Spotify/Supabase credentials (see [README](README.md)).
   cuts to its first ~20 ms buffer; it now plays in full. The vibration is tagged
   as media feedback, so it is no longer dropped when system touch haptics are
   off.
+- **Android: two screens no longer speak as if Spotify were the only service**
+  ([#113](https://github.com/Osasuwu/like-current-song/issues/113)). Permissions
+  now lists internet access for whichever service is selected, instead of always
+  naming Spotify. The queued-likes line on the main screen promised a retry
+  "when online" even under YouTube Music, which neither queues likes nor replays
+  the queue; under YouTube Music it now says the queued Spotify likes retry once
+  Spotify is selected again.
 
 ## [1.0.3] - 2026-09-01
 

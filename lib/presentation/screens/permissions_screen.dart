@@ -26,7 +26,7 @@ class PermissionsScreen extends ConsumerWidget {
               '• Notification access (playback fallback): ${state.notificationListenerEnabled ? 'Enabled' : 'Disabled'}',
             ),
             const Text('• Ignore battery optimization (recommended)'),
-            const Text('• Internet access for Spotify API'),
+            Text('• Internet access for ${state.musicProvider.displayName}'),
             const SizedBox(height: 18),
             FilledButton(
               onPressed: controller.ensureRuntimePermissions,
