@@ -5,8 +5,9 @@ abstraction with a backend that's not a SQL-style RPC. Forces the
 interface to honour append + lookup-by-key semantics without leaking
 PostgREST shape.
 
-Sheet schema (per #25): columns `user_id | track_id | count | backfilled | updated_at`,
-with a single header row. The first action invocation reads the sheet
+Sheet schema (per #25) lives in `schema.py`, shared with the two other
+halves that write the same spreadsheet and with the code that creates it
+(`create.py`): a single header row, then the data. The first action reads the sheet
 once to build an in-memory `(user_id, track_id) -> row_index` map;
 subsequent likes do a targeted `values.update` or, on miss, a single
 `values.append`. The backfill flag from #24 is honoured: on the very
@@ -32,13 +33,38 @@ from like_spotify.core.errors import TransientError
 from like_spotify.core.storage import Storage
 from like_spotify.core.types import CurrentTrack
 
+from .create import CreatedSpreadsheet, create_counter_spreadsheet
+from .schema import (
+    ARTIST_HEADER_ROW,
+    COUNT_COLUMN,
+    DEFAULT_ARTIST_SHEET,
+    DEFAULT_SHEET,
+    HEADER_ROW,
+    SPREADSHEET_TITLE,
+    UPDATED_AT_COLUMN,
+    create_request_body,
+)
+
 DOMAIN = "google_sheets"
 
 API_BASE = "https://sheets.googleapis.com/v4/spreadsheets"
-DEFAULT_SHEET = "Likes"
-DEFAULT_ARTIST_SHEET = "ArtistTracks"
-HEADER_ROW = ["user_id", "track_id", "count", "backfilled", "updated_at"]
-ARTIST_HEADER_ROW = ["user_id", "artist_id", "track_id", "created_at"]
+
+__all__ = [
+    "ARTIST_HEADER_ROW",
+    "API_BASE",
+    "COUNT_COLUMN",
+    "CreatedSpreadsheet",
+    "DEFAULT_ARTIST_SHEET",
+    "DEFAULT_SHEET",
+    "DOMAIN",
+    "GoogleSheetsStorage",
+    "HEADER_ROW",
+    "SPREADSHEET_TITLE",
+    "STORAGE",
+    "UPDATED_AT_COLUMN",
+    "create_counter_spreadsheet",
+    "create_request_body",
+]
 
 
 TokenProvider = Callable[[], str]
@@ -137,14 +163,15 @@ class GoogleSheetsStorage(Storage):
 
         if key in self._row_index:
             new_count = self._count_cache.get(key, 0) + 1
-            # Targeted UPDATE; leave backfilled column alone (col D),
-            # rewrite count (col C) and updated_at (col E).
+            # Targeted UPDATE; leave the backfilled column alone, rewrite
+            # count and updated_at. The letters come from the shared header.
+            row_no = self._row_index[key]
             self._values_update(
-                f"{self._sheet}!C{self._row_index[key]}:C{self._row_index[key]}",
+                f"{self._sheet}!{COUNT_COLUMN}{row_no}:{COUNT_COLUMN}{row_no}",
                 [[new_count]],
             )
             self._values_update(
-                f"{self._sheet}!E{self._row_index[key]}:E{self._row_index[key]}",
+                f"{self._sheet}!{UPDATED_AT_COLUMN}{row_no}:{UPDATED_AT_COLUMN}{row_no}",
                 [[now]],
             )
             self._count_cache[key] = new_count
