@@ -3,7 +3,7 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -41,12 +41,25 @@
             </intent-filter>
         </activity>
 
+        <!-- specialUse, not mediaPlayback: this service never plays media. It holds
+             a MediaSession to *receive* headset button events; Spotify and YouTube
+             Music do the playing. Two things follow from getting this right.
+             Android 15+ forbids starting a mediaPlayback service from a
+             BOOT_COMPLETED receiver (ForegroundServiceStartNotAllowedException),
+             which is exactly what BootCompletedReceiver does, and Play's approved
+             use case for mediaPlayback is background playback - declaring it here
+             would be an inaccurate FGS type under the Device and Network Abuse
+             policy. specialUse is subject to neither. -->
         <service
             android:name=".MediaButtonForegroundService"
             android:enabled="true"
             android:exported="false"
             android:stopWithTask="false"
-            android:foregroundServiceType="mediaPlayback" />
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Listens for a headset media-button pattern (e.g. pause-play) while the screen is off, and likes the track currently playing in another app. The session must stay resident to receive the buttons; the app plays no media of its own." />
+        </service>
 
         <service
             android:name=".PlaybackNotificationListenerService"

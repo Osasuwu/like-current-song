@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.os.SystemClock
+import android.util.Log
 import android.view.KeyEvent
 import android.support.v4.media.session.MediaSessionCompat
 import androidx.core.app.NotificationCompat
@@ -329,6 +330,7 @@ class MediaButtonForegroundService : Service() {
         const val ACTION_START = "ACTION_START"
         const val ACTION_STOP = "ACTION_STOP"
         const val ACTION_EXTERNAL_MEDIA_EVENT = "ACTION_EXTERNAL_MEDIA_EVENT"
+        private const val TAG = "LikeSpotifyService"
         private const val RESTART_REQUEST_CODE = 5
         private const val RESTART_DELAY_MS = 1000L
 
@@ -340,11 +342,38 @@ class MediaButtonForegroundService : Service() {
                 action = ACTION_EXTERNAL_MEDIA_EVENT
                 putExtra(AppConstants.EXTRA_EVENT, event)
             }
+            start(context, serviceIntent)
+        }
+
+        /**
+         * Starts this service, surviving a refusal instead of crashing.
+         *
+         * The system can refuse a foreground-service start for reasons the
+         * caller cannot test for beforehand: Android 12+ blocks most starts
+         * from the background, and Android 15+ blocks whole service types from
+         * a BOOT_COMPLETED receiver. The refusal arrives as
+         * `ForegroundServiceStartNotAllowedException`, thrown in *this*
+         * process — from a broadcast receiver that is an uncaught crash at
+         * boot, which is a worse outcome than a listener that did not start.
+         *
+         * Caught as [IllegalStateException], its supertype: the exception
+         * class itself is API 31 and this app runs back to 24, so naming it
+         * would put a class the runtime cannot resolve in a catch clause.
+         *
+         * @return true if the start was accepted.
+         */
+        fun start(context: Context, intent: Intent): Boolean = try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(serviceIntent)
+                context.startForegroundService(intent)
             } else {
-                context.startService(serviceIntent)
+                context.startService(intent)
             }
+            true
+        } catch (e: IllegalStateException) {
+            // No Flutter engine and no service instance to broadcast through
+            // on the paths that refuse, so this one goes to logcat.
+            Log.w(TAG, "Service start refused (${intent.action}): ${e.message}")
+            false
         }
     }
 }

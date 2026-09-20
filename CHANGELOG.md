@@ -14,6 +14,18 @@ still the only option for the desktop half.
 
 ### Fixed
 
+- **Android: the listener survives a reboot again on Android 15 and newer.**
+  If you had the listener switched on and restarted your phone, it stayed off
+  until you opened the app by hand — the headset pattern simply did nothing,
+  while the app still showed the listener as enabled. Android 15 stopped apps
+  from starting a `mediaPlayback` background service at boot, and that is the
+  kind the listener was declared as. It is now declared `specialUse`, which is
+  both allowed at boot and an honest description: this app never plays
+  anything, it listens for headset buttons and asks Spotify or YouTube Music to
+  do the rest. A start the system still refuses — an OEM battery policy, say —
+  now leaves the listener off instead of crashing the app during boot, and
+  opening the app brings it back.
+
 - **Liking a track works again for newly registered Spotify Client IDs.**
   Every write to Spotify's library — liking the current track and following an
   artist — failed with an API error (HTTP 400) unless your Client ID was old

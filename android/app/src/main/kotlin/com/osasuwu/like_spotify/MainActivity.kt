@@ -386,11 +386,7 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 		val intent = Intent(this, MediaButtonForegroundService::class.java).apply {
 			action = MediaButtonForegroundService.ACTION_START
 		}
-		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-			startForegroundService(intent)
-		} else {
-			startService(intent)
-		}
+		MediaButtonForegroundService.start(this, intent)
 		prefs().edit().putBoolean(AppConstants.KEY_SERVICE_ENABLED, true).apply()
 	}
 
