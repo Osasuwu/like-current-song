@@ -1,8 +1,32 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+// Release signing is read from android/key.properties, which is gitignored: the
+// keystore and its passwords never enter the repository. Without that file a
+// release build still succeeds — contributors and CI are not made to hold a key
+// — but it is signed with the per-machine debug key, and such an APK must not be
+// published: nobody could upgrade it in place from a build signed anywhere else.
+val keystorePropertiesFile = rootProject.file("key.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        keystorePropertiesFile.inputStream().use(::load)
+    }
+}
+val hasReleaseKeystore = keystorePropertiesFile.exists()
+
+if (hasReleaseKeystore) {
+    val missing = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+        .filter { keystoreProperties.getProperty(it).isNullOrBlank() }
+    require(missing.isEmpty()) {
+        "android/key.properties is missing: ${missing.joinToString(", ")}. " +
+            "See android/key.properties.example."
+    }
 }
 
 android {
@@ -29,10 +53,40 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig =
+                signingConfigs.getByName(if (hasReleaseKeystore) "release" else "debug")
         }
+    }
+}
+
+// Say out loud which key a release artifact is signed with, so a debug-signed
+// one cannot be published by accident. This hangs off the task graph rather
+// than a task action so that it still reports on an up-to-date build, and it
+// speaks at warning level because `flutter build` hides Gradle's lifecycle
+// output — a silent "which key was this?" is the whole hazard.
+gradle.taskGraph.whenReady {
+    val buildsRelease = hasTask(":app:assembleRelease") || hasTask(":app:bundleRelease")
+    if (!buildsRelease) return@whenReady
+    if (hasReleaseKeystore) {
+        logger.warn("Warning: release signing uses the key from android/key.properties.")
+    } else {
+        logger.warn(
+            "Warning: release signing uses the DEBUG KEY - android/key.properties is " +
+                "absent. Fine for local testing; do not publish this artifact.",
+        )
     }
 }
 

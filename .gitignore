@@ -69,3 +69,8 @@ venv/
 
 # Gradle build output (was accidentally tracked, see #70)
 android/build/
+
+# Android release signing: the keystore and its passwords stay out of git (#132)
+android/key.properties
+*.jks
+*.keystore
