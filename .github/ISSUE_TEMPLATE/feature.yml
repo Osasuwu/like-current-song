@@ -34,7 +34,7 @@ body:
       options:
         - "domain:android — Flutter app / Kotlin service"
         - "domain:desktop — Python package (tray, hotkey, CLI)"
-        - "domain:backend — Supabase / Google Sheets storage"
+        - "domain:backend — Google Sheets storage"
         - "area:docs — README, CONTRIBUTING, design docs"
         - "area:quality — tests, CI"
         - "not sure"
