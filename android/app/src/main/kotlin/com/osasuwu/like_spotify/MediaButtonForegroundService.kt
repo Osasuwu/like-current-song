@@ -173,6 +173,9 @@ class MediaButtonForegroundService : Service() {
                         actionType = "like_track",
                         result = if (outcome.positive) "success" else "failure",
                     )
+                    // The opt-in extras come last: they cost API quota, they
+                    // can be slow, and they only ever log.
+                    runCatching { liker.extraActions(outcome) }
                 } catch (e: Exception) {
                     FeedbackPlayer.play(appContext, false)
                     log("YouTube Music like failed: ${e.message}", actionType = "like_track", result = "failure")
@@ -319,8 +322,8 @@ class MediaButtonForegroundService : Service() {
         private const val RESTART_REQUEST_CODE = 5
         private const val RESTART_DELAY_MS = 1000L
 
-        /** Session confirm (~2 s) + worst-case refresh/search/rate round trips. */
-        private const val YTM_LIKE_WAKE_LOCK_MS = 45_000L
+        /** Session confirm (~2 s) + worst-case refresh/search/rate/extra-action round trips. */
+        private const val YTM_LIKE_WAKE_LOCK_MS = 60_000L
 
         fun dispatchExternalMediaEvent(context: Context, event: String) {
             val serviceIntent = Intent(context, MediaButtonForegroundService::class.java).apply {

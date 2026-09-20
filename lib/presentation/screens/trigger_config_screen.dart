@@ -83,6 +83,10 @@ class _TriggerConfigScreenState extends ConsumerState<TriggerConfigScreen> {
   @override
   Widget build(BuildContext context) {
     final controller = ref.read(appControllerProvider.notifier);
+    // Only the selected service matters here; watching the whole state would
+    // rebuild the form on every log line.
+    final musicProvider =
+        ref.watch(appControllerProvider.select((state) => state.musicProvider));
 
     return Scaffold(
       appBar: AppBar(title: const Text('Trigger configuration')),
@@ -135,6 +139,7 @@ class _TriggerConfigScreenState extends ConsumerState<TriggerConfigScreen> {
             ),
             const SizedBox(height: 12),
             ExtraActionsSection(
+              musicProvider: musicProvider,
               archiveRemoveEnabled: _archiveRemoveEnabled,
               onArchiveRemoveChanged: (value) =>
                   setState(() => _archiveRemoveEnabled = value),

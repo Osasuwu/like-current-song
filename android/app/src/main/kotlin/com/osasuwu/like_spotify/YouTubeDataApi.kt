@@ -18,7 +18,20 @@ object YouTubeDataApi {
     private const val TOPIC_SUFFIX = " - Topic"
 
     /** One `search.list` hit: just what the pick order needs. */
-    data class SearchCandidate(val videoId: String, val channelTitle: String)
+    data class SearchCandidate(
+        val videoId: String,
+        val channelTitle: String,
+        val channelId: String = "",
+    )
+
+    /**
+     * The video a search resolved to, plus the artist's channel when the hit
+     * came from the artist themselves — see [pickMatch].
+     */
+    data class Match(val videoId: String, val artistChannelId: String?)
+
+    /** One `playlists.list` entry. */
+    data class Playlist(val id: String, val title: String)
 
     /** What the caller should do about a non-2xx Data API response. */
     enum class ErrorKind {
@@ -63,8 +76,10 @@ object YouTubeDataApi {
             val item = items.optJSONObject(i) ?: continue
             val videoId = item.optJSONObject("id")?.optString("videoId").orEmpty()
             if (videoId.isBlank()) continue
-            val channel = item.optJSONObject("snippet")?.optString("channelTitle").orEmpty()
-            out += SearchCandidate(videoId, channel)
+            val snippet = item.optJSONObject("snippet")
+            val channel = snippet?.optString("channelTitle").orEmpty()
+            val channelId = snippet?.optString("channelId").orEmpty()
+            out += SearchCandidate(videoId, channel, channelId)
         }
         return out
     }
@@ -73,17 +88,78 @@ object YouTubeDataApi {
      * Prefers the "Artist - Topic" Art Track (the audio-only upload YouTube
      * Music itself plays), then any upload from a channel named after the
      * artist, then the top hit. Null when there are no candidates.
+     *
+     * [Match.artistChannelId] is only set for the first two: the top hit may
+     * be a cover or a random upload, and auto-follow must never subscribe the
+     * user to a stranger over a lucky search result.
      */
-    fun pickVideo(candidates: List<SearchCandidate>, artist: String): String? {
+    fun pickMatch(candidates: List<SearchCandidate>, artist: String): Match? {
         if (candidates.isEmpty()) return null
         val want = artist.trim().lowercase()
         if (want.isNotEmpty()) {
             val topic = "$want${TOPIC_SUFFIX.lowercase()}"
-            candidates.firstOrNull { it.channelTitle.lowercase() == topic }?.let { return it.videoId }
-            candidates.firstOrNull { it.channelTitle.lowercase().startsWith(want) }?.let { return it.videoId }
+            candidates.firstOrNull { it.channelTitle.lowercase() == topic }?.let { return it.byArtist() }
+            candidates.firstOrNull { it.channelTitle.lowercase().startsWith(want) }?.let { return it.byArtist() }
         }
-        return candidates.first().videoId
+        return Match(candidates.first().videoId, artistChannelId = null)
     }
+
+    private fun SearchCandidate.byArtist() = Match(videoId, channelId.takeIf { it.isNotBlank() })
+
+    /** Parses a `playlists.list` body; entries without an id are dropped. */
+    fun parsePlaylists(body: String): List<Playlist> {
+        val items = runCatching { JSONObject(body).optJSONArray("items") }.getOrNull()
+            ?: return emptyList()
+        val out = mutableListOf<Playlist>()
+        for (i in 0 until items.length()) {
+            val item = items.optJSONObject(i) ?: continue
+            val id = item.optString("id").orEmpty()
+            if (id.isBlank()) continue
+            out += Playlist(id, item.optJSONObject("snippet")?.optString("title").orEmpty())
+        }
+        return out
+    }
+
+    /** The page token for the next `list` page, or null on the last one. */
+    fun nextPageToken(body: String): String? = runCatching {
+        JSONObject(body).optString("nextPageToken").takeIf { it.isNotBlank() }
+    }.getOrNull()
+
+    /**
+     * The id of the playlist called [name], case-insensitively — YouTube lets
+     * two playlists share a title, so the first match wins, as on desktop.
+     */
+    fun findPlaylistId(playlists: List<Playlist>, name: String): String? {
+        val want = name.trim().lowercase()
+        if (want.isEmpty()) return null
+        return playlists.firstOrNull { it.title.trim().lowercase() == want }?.id
+    }
+
+    /**
+     * The playlistItem ids in a `playlistItems.list` body that hold [videoId].
+     * A song can sit in a playlist more than once; every copy goes.
+     */
+    fun parsePlaylistItemIds(body: String, videoId: String): List<String> {
+        val items = runCatching { JSONObject(body).optJSONArray("items") }.getOrNull()
+            ?: return emptyList()
+        val out = mutableListOf<String>()
+        for (i in 0 until items.length()) {
+            val item = items.optJSONObject(i) ?: continue
+            val id = item.optString("id").orEmpty()
+            if (id.isBlank()) continue
+            if (item.optJSONObject("contentDetails")?.optString("videoId") != videoId) continue
+            out += id
+        }
+        return out
+    }
+
+    /** The `id` of a just-created resource (`playlists.insert`), if any. */
+    fun parseResourceId(body: String): String? = runCatching {
+        JSONObject(body).optString("id").takeIf { it.isNotBlank() }
+    }.getOrNull()
+
+    /** Whether a failed `subscriptions.insert` just means "already subscribed". */
+    fun isDuplicateSubscription(reason: String?): Boolean = reason == DUPLICATE_SUBSCRIPTION
 
     /** Classifies a non-2xx Data API response (`search.list`, `videos.rate`). */
     fun classifyApiError(status: Int, body: String?): ErrorKind = when {
@@ -117,6 +193,7 @@ object YouTubeDataApi {
         }.getOrNull()
     }
 
+    private const val DUPLICATE_SUBSCRIPTION = "subscriptionDuplicate"
     private val RATE_LIMIT_REASONS = setOf("quotaExceeded", "rateLimitExceeded")
     private val REAUTH_TOKEN_ERRORS = setOf("invalid_grant", "invalid_client", "unauthorized_client")
 }

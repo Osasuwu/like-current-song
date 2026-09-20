@@ -1,14 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:like_spotify_mobile_app/domain/entities/music_provider.dart';
 import 'package:like_spotify_mobile_app/domain/entities/rule_config.dart';
 import 'package:like_spotify_mobile_app/presentation/widgets/extra_actions_section.dart';
 
 /// Hosts [ExtraActionsSection] the way the trigger settings screen does:
 /// switch state lives in the parent, fields use its controllers.
 class _Host extends StatefulWidget {
-  const _Host({required this.config});
+  const _Host({
+    required this.config,
+    this.musicProvider = MusicProvider.spotify,
+  });
 
   final RuleConfig config;
+  final MusicProvider musicProvider;
 
   @override
   State<_Host> createState() => _HostState();
@@ -41,6 +46,7 @@ class _HostState extends State<_Host> {
         body: ListView(
           children: <Widget>[
             ExtraActionsSection(
+              musicProvider: widget.musicProvider,
               archiveRemoveEnabled: archive,
               onArchiveRemoveChanged: (v) => setState(() => archive = v),
               archivePlaylistName: archiveName,
@@ -145,5 +151,30 @@ void main() {
       _field(tester, 'extra_action_archive_playlist_name').controller!.text,
       RuleConfig.legacyDefaults().archivePlaylistName,
     );
+  });
+  testWidgets('spells out what an action costs on YouTube Music',
+      (tester) async {
+    await tester.pumpWidget(
+      _Host(config: RuleConfig.defaults(), musicProvider: MusicProvider.ytmusic),
+    );
+    await tester.tap(find.text('Extra actions'));
+    await tester.pumpAndSettle();
+
+    final note = find.byKey(const Key('extra_actions_quota_note'));
+    expect(note, findsOneWidget);
+    final text = tester.widget<Text>(
+      find.descendant(of: note, matching: find.byType(Text)),
+    );
+    expect(text.data, contains('50'));
+    expect(text.data, contains('10,000'));
+  });
+
+  testWidgets('says nothing about quota on Spotify, which has none',
+      (tester) async {
+    await tester.pumpWidget(_Host(config: RuleConfig.defaults()));
+    await tester.tap(find.text('Extra actions'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('extra_actions_quota_note')), findsNothing);
   });
 }

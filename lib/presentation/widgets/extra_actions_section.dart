@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/app_constants.dart';
+import '../../domain/entities/music_provider.dart';
 
 /// Collapsed "Extra actions" block of the trigger settings.
 ///
@@ -9,13 +10,15 @@ import '../../core/app_constants.dart';
 /// the artist. None of them is needed for liking itself, so the section starts
 /// collapsed and every action is opt-in. The wording is deliberately
 /// service-neutral so the section looks the same whichever music service is
-/// selected.
+/// selected — bar the YouTube Music quota note, which is a real limit users
+/// hit.
 ///
 /// The widget is stateless: the owning screen keeps the switch values and the
 /// text controllers and receives changes through the callbacks.
 class ExtraActionsSection extends StatelessWidget {
   const ExtraActionsSection({
     super.key,
+    required this.musicProvider,
     required this.archiveRemoveEnabled,
     required this.onArchiveRemoveChanged,
     required this.archivePlaylistName,
@@ -27,6 +30,9 @@ class ExtraActionsSection extends StatelessWidget {
     required this.onFollowArtistChanged,
     required this.followArtistThreshold,
   });
+
+  /// The selected service; only YouTube Music charges API quota per action.
+  final MusicProvider musicProvider;
 
   final bool archiveRemoveEnabled;
   final ValueChanged<bool> onArchiveRemoveChanged;
@@ -59,6 +65,16 @@ class ExtraActionsSection extends StatelessWidget {
         count == 0 ? 'Optional, all off' : '$count of 3 on',
       ),
       children: <Widget>[
+        if (musicProvider == MusicProvider.ytmusic)
+          Padding(
+            key: const Key('extra_actions_quota_note'),
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              'On YouTube Music each of these costs about 50 of the 10,000 '
+              'API units Google grants a day. Liking itself is free.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
         SwitchListTile(
           key: const Key('extra_action_archive_remove'),
           contentPadding: EdgeInsets.zero,

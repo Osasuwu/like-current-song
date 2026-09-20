@@ -26,7 +26,8 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 		var isFlutterAttached: Boolean = false
 			private set
 
-		private const val YTM_LIKE_WAKE_LOCK_MS = 45_000L
+		/** Session confirm (~2 s) + worst-case token, search, rate and extra-action calls. */
+		private const val YTM_LIKE_WAKE_LOCK_MS = 60_000L
 
 		/**
 		 * Off-main-thread runner for YouTube Music likes. Process-wide (not per
@@ -259,17 +260,25 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 					wakeLock.setReferenceCounted(false)
 					wakeLock.acquire(YTM_LIKE_WAKE_LOCK_MS)
 					ytmLikeExecutor.execute {
-						val reply = try {
-							val liker = YouTubeMusicLiker(appContext)
-							val liked = liker.like()
-							// A counter failure never turns the like into a failure.
-							runCatching { liker.count(liked) }.getOrDefault(liked).toChannelMap()
-						} catch (e: Exception) {
-							mapOf("outcome" to "failed", "message" to (e.message ?: "unexpected error"))
+						var extras: (() -> Unit)? = null
+						try {
+							val reply = try {
+								val liker = YouTubeMusicLiker(appContext)
+								val liked = liker.like()
+								// A counter failure never turns the like into a failure.
+								val outcome = runCatching { liker.count(liked) }.getOrDefault(liked)
+								extras = { liker.extraActions(outcome) }
+								outcome.toChannelMap()
+							} catch (e: Exception) {
+								mapOf("outcome" to "failed", "message" to (e.message ?: "unexpected error"))
+							}
+							runOnUiThread { result.success(reply) }
+							// Dart has its answer; the opt-in extras are slower still and
+							// only ever log, so they run after the reply.
+							runCatching { extras?.invoke() }
 						} finally {
 							if (wakeLock.isHeld) wakeLock.release()
 						}
-						runOnUiThread { result.success(reply) }
 					}
 				}
 
