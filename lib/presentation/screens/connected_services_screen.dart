@@ -143,8 +143,19 @@ class _YouTubeMusicSignInState extends ConsumerState<_YouTubeMusicSignIn> {
         Text('Google sign-in', style: theme.textTheme.titleMedium),
         const SizedBox(height: 4),
         const Text(
+          'Optional. The thumbs-up works without it. Signing in only adds the '
+          'Data API fallback and the shared like counter.',
+        ),
+        const SizedBox(height: 4),
+        const Text(
           'Uses an OAuth client from your own Google Cloud project, of type '
-          '"TVs and Limited Input devices", with YouTube Data API v3 enabled.',
+          '"TVs and Limited Input devices", with YouTube Data API v3 enabled. '
+          'Leave its consent screen in Testing with your account as a test '
+          'user: publishing needs a privacy policy and terms on a domain you '
+          'have verified. The price is that Google expires the sign-in after '
+          '7 days, so you repeat it about once a week. The client secret is '
+          'shown only when the client is created — if you lose it, add a new '
+          'one under Google Auth Platform → Clients.',
         ),
         Wrap(
           spacing: 8,

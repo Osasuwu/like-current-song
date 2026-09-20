@@ -422,6 +422,14 @@ body (`Closes #123`) or the `[no-issue]` marker for trivial drive-bys — see
 
 ## Conventions
 
+- **One Spotify development-mode app per developer.** Spotify limits each
+  developer to a single Development Mode Client ID, allows at most 5
+  allowlisted users on it, and requires the app owner to hold Spotify Premium
+  for the app to function at all. So don't plan on a throwaway Spotify app per
+  branch or per test account: reuse your one client ID for phone and desktop,
+  and add any account you test with under **Settings → User Management** in
+  the dashboard — a missing account gets 403s *after* a successful login. See
+  [README](README.md#1-spotify-developer-app).
 - Cross-platform helpers in `hosts/_common.py` (config I/O, builder
   registries) and `hosts/_setup.py` (the wizard); OS-bound side effects
   in `hosts/<platform>.py`. **No `winreg` / `winsound` / `ctypes.windll`

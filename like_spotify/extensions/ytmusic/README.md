@@ -33,14 +33,22 @@ Google Cloud project.
 2. Go to **APIs & Services → Library**, find **YouTube Data API v3** and
    click **Enable**.
 3. Go to **APIs & Services → OAuth consent screen** and choose **External**.
-   Fill in the app name and your email.
-   - Add yourself under *Test users* if you are asked to.
-   - Then click **Publish app** so it is *In production*. While the app is in
-     *Testing*, Google expires the login after **7 days**. An unverified app
-     in production just shows an "unverified app" warning on your own login,
-     which you can click through.
+   Fill in the app name and your email. Leave the app in **Testing** and add
+   your own Google account under *Test users*.
+   - **Don't click Publish app.** Every external production app needs a home
+     page, a privacy policy link and a terms-of-service link on a domain you
+     have verified in Search Console
+     ([source](https://support.google.com/cloud/answer/10311615)), which a
+     personal project has no way to supply.
+   - Staying in *Testing* means Google expires the refresh token after
+     **7 days**, so the sign-in has to be repeated about once a week. A
+     Google account that is not a listed test user is refused with "Access
+     blocked: … has not completed the Google verification process".
 4. Go to **APIs & Services → Credentials → Create credentials → OAuth client
-   ID**, and pick application type **Desktop app**.
+   ID**, and pick application type **Desktop app**. Copy the client secret
+   right away — it is shown only at creation and cannot be downloaded again;
+   if you lose it, use **Google Auth Platform → Clients →** your client
+   **→ Add Secret**.
 5. Run `like-current-song --setup` and choose `ytmusic`. Paste the client ID and
    secret when asked. A browser opens for the Google login, and the tokens are
    saved to `~/.like_spotify/youtube_token.json`.
@@ -79,17 +87,21 @@ pip install "like-current-song[ytmusic]"
 
 ## Limits and caveats
 
-- **Daily quota.** The free YouTube Data API quota is 10,000 units a day. A
-  like costs about 150 units (search 100 + rate 50), which is roughly
-  **65 likes a day**. Repeat presses on the same song reuse the match. When
-  the quota runs out, the like fails with a rate-limit error until the quota
-  resets at midnight Pacific time.
-- **Playlist actions spend quota too.** Each write costs about **50
-  units**: adding to best-of, removing from the archive, creating the best-of
-  playlist once, and subscribing. Reading a playlist costs 1 unit per 50
-  songs. The archive is read once per session, and then only when the liked
-  song is in it. A like that also triggers a write costs about 200 units
-  instead of 150. When quota runs out mid-action, the like itself has already
+- **Daily quota, in two buckets.** Since 1 June 2026 a project gets **100
+  `search.list` calls a day** in a bucket of their own, plus **10,000 units a
+  day** shared by every other endpoint. A like spends one search call to match
+  the song and 50 units to rate it. The search bucket is what runs out first:
+  about **100 new songs a day**, with the 10,000 units barely dented. Repeat
+  presses on the same song reuse the match and spend no search call. When
+  either bucket is empty the like fails with a rate-limit error until they
+  reset at midnight Pacific time.
+- **Playlist actions spend quota too**, but only from the 10,000-unit pool,
+  never from the search bucket. Each write costs about **50 units**: adding to
+  best-of, removing from the archive, creating the best-of playlist once, and
+  subscribing. Reading a playlist costs 1 unit per 50 songs. The archive is
+  read once per session, and then only when the liked song is in it. A like
+  that also triggers a write costs about 100 units instead of 50 — still far
+  inside the pool. When quota runs out mid-action, the like itself has already
   happened and only the extra step is skipped (it is logged as rate-limited).
 - **Matching is by title and artist.** Remixes, live versions and songs with
   very generic titles can match the wrong upload. The Topic preference gets

@@ -71,7 +71,9 @@ class ExtraActionsSection extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 8),
             child: Text(
               'On YouTube Music each of these costs about 50 of the 10,000 '
-              'API units Google grants a day. Liking itself is free.',
+              'API units Google grants a day. The song lookup that counts a '
+              'like draws on a separate budget of 100 a day, so these actions '
+              'are the cheap part. Liking itself is free.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ),
