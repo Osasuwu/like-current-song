@@ -16,7 +16,7 @@ Two halves that share Spotify state and a cross-device like counter:
 Repo: `Osasuwu/like-current-song` — **public**. Public repo = production
 quality: no local hacks, no "works for me".
 
-**Status**: feature-complete through v1.0.3, maintenance mode — lower priority
+**Status**: feature-complete through v1.1.0, maintenance mode — lower priority
 than redrobot and jarvis. No advanced protocols (PM dispatch, parallel work)
 needed. Standard Claude Code practices apply.
 
