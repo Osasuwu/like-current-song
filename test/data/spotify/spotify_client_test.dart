@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:like_spotify_mobile_app/data/spotify/spotify_client.dart';
@@ -17,6 +19,9 @@ void main() {
     setUp(() {
       mockHttpClient = MockHttpClient();
       client = SpotifyClient(mockHttpClient);
+      // The legacy-endpoint decision lives for the process lifetime, so it has
+      // to be cleared between tests.
+      SpotifyClient.resetLibraryEndpointCacheForTesting();
     });
 
     group('createCodeVerifier', () {
@@ -419,6 +424,7 @@ void main() {
         when(() => mockHttpClient.put(
               any(),
               headers: any(named: 'headers'),
+              body: any(named: 'body'),
             )).thenAnswer((_) async => http.Response('', 200));
 
         await client.likeTrack(
@@ -429,6 +435,7 @@ void main() {
         verify(() => mockHttpClient.put(
               any(),
               headers: any(named: 'headers'),
+              body: any(named: 'body'),
             )).called(1);
       });
 
@@ -436,36 +443,52 @@ void main() {
         when(() => mockHttpClient.put(
               any(),
               headers: any(named: 'headers'),
+              body: any(named: 'body'),
             )).thenAnswer((_) async => http.Response('Unauthorized', 401));
 
-        expect(
+        await expectLater(
           () => client.likeTrack(
             trackId: 'track_id',
             accessToken: 'invalid_token',
           ),
           throwsException,
         );
+
+        // 401 is a token problem: it must surface, never trigger a retry.
+        verify(() => mockHttpClient.put(
+              any(),
+              headers: any(named: 'headers'),
+              body: any(named: 'body'),
+            )).called(1);
       });
 
       test('throws exception on 400 Bad Request response', () async {
         when(() => mockHttpClient.put(
               any(),
               headers: any(named: 'headers'),
+              body: any(named: 'body'),
             )).thenAnswer((_) async => http.Response('Bad request', 400));
 
-        expect(
+        await expectLater(
           () => client.likeTrack(
             trackId: 'invalid_id',
             accessToken: 'access_token',
           ),
           throwsException,
         );
+
+        verify(() => mockHttpClient.put(
+              any(),
+              headers: any(named: 'headers'),
+              body: any(named: 'body'),
+            )).called(1);
       });
 
       test('includes Authorization header with bearer token', () async {
         when(() => mockHttpClient.put(
               any(),
               headers: any(named: 'headers'),
+              body: any(named: 'body'),
             )).thenAnswer((_) async => http.Response('', 200));
 
         await client.likeTrack(
@@ -475,27 +498,228 @@ void main() {
 
         verify(() => mockHttpClient.put(
               any(),
-              headers: {'Authorization': 'Bearer my_token'},
+              headers: {
+                'Authorization': 'Bearer my_token',
+                'Content-Type': 'application/json',
+              },
+              body: any(named: 'body'),
             )).called(1);
       });
 
-      test('includes track ID in request URL', () async {
-        when(() => mockHttpClient.put(
-              any(),
-              headers: any(named: 'headers'),
-            )).thenAnswer((_) async => http.Response('', 200));
+      test('sends the track URI to the generic /me/library endpoint', () async {
+        final requests = _recordPuts(mockHttpClient, (_) => http.Response('', 200));
 
         await client.likeTrack(
           trackId: 'my_track_123',
           accessToken: 'token',
         );
 
-        final verification = verify(() => mockHttpClient.put(
-              any(),
-              headers: any(named: 'headers'),
-            ));
-        verification.called(1);
+        expect(requests, hasLength(1));
+        expect(requests.single.uri.toString(), endsWith('/me/library'));
+        expect(
+          jsonDecode(requests.single.body as String),
+          equals({
+            'uris': ['spotify:track:my_track_123'],
+          }),
+        );
+      });
+    });
+
+    group('followArtists', () {
+      test('sends artist URIs to the generic /me/library endpoint', () async {
+        final requests = _recordPuts(mockHttpClient, (_) => http.Response('', 200));
+
+        await client.followArtists(
+          'token',
+          artistIds: <String>['artist_a', 'artist_b'],
+        );
+
+        expect(requests, hasLength(1));
+        expect(requests.single.uri.toString(), endsWith('/me/library'));
+        expect(
+          jsonDecode(requests.single.body as String),
+          equals({
+            'uris': ['spotify:artist:artist_a', 'spotify:artist:artist_b'],
+          }),
+        );
+      });
+
+      test('falls back to PUT /me/following when /me/library is unavailable',
+          () async {
+        final requests = _recordPuts(
+          mockHttpClient,
+          (uri) => uri.path.endsWith('/me/library')
+              ? http.Response('', 404)
+              : http.Response('', 200),
+        );
+
+        await client.followArtists(
+          'token',
+          artistIds: <String>['artist_a', 'artist_b'],
+        );
+
+        expect(requests, hasLength(2));
+        expect(
+          requests.last.uri.toString(),
+          endsWith('/me/following?type=artist&ids=artist_a,artist_b'),
+        );
+        expect(requests.last.body, isNull);
+      });
+
+      test('throws with the legacy status when both endpoints fail', () async {
+        _recordPuts(mockHttpClient, (_) => http.Response('Gone', 404));
+
+        await expectLater(
+          () => client.followArtists('token', artistIds: <String>['artist_a']),
+          throwsA(isA<SpotifyApiException>()
+              .having((e) => e.statusCode, 'statusCode', 404)
+              .having((e) => e.message, 'message',
+                  'Spotify follow artists failed')),
+        );
+      });
+    });
+
+    group('generic /me/library fallback', () {
+      test('retries the legacy endpoint on 404 and likes the track', () async {
+        final requests = _recordPuts(
+          mockHttpClient,
+          (uri) => uri.path.endsWith('/me/library')
+              ? http.Response('', 404)
+              : http.Response('', 200),
+        );
+
+        await client.likeTrack(trackId: 'trk', accessToken: 'token');
+
+        expect(requests, hasLength(2));
+        expect(requests.first.uri.toString(), endsWith('/me/library'));
+        expect(requests.last.uri.toString(), endsWith('/me/tracks?ids=trk'));
+        // The legacy endpoint takes IDs in the query string, not a JSON body.
+        expect(requests.last.body, isNull);
+        expect(
+          requests.last.headers,
+          equals({'Authorization': 'Bearer token'}),
+        );
+      });
+
+      test('retries the legacy endpoint on 403', () async {
+        final requests = _recordPuts(
+          mockHttpClient,
+          (uri) => uri.path.endsWith('/me/library')
+              ? http.Response('Forbidden', 403)
+              : http.Response('', 200),
+        );
+
+        await client.likeTrack(trackId: 'trk', accessToken: 'token');
+
+        expect(requests, hasLength(2));
+        expect(requests.last.uri.toString(), endsWith('/me/tracks?ids=trk'));
+      });
+
+      test('remembers the legacy endpoint for later calls', () async {
+        final requests = _recordPuts(
+          mockHttpClient,
+          (uri) => uri.path.endsWith('/me/library')
+              ? http.Response('', 404)
+              : http.Response('', 200),
+        );
+
+        await client.likeTrack(trackId: 'trk1', accessToken: 'token');
+        await client.likeTrack(trackId: 'trk2', accessToken: 'token');
+        await client.followArtists('token', artistIds: <String>['artist_a']);
+
+        // Only the first write pays two round trips.
+        expect(requests, hasLength(4));
+        expect(requests[2].uri.toString(), endsWith('/me/tracks?ids=trk2'));
+        expect(
+          requests[3].uri.toString(),
+          endsWith('/me/following?type=artist&ids=artist_a'),
+        );
+      });
+
+      test('does not remember the fallback when the legacy call also fails',
+          () async {
+        final requests = _recordPuts(
+          mockHttpClient,
+          (uri) => uri.path.endsWith('/me/library')
+              ? http.Response('', 404)
+              : http.Response('Server error', 500),
+        );
+
+        await expectLater(
+          () => client.likeTrack(trackId: 'trk1', accessToken: 'token'),
+          throwsA(isA<SpotifyApiException>()
+              .having((e) => e.statusCode, 'statusCode', 500)),
+        );
+        requests.clear();
+
+        // A legacy failure proves nothing about /me/library, so the next write
+        // tries the generic endpoint again.
+        await expectLater(
+          () => client.likeTrack(trackId: 'trk2', accessToken: 'token'),
+          throwsA(isA<SpotifyApiException>()),
+        );
+        expect(requests.first.uri.toString(), endsWith('/me/library'));
+      });
+
+      test('never retries on 429 Too Many Requests', () async {
+        final requests =
+            _recordPuts(mockHttpClient, (_) => http.Response('Slow down', 429));
+
+        await expectLater(
+          () => client.likeTrack(trackId: 'trk', accessToken: 'token'),
+          throwsA(isA<SpotifyApiException>()
+              .having((e) => e.statusCode, 'statusCode', 429)),
+        );
+
+        expect(requests, hasLength(1));
+        expect(requests.single.uri.toString(), endsWith('/me/library'));
+      });
+
+      test('never retries on 500 Server Error', () async {
+        final requests =
+            _recordPuts(mockHttpClient, (_) => http.Response('Boom', 500));
+
+        await expectLater(
+          () => client.likeTrack(trackId: 'trk', accessToken: 'token'),
+          throwsA(isA<SpotifyApiException>()
+              .having((e) => e.statusCode, 'statusCode', 500)),
+        );
+
+        expect(requests, hasLength(1));
       });
     });
   });
+}
+
+/// A PUT recorded by [_recordPuts].
+class _RecordedPut {
+  _RecordedPut(this.uri, this.headers, this.body);
+
+  final Uri uri;
+  final Map<String, String>? headers;
+  final Object? body;
+}
+
+/// Stubs `put` on [mock] with a response chosen per request URI and returns the
+/// growing list of recorded requests, so tests can assert on the exact endpoint
+/// sequence the fallback produced.
+List<_RecordedPut> _recordPuts(
+  MockHttpClient mock,
+  http.Response Function(Uri uri) respond,
+) {
+  final requests = <_RecordedPut>[];
+  when(() => mock.put(
+        any(),
+        headers: any(named: 'headers'),
+        body: any(named: 'body'),
+      )).thenAnswer((invocation) async {
+    final uri = invocation.positionalArguments.first as Uri;
+    requests.add(_RecordedPut(
+      uri,
+      invocation.namedArguments[#headers] as Map<String, String>?,
+      invocation.namedArguments[#body],
+    ));
+    return respond(uri);
+  });
+  return requests;
 }
