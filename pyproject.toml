@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "like-current-song"
-version = "1.0.3"
+version = "1.1.0"
 description = "Like the currently playing Spotify song with a global hotkey (Windows tray, macOS/Linux CLI) - saves to Liked Songs without switching windows. Pluggable framework."
 readme = "README.md"
 requires-python = ">=3.11"
