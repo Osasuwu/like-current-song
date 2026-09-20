@@ -4,12 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:like_spotify_mobile_app/core/app_constants.dart';
 import 'package:like_spotify_mobile_app/domain/entities/app_log.dart';
+import 'package:like_spotify_mobile_app/domain/entities/like_counter_config.dart';
 import 'package:like_spotify_mobile_app/domain/entities/music_provider.dart';
 import 'package:like_spotify_mobile_app/domain/entities/music_routing.dart';
 import 'package:like_spotify_mobile_app/domain/entities/pending_like.dart';
 import 'package:like_spotify_mobile_app/domain/entities/rule_config.dart';
 import 'package:like_spotify_mobile_app/domain/entities/spotify_auth_state.dart';
-import 'package:like_spotify_mobile_app/domain/entities/supabase_config.dart';
 import 'package:like_spotify_mobile_app/domain/entities/trigger_config.dart';
 import 'package:like_spotify_mobile_app/presentation/state/app_controller.dart';
 import 'package:like_spotify_mobile_app/presentation/state/app_providers.dart';
@@ -39,12 +39,23 @@ Widget hostScreen(
   MusicProvider provider = MusicProvider.spotify,
   int pendingLikes = 0,
   String spotifyClientId = 'test-client-id',
-  SupabaseConfig supabase = SupabaseConfig.empty,
+  LikeCounterConfig counter = LikeCounterConfig.empty,
 }) {
   FlutterSecureStorage.setMockInitialValues(<String, String>{
     if (spotifyClientId.isNotEmpty) 'spotify_client_id': spotifyClientId,
-    if (supabase.url.isNotEmpty) 'supabase_url': supabase.url,
-    if (supabase.anonKey.isNotEmpty) 'supabase_anon_key': supabase.anonKey,
+    if (counter.spreadsheetId.isNotEmpty)
+      'counter_spreadsheet_id': counter.spreadsheetId,
+    if (counter.clientId.isNotEmpty)
+      'counter_google_client_id': counter.clientId,
+    if (counter.clientSecret.isNotEmpty)
+      'counter_google_client_secret': counter.clientSecret,
+    if (counter.accessToken.isNotEmpty)
+      'counter_google_access': counter.accessToken,
+    if (counter.refreshToken.isNotEmpty)
+      'counter_google_refresh': counter.refreshToken,
+    if (counter.expiresAt != null)
+      'counter_google_expiry_epoch_ms':
+          counter.expiresAt!.millisecondsSinceEpoch.toString(),
   });
 
   registerFallbackValue(MusicProvider.spotify);
@@ -95,9 +106,13 @@ Widget hostScreen(
       .thenAnswer((_) async => const MusicSessionSnapshot());
   when(() => platform.updateTriggerConfig(any())).thenAnswer((_) async {});
   when(() => platform.updateRuleConfig(any())).thenAnswer((_) async {});
-  when(() => platform.syncSupabaseConfig(
-        supabaseUrl: any(named: 'supabaseUrl'),
-        supabaseAnonKey: any(named: 'supabaseAnonKey'),
+  when(() => platform.syncLikeCounterConfig(
+        spreadsheetId: any(named: 'spreadsheetId'),
+        clientId: any(named: 'clientId'),
+        clientSecret: any(named: 'clientSecret'),
+        accessToken: any(named: 'accessToken'),
+        refreshToken: any(named: 'refreshToken'),
+        expiresAtEpochMs: any(named: 'expiresAtEpochMs'),
       )).thenAnswer((_) async {});
   when(platform.events)
       .thenAnswer((_) => const Stream<Map<String, dynamic>>.empty());
@@ -116,7 +131,7 @@ Widget hostScreen(
           musicServiceRepository: music,
           musicRoutingRepository: routing,
           appLinks: appLinks,
-          readSupabaseConfig: () async => supabase,
+          readLikeCounterConfig: () async => counter,
         ),
       ),
     ],

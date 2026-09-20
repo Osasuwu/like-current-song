@@ -24,7 +24,7 @@ import java.net.URL
  *
  * Mirrors the canonical rule pipeline in the Dart layer
  * ([SpotifyMusicServiceRepository.likeTrack]): like -> remove from archive playlist
- * (non-blocking) -> increment track like count (Supabase-first, local fallback) ->
+ * (non-blocking) -> increment track like count (counter sheet first, local fallback) ->
  * promote to best playlist at threshold -> increment artist like count (local only) ->
  * auto-follow artist at threshold.
  */
@@ -275,7 +275,7 @@ class SpotifyLikeWorker(
 
     private fun incrementTrackLikeCount(prefs: SharedPreferences, trackId: String): Int {
         LikeCounter.target(prefs, MusicProvider.SPOTIFY)?.let { target ->
-            LikeCounter.increment(target, trackId)?.let { return it }
+            LikeCounter.increment(prefs, target, trackId)?.let { return it }
         }
         return incrementLocalCount(prefs, AppConstants.KEY_TRACK_LIKE_COUNTS, trackId)
     }

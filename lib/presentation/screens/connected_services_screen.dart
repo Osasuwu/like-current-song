@@ -7,7 +7,7 @@ import '../../core/app_constants.dart';
 import '../../domain/entities/music_provider.dart';
 import '../../domain/entities/music_routing.dart';
 import '../state/app_providers.dart';
-import '../state/ytmusic_sign_in_controller.dart';
+import '../state/device_sign_in_controller.dart';
 import '../widgets/screen_padding.dart';
 
 class ConnectedServicesScreen extends ConsumerWidget {
@@ -523,8 +523,9 @@ class _SpotifyCredentialsState extends ConsumerState<_SpotifyCredentials> {
   }
 }
 
-/// The optional Supabase project behind the cross-device like counter.
-/// Collapsed by default: everything above works without it.
+/// The optional Google Sheet behind the cross-device like counter, and the
+/// Google sign-in that writes to it. Collapsed by default: everything above
+/// works without it.
 class _SharedLikeCounter extends ConsumerStatefulWidget {
   const _SharedLikeCounter();
 
@@ -533,18 +534,22 @@ class _SharedLikeCounter extends ConsumerStatefulWidget {
 }
 
 class _SharedLikeCounterState extends ConsumerState<_SharedLikeCounter> {
-  /// The README's counter section: the SQL and the project setup.
+  /// The README's counter section: making the sheet and its header row.
   static const _setupGuideUrl =
       'https://github.com/Osasuwu/like-current-song#4-cross-device-counters-optional';
 
-  final _url = TextEditingController();
-  final _anonKey = TextEditingController();
-  bool _prefilled = false;
+  final _clientId = TextEditingController();
+  final _clientSecret = TextEditingController();
+  final _spreadsheetId = TextEditingController();
+  bool _prefilledCredentials = false;
+  bool _prefilledSheet = false;
+  bool _secretHidden = true;
 
   @override
   void dispose() {
-    _url.dispose();
-    _anonKey.dispose();
+    _clientId.dispose();
+    _clientSecret.dispose();
+    _spreadsheetId.dispose();
     super.dispose();
   }
 
@@ -552,13 +557,23 @@ class _SharedLikeCounterState extends ConsumerState<_SharedLikeCounter> {
   Widget build(BuildContext context) {
     final credentials = ref.watch(serviceCredentialsControllerProvider);
     final controller = ref.read(serviceCredentialsControllerProvider.notifier);
+    final signIn = ref.watch(likeCounterSignInControllerProvider);
+    final signInController =
+        ref.read(likeCounterSignInControllerProvider.notifier);
+    final theme = Theme.of(context);
 
-    if (!_prefilled && credentials.loaded) {
-      _prefilled = true;
-      _url.text = credentials.supabase.url;
-      _anonKey.text = credentials.supabase.anonKey;
+    final saved = signIn.credentials;
+    if (!_prefilledCredentials && saved != null) {
+      _prefilledCredentials = true;
+      _clientId.text = saved.clientId;
+      _clientSecret.text = saved.clientSecret;
+    }
+    if (!_prefilledSheet && credentials.loaded) {
+      _prefilledSheet = true;
+      _spreadsheetId.text = credentials.counter.spreadsheetId;
     }
 
+    final prompt = signIn.prompt;
     return ExpansionTile(
       title: const Text('Shared like counter (optional)'),
       childrenPadding: const EdgeInsets.only(bottom: 8),
@@ -566,8 +581,14 @@ class _SharedLikeCounterState extends ConsumerState<_SharedLikeCounter> {
       children: <Widget>[
         const Text(
           'Counts how often you like the same track across your devices, in a '
-          'Supabase project of your own. Leave both fields blank and likes are '
-          'counted on this device only.',
+          'Google Sheet of your own — the same sheet the desktop app writes to. '
+          'Leave the spreadsheet ID blank and likes are counted on this device '
+          'only.',
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'The sheet needs a tab named Likes whose first row is the header '
+          'user_id, track_id, count, backfilled, updated_at.',
         ),
         Align(
           alignment: Alignment.centerLeft,
@@ -578,24 +599,187 @@ class _SharedLikeCounterState extends ConsumerState<_SharedLikeCounter> {
           ),
         ),
         const SizedBox(height: 8),
+        Text('Google sign-in', style: theme.textTheme.titleSmall),
+        const SizedBox(height: 4),
+        const Text(
+          'The counter signs in to Google on its own, separately from the music '
+          'service, so it keeps counting whichever service you pick. It needs '
+          'an OAuth client of type "TVs and Limited Input devices" on a project '
+          'with the Google Sheets API enabled — the same client you made for '
+          'YouTube Music will do, once that API is enabled on its project.',
+        ),
+        const SizedBox(height: 12),
         TextField(
-          controller: _url,
+          controller: _clientId,
+          enabled: !signIn.busy,
           autocorrect: false,
           enableSuggestions: false,
-          keyboardType: TextInputType.url,
           decoration: const InputDecoration(
-            labelText: 'Project URL',
-            hintText: 'https://your-project.supabase.co',
+            labelText: 'Client ID',
             border: OutlineInputBorder(),
           ),
         ),
         const SizedBox(height: 8),
         TextField(
-          controller: _anonKey,
+          controller: _clientSecret,
+          enabled: !signIn.busy,
+          obscureText: _secretHidden,
+          autocorrect: false,
+          enableSuggestions: false,
+          decoration: InputDecoration(
+            labelText: 'Client secret',
+            border: const OutlineInputBorder(),
+            suffixIcon: IconButton(
+              tooltip: _secretHidden ? 'Show secret' : 'Hide secret',
+              icon: Icon(
+                _secretHidden ? Icons.visibility : Icons.visibility_off,
+              ),
+              onPressed: () => setState(() => _secretHidden = !_secretHidden),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: <Widget>[
+            OutlinedButton(
+              onPressed: signIn.busy
+                  ? null
+                  : () => signInController.saveCredentials(
+                        clientId: _clientId.text,
+                        clientSecret: _clientSecret.text,
+                      ),
+              child: const Text('Save credentials'),
+            ),
+            FilledButton(
+              onPressed: signIn.busy || !signIn.hasCredentials
+                  ? null
+                  : signInController.connect,
+              child: const Text('Sign in with Google'),
+            ),
+            if (credentials.counter.isSignedIn)
+              TextButton(
+                onPressed: signIn.busy ? null : _signOut,
+                child: const Text('Sign out'),
+              ),
+          ],
+        ),
+        if (!signIn.hasCredentials) ...<Widget>[
+          const SizedBox(height: 4),
+          const Text(
+            'Sign in turns on once the client ID and secret are saved.',
+          ),
+        ],
+        if (signIn.credentialsSaved) ...<Widget>[
+          const SizedBox(height: 4),
+          const Text('Credentials saved.'),
+        ],
+        if (credentials.counter.isSignedIn &&
+            signIn.phase == DeviceSignInPhase.idle) ...<Widget>[
+          const SizedBox(height: 4),
+          const Text('Signed in to Google.'),
+        ],
+        if (signIn.phase == DeviceSignInPhase.requestingCode) ...<Widget>[
+          const SizedBox(height: 16),
+          const Row(
+            children: <Widget>[
+              SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              SizedBox(width: 8),
+              Text('Getting a sign-in code...'),
+            ],
+          ),
+        ],
+        if (prompt != null &&
+            signIn.phase == DeviceSignInPhase.awaitingApproval) ...<Widget>[
+          const SizedBox(height: 16),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    'On any device, open ${prompt.verificationUrl} and enter:',
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: <Widget>[
+                      SelectableText(
+                        prompt.userCode,
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          fontFamily: 'monospace',
+                          letterSpacing: 2,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Copy code',
+                        icon: const Icon(Icons.copy),
+                        onPressed: () => _copyToClipboard(
+                          context,
+                          prompt.userCode,
+                          'Code copied',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: <Widget>[
+                      FilledButton.tonal(
+                        onPressed: () =>
+                            _openExternalUrl(context, prompt.verificationUrl),
+                        child: const Text('Open in browser'),
+                      ),
+                      TextButton(
+                        onPressed: signInController.cancel,
+                        child: const Text('Cancel'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  const Row(
+                    children: <Widget>[
+                      SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 8),
+                      Expanded(child: Text('Waiting for approval...')),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+        if (signIn.error != null) ...<Widget>[
+          const SizedBox(height: 12),
+          Text(
+            signIn.error!,
+            style: TextStyle(color: theme.colorScheme.error),
+          ),
+        ],
+        const SizedBox(height: 16),
+        Text('Spreadsheet', style: theme.textTheme.titleSmall),
+        const SizedBox(height: 4),
+        const Text(
+          "The long part of the sheet's address, between /d/ and /edit.",
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _spreadsheetId,
           autocorrect: false,
           enableSuggestions: false,
           decoration: const InputDecoration(
-            labelText: 'Anon key',
+            labelText: 'Spreadsheet ID',
             border: OutlineInputBorder(),
           ),
         ),
@@ -603,18 +787,26 @@ class _SharedLikeCounterState extends ConsumerState<_SharedLikeCounter> {
         Align(
           alignment: Alignment.centerLeft,
           child: OutlinedButton(
-            onPressed: () => controller.saveSupabaseConfig(
-              url: _url.text,
-              anonKey: _anonKey.text,
-            ),
+            onPressed: () =>
+                controller.saveCounterSpreadsheetId(_spreadsheetId.text),
             child: const Text('Save counter settings'),
           ),
         ),
-        if (credentials.supabaseSaved) ...<Widget>[
+        if (credentials.counterSaved) ...<Widget>[
           const SizedBox(height: 4),
           const Text('Counter settings saved.'),
         ],
       ],
     );
+  }
+
+  /// Drops the counter's Google tokens, then re-reads the config so the card
+  /// stops claiming it is signed in.
+  Future<void> _signOut() async {
+    await ref.read(likeCounterAccountProvider).signOut();
+    if (!mounted) return;
+    await ref
+        .read(serviceCredentialsControllerProvider.notifier)
+        .refreshCounter();
   }
 }

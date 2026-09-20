@@ -1,8 +1,6 @@
 package com.osasuwu.like_spotify
 
-import org.json.JSONObject
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -39,36 +37,60 @@ class LikeCounterTest {
         assertNull(LikeCounter.userIdFor(MusicProvider.SPOTIFY, spotifyUserId = "", ytmUserSub = null))
     }
 
-    // ---- requestBody -------------------------------------------------
+    // ---- findRow -------------------------------------------------
 
     @Test
-    fun `body carries user and track ids`() {
-        val body = JSONObject(LikeCounter.requestBody("google-sub", "dQw4w9WgXcQ", wasAlreadyLiked = false))
-        assertEquals("google-sub", body.getString("p_user_id"))
-        assertEquals("dQw4w9WgXcQ", body.getString("p_track_id"))
+    fun `finds the row of a user and track pair, skipping the header`() {
+        val body = """
+            {"values":[
+              ["user_id","track_id","count","backfilled","updated_at"],
+              ["other","t1","4","FALSE","2026-01-01T00:00:00Z"],
+              ["google-sub","dQw4w9WgXcQ","7","FALSE","2026-01-02T00:00:00Z"]
+            ]}
+        """.trimIndent()
+        assertEquals(4 to 7, LikeCounter.findRow(body, "google-sub", "dQw4w9WgXcQ"))
     }
 
     @Test
-    fun `already-liked flag is sent only when true`() {
-        val fresh = JSONObject(LikeCounter.requestBody("u", "t", wasAlreadyLiked = false))
-        assertFalse(fresh.has("p_was_already_liked"))
-
-        val already = JSONObject(LikeCounter.requestBody("u", "t", wasAlreadyLiked = true))
-        assertTrue(already.getBoolean("p_was_already_liked"))
-    }
-
-    // ---- parseCount -------------------------------------------------
-
-    @Test
-    fun `parses the bare integer the rpc returns`() {
-        assertEquals(3, LikeCounter.parseCount("3"))
-        assertEquals(12, LikeCounter.parseCount(" 12\n"))
+    fun `a header row that happens to match is never returned`() {
+        val body = """{"values":[["u","t","count","FALSE","now"],["u","t","2","FALSE","now"]]}"""
+        assertEquals(2 to 2, LikeCounter.findRow(body, "u", "t"))
     }
 
     @Test
-    fun `unparseable reply is no count`() {
-        assertNull(LikeCounter.parseCount(null))
-        assertNull(LikeCounter.parseCount(""))
-        assertNull(LikeCounter.parseCount("{\"message\":\"boom\"}"))
+    fun `an unreadable or empty sheet has no row`() {
+        assertNull(LikeCounter.findRow(null, "u", "t"))
+        assertNull(LikeCounter.findRow("", "u", "t"))
+        assertNull(LikeCounter.findRow("""{"range":"Likes!A1:E1"}""", "u", "t"))
+        assertNull(LikeCounter.findRow("""{"values":[["user_id","track_id"]]}""", "u", "t"))
+    }
+
+    @Test
+    fun `a row whose count is missing or junk counts as zero`() {
+        val body = """{"values":[["user_id","track_id","count"],["u","t",""],["x","y","nope"]]}"""
+        assertEquals(2 to 0, LikeCounter.findRow(body, "u", "t"))
+        assertEquals(3 to 0, LikeCounter.findRow(body, "x", "y"))
+    }
+
+    // ---- rowFromA1Range -------------------------------------------------
+
+    @Test
+    fun `reads the row an append landed on`() {
+        assertEquals(12, LikeCounter.rowFromA1Range("Likes!A12:E12"))
+        assertEquals(2, LikeCounter.rowFromA1Range("Likes!A2:E2"))
+    }
+
+    @Test
+    fun `a missing range is no row`() {
+        assertNull(LikeCounter.rowFromA1Range(null))
+        assertNull(LikeCounter.rowFromA1Range(""))
+        assertNull(LikeCounter.rowFromA1Range("Likes"))
+    }
+
+    // ---- nowIso -------------------------------------------------
+
+    @Test
+    fun `timestamps match the shape the desktop writes`() {
+        assertTrue(LikeCounter.nowIso().matches(Regex("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z")))
     }
 }

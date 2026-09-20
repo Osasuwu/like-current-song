@@ -5,12 +5,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:like_spotify_mobile_app/core/app_constants.dart';
 import 'package:like_spotify_mobile_app/data/music/active_music_service_repository.dart';
 import 'package:like_spotify_mobile_app/domain/entities/app_log.dart';
+import 'package:like_spotify_mobile_app/domain/entities/like_counter_config.dart';
 import 'package:like_spotify_mobile_app/domain/entities/music_provider.dart';
 import 'package:like_spotify_mobile_app/domain/entities/music_routing.dart';
 import 'package:like_spotify_mobile_app/domain/entities/pending_like.dart';
 import 'package:like_spotify_mobile_app/domain/entities/rule_config.dart';
 import 'package:like_spotify_mobile_app/domain/entities/spotify_auth_state.dart';
-import 'package:like_spotify_mobile_app/domain/entities/supabase_config.dart';
 import 'package:like_spotify_mobile_app/domain/entities/trigger_config.dart';
 import 'package:like_spotify_mobile_app/domain/repositories/device_sign_in_repository.dart';
 import 'package:like_spotify_mobile_app/presentation/state/app_controller.dart';
@@ -128,9 +128,13 @@ class AppControllerHarness {
     when(() => platform.updateTriggerConfig(any())).thenAnswer((_) async {});
     when(() => platform.updateRuleConfig(any())).thenAnswer((_) async {});
     when(
-      () => platform.syncSupabaseConfig(
-        supabaseUrl: any(named: 'supabaseUrl'),
-        supabaseAnonKey: any(named: 'supabaseAnonKey'),
+      () => platform.syncLikeCounterConfig(
+        spreadsheetId: any(named: 'spreadsheetId'),
+        clientId: any(named: 'clientId'),
+        clientSecret: any(named: 'clientSecret'),
+        accessToken: any(named: 'accessToken'),
+        refreshToken: any(named: 'refreshToken'),
+        expiresAtEpochMs: any(named: 'expiresAtEpochMs'),
       ),
     ).thenAnswer((_) async {});
     when(() => platform.events())
@@ -149,7 +153,7 @@ class AppControllerHarness {
 
   /// What the shared counter is configured with; unconfigured by default,
   /// which is what a fresh install looks like.
-  SupabaseConfig supabaseConfig = SupabaseConfig.empty;
+  LikeCounterConfig counterConfig = LikeCounterConfig.empty;
 
   AppController build() => AppController(
         settingsRepository: settings,
@@ -157,7 +161,7 @@ class AppControllerHarness {
         musicServiceRepository: music,
         musicRoutingRepository: music,
         appLinks: appLinks,
-        readSupabaseConfig: () async => supabaseConfig,
+        readLikeCounterConfig: () async => counterConfig,
       );
 
   /// Overrides that point `appControllerProvider` and the YouTube Music

@@ -18,7 +18,6 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import org.json.JSONObject
 import java.io.BufferedReader
-import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -46,7 +45,7 @@ class ApiFailure(
  *    or the rating does not stick: `search.list` with the desktop pick order,
  *    then `videos.rate`. Needs the device-flow tokens from #94.
  *
- * After a like goes through, [count] adds it to the shared Supabase counter
+ * After a like goes through, [count] adds it to the shared counter sheet
  * under the Google account's `sub`, the key desktop YouTube Music uses (#96),
  * and [extraActions] runs the opt-in playlist and follow rules (#98).
  *
@@ -113,7 +112,7 @@ class YouTubeMusicLiker(context: Context) {
     /**
      * Adds a successful like to the shared counter and returns [outcome] with
      * the new [Outcome.likeCount]. Only when the user is signed in to YouTube
-     * Music (the `sub` is known) and Supabase is configured; otherwise, or
+     * Music (the `sub` is known) and the counter sheet is set up; otherwise, or
      * when the like did not go through, [outcome] comes back unchanged.
      *
      * Never flips the outcome: a counter failure is logged and the like still
@@ -181,6 +180,7 @@ class YouTubeMusicLiker(context: Context) {
             return outcome
         }
         val newCount = LikeCounter.increment(
+            prefs,
             target,
             trackId = videoId,
             wasAlreadyLiked = outcome.kind == Kind.ALREADY_LIKED,
@@ -389,65 +389,27 @@ class YouTubeMusicLiker(context: Context) {
         }
     }
 
-    /** The stored access token, refreshed first when it is (nearly) expired or [forceRefresh]. */
-    private fun freshAccessToken(forceRefresh: Boolean): String {
-        val access = prefs.getString(AppConstants.KEY_YTM_ACCESS_TOKEN, null)
-        val expiresAt = prefs.getLong(AppConstants.KEY_YTM_TOKEN_EXPIRES_AT, 0L)
-        val stale = expiresAt > 0L && expiresAt - System.currentTimeMillis() < REFRESH_MARGIN_MS
-        if (!forceRefresh && !stale && !access.isNullOrBlank()) return access
-        return refreshAccessToken()
-    }
-
-    private fun refreshAccessToken(): String {
-        val refreshToken = prefs.getString(AppConstants.KEY_YTM_REFRESH_TOKEN, null)
-        val clientId = prefs.getString(AppConstants.KEY_YTM_CLIENT_ID, null)
-        val clientSecret = prefs.getString(AppConstants.KEY_YTM_CLIENT_SECRET, null)
-        if (refreshToken.isNullOrBlank() || clientId.isNullOrBlank()) {
+    /**
+     * The stored access token, refreshed first when it is (nearly) expired or
+     * [forceRefresh]. The exchange itself is [GoogleTokens], shared with the
+     * like counter's sign-in; this only turns its failures into the
+     * YouTube-flavoured ones the rest of the class handles.
+     */
+    private fun freshAccessToken(forceRefresh: Boolean): String = try {
+        GoogleTokens.fresh(prefs, GoogleTokens.YTMUSIC, forceRefresh)
+    } catch (failure: GoogleTokens.RefreshFailure) {
+        if (failure.needsReauth) {
             notifyReauth()
-            throw ApiFailure("YouTube Music sign-in incomplete", null)
+            throw ApiFailure(
+                if (failure.httpCode == null) {
+                    "YouTube Music sign-in incomplete"
+                } else {
+                    "YouTube Music sign-in revoked"
+                },
+                failure.httpCode,
+            )
         }
-
-        val connection = URL(YouTubeDataApi.TOKEN_URL).openConnection() as HttpURLConnection
-        connection.requestMethod = "POST"
-        connection.doOutput = true
-        connection.connectTimeout = HTTP_TIMEOUT_MS
-        connection.readTimeout = HTTP_TIMEOUT_MS
-        connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-        val form = buildString {
-            append("grant_type=refresh_token")
-            append("&refresh_token=").append(URLEncoder.encode(refreshToken, Charsets.UTF_8.name()))
-            append("&client_id=").append(URLEncoder.encode(clientId, Charsets.UTF_8.name()))
-            if (!clientSecret.isNullOrBlank()) {
-                append("&client_secret=").append(URLEncoder.encode(clientSecret, Charsets.UTF_8.name()))
-            }
-        }
-        OutputStreamWriter(connection.outputStream).use { it.write(form) }
-
-        val status = connection.responseCode
-        if (status !in 200..299) {
-            val body = readBody(connection, error = true)
-            when (YouTubeDataApi.classifyTokenError(status, body)) {
-                YouTubeDataApi.ErrorKind.REAUTH_REQUIRED -> {
-                    notifyReauth()
-                    throw ApiFailure("YouTube Music sign-in revoked", status)
-                }
-                else -> throw ApiFailure("YouTube token refresh failed", status)
-            }
-        }
-
-        val json = JSONObject(readBody(connection, error = false).orEmpty())
-        val access = json.optString("access_token")
-        if (access.isBlank()) throw ApiFailure("YouTube token refresh returned no token", status)
-        val editor = prefs.edit().putString(AppConstants.KEY_YTM_ACCESS_TOKEN, access)
-        json.optString("refresh_token").takeIf { it.isNotBlank() }?.let {
-            editor.putString(AppConstants.KEY_YTM_REFRESH_TOKEN, it)
-        }
-        val expiresIn = json.optLong("expires_in", 0L)
-        if (expiresIn > 0L) {
-            editor.putLong(AppConstants.KEY_YTM_TOKEN_EXPIRES_AT, System.currentTimeMillis() + expiresIn * 1000L)
-        }
-        editor.apply()
-        return access
+        throw ApiFailure("YouTube token refresh failed", failure.httpCode)
     }
 
     private fun readBody(connection: HttpURLConnection, error: Boolean): String? = try {
@@ -540,7 +502,6 @@ class YouTubeMusicLiker(context: Context) {
         private const val CONFIRM_TIMEOUT_MS = 2_000L
         private const val CONFIRM_POLL_MS = 150L
         private const val HTTP_TIMEOUT_MS = 10_000
-        private const val REFRESH_MARGIN_MS = 5 * 60_000L
         private const val REAUTH_REQUEST_CODE = 6
         private const val RESOLVED_CACHE_SIZE = 64
 

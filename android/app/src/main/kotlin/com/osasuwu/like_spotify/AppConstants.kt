@@ -77,8 +77,18 @@ object AppConstants {
     const val KEY_YTM_PLAYLIST_CACHE = "ytm_playlist_cache"
     const val KEY_YTM_PLAYLIST_CACHE_TIMESTAMP = "ytm_playlist_cache_timestamp"
 
-    const val KEY_SUPABASE_URL = "supabase_url"
-    const val KEY_SUPABASE_ANON_KEY = "supabase_anon_key"
+    // The shared like counter: a Google Sheet the user owns, plus its own
+    // Google sign-in (independent of the music service, so the counter works
+    // whichever service is picked). Written by Dart via `setLikeCounterConfig`;
+    // the native side writes refreshed tokens back to the same keys. Expiry is
+    // epoch milliseconds.
+    const val KEY_COUNTER_SPREADSHEET_ID = "counter_spreadsheet_id"
+    const val KEY_COUNTER_CLIENT_ID = "counter_google_client_id"
+    const val KEY_COUNTER_CLIENT_SECRET = "counter_google_client_secret"
+    const val KEY_COUNTER_ACCESS_TOKEN = "counter_google_access"
+    const val KEY_COUNTER_REFRESH_TOKEN = "counter_google_refresh"
+    const val KEY_COUNTER_TOKEN_EXPIRES_AT = "counter_google_expiry_epoch_ms"
+
     const val PLAYLIST_CACHE_TTL_MS = 12 * 60 * 60 * 1000L  // 12 hours
 
     const val ACTION_MEDIA_EVENT = "com.osasuwu.like_spotify.MEDIA_EVENT"

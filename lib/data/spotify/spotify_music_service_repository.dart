@@ -409,6 +409,7 @@ class SpotifyMusicServiceRepository implements MusicServiceRepository {
     };
   }
 
-  /// Expose playlist service's cached user ID for Supabase like counting.
+  /// Expose the playlist service's cached user ID, which keys the shared like
+  /// counter's rows.
   String? get cachedUserId => _playlistService.cachedUserId;
 }

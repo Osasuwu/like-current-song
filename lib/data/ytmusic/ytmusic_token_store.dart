@@ -2,6 +2,12 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../../domain/entities/device_sign_in.dart';
 
+/// What a `--dart-define-from-file=.env` build was compiled with. Only ever a
+/// seed for [YouTubeMusicTokenStore.seedCredentials]; once the store holds
+/// credentials, those win.
+const _envClientId = String.fromEnvironment('YTMUSIC_CLIENT_ID');
+const _envClientSecret = String.fromEnvironment('YTMUSIC_CLIENT_SECRET');
+
 /// YouTube Music's Google tokens, stored under their own keys so they live
 /// next to Spotify's (`SpotifyTokenStore`) without touching them: switching
 /// services keeps both signed in.
@@ -79,5 +85,23 @@ class YouTubeMusicTokenStore {
     final secret = await _storage.read(key: _keyClientSecret);
     if (id == null && secret == null) return null;
     return OAuthClientCredentials(clientId: id ?? '', clientSecret: secret ?? '');
+  }
+
+  /// Carries build-time `--dart-define` credentials into the store, once, so
+  /// an install built from `.env` can sign in without retyping them.
+  ///
+  /// Only a store that has never been written is seeded — a user who cleared
+  /// the fields stays cleared. Half a credential pair is no credential, so
+  /// both halves have to be there.
+  Future<void> seedCredentials({
+    String clientId = _envClientId,
+    String clientSecret = _envClientSecret,
+  }) async {
+    if (clientId.isEmpty || clientSecret.isEmpty) return;
+    if (await _storage.read(key: _keyClientId) != null) return;
+    if (await _storage.read(key: _keyClientSecret) != null) return;
+    await saveCredentials(
+      OAuthClientCredentials(clientId: clientId, clientSecret: clientSecret),
+    );
   }
 }

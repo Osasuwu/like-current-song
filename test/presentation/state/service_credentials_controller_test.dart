@@ -1,34 +1,37 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:like_spotify_mobile_app/data/likes/supabase_config_store.dart';
+import 'package:like_spotify_mobile_app/data/likes/like_counter_store.dart';
 import 'package:like_spotify_mobile_app/data/spotify/spotify_token_store.dart';
-import 'package:like_spotify_mobile_app/domain/entities/supabase_config.dart';
+import 'package:like_spotify_mobile_app/domain/entities/device_sign_in.dart';
+import 'package:like_spotify_mobile_app/domain/entities/like_counter_config.dart';
 import 'package:like_spotify_mobile_app/presentation/state/service_credentials_controller.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late SpotifyTokenStore tokenStore;
-  late SupabaseConfigStore configStore;
-  late List<SupabaseConfig> pushedToNative;
+  late LikeCounterStore counterStore;
+  late List<LikeCounterConfig> pushedToNative;
 
   ServiceCredentialsController build() => ServiceCredentialsController(
         spotifyTokenStore: tokenStore,
-        supabaseConfigStore: configStore,
-        onSupabaseConfigChanged: (config) async => pushedToNative.add(config),
+        likeCounterStore: counterStore,
+        onLikeCounterConfigChanged: (config) async =>
+            pushedToNative.add(config),
       );
 
   setUp(() {
     FlutterSecureStorage.setMockInitialValues(<String, String>{});
     tokenStore = SpotifyTokenStore(const FlutterSecureStorage());
-    configStore = SupabaseConfigStore(const FlutterSecureStorage());
-    pushedToNative = <SupabaseConfig>[];
+    counterStore = LikeCounterStore(const FlutterSecureStorage());
+    pushedToNative = <LikeCounterConfig>[];
   });
 
   test('loads what the stores already hold', () async {
     await tokenStore.saveClientId('stored-client-id');
-    await configStore.save(
-      const SupabaseConfig(url: 'https://p.supabase.co', anonKey: 'anon'),
+    await counterStore.saveSpreadsheetId('sheet-1');
+    await counterStore.saveCredentials(
+      const OAuthClientCredentials(clientId: 'gid', clientSecret: 'gsecret'),
     );
 
     final controller = build();
@@ -37,7 +40,8 @@ void main() {
     expect(controller.state.loaded, isTrue);
     expect(controller.state.spotifyClientId, 'stored-client-id');
     expect(controller.state.hasSpotifyClientId, isTrue);
-    expect(controller.state.supabase.anonKey, 'anon');
+    expect(controller.state.counter.spreadsheetId, 'sheet-1');
+    expect(controller.state.counter.hasCredentials, isTrue);
   });
 
   test('a fresh install loads as unconfigured, not as an error', () async {
@@ -46,7 +50,7 @@ void main() {
 
     expect(controller.state.loaded, isTrue);
     expect(controller.state.hasSpotifyClientId, isFalse);
-    expect(controller.state.supabase, SupabaseConfig.empty);
+    expect(controller.state.counter, LikeCounterConfig.empty);
     expect(controller.state.error, isNull);
   });
 
@@ -71,46 +75,59 @@ void main() {
     expect(controller.state.error, 'Enter your Spotify client ID.');
   });
 
-  test('saving the counter config tells the native side too', () async {
+  test('saving the spreadsheet tells the native side too', () async {
     final controller = build();
 
-    await controller.saveSupabaseConfig(
-      url: ' https://p.supabase.co ',
-      anonKey: ' anon ',
-    );
+    await controller.saveCounterSpreadsheetId('  sheet-1  ');
 
-    expect(
-      await configStore.read(),
-      const SupabaseConfig(url: 'https://p.supabase.co', anonKey: 'anon'),
-    );
-    expect(controller.state.supabaseSaved, isTrue);
-    expect(pushedToNative.single.url, 'https://p.supabase.co');
+    expect((await counterStore.read()).spreadsheetId, 'sheet-1');
+    expect(controller.state.counter.spreadsheetId, 'sheet-1');
+    expect(controller.state.counterSaved, isTrue);
+    expect(pushedToNative.single.spreadsheetId, 'sheet-1');
   });
 
-  test('clearing both fields turns the shared counter off', () async {
-    await configStore.save(
-      const SupabaseConfig(url: 'https://p.supabase.co', anonKey: 'anon'),
-    );
+  test('clearing the spreadsheet turns the shared counter off', () async {
+    await counterStore.saveSpreadsheetId('sheet-1');
     final controller = build();
 
-    await controller.saveSupabaseConfig(url: '', anonKey: '');
+    await controller.saveCounterSpreadsheetId('');
 
-    expect((await configStore.read()).isConfigured, isFalse);
-    expect(controller.state.supabaseSaved, isTrue);
-    expect(pushedToNative.single, SupabaseConfig.empty);
+    expect((await counterStore.read()).isConfigured, isFalse);
+    expect(controller.state.counterSaved, isTrue);
+    expect(pushedToNative.single.spreadsheetId, isEmpty);
   });
 
-  test('half a counter config is refused', () async {
+  test('clearing the spreadsheet leaves the Google sign-in alone', () async {
+    await counterStore.saveCredentials(
+      const OAuthClientCredentials(clientId: 'gid', clientSecret: 'gsecret'),
+    );
+    await counterStore.saveTokens(
+      accessToken: 'access',
+      refreshToken: 'refresh',
+      expiresAt: DateTime.utc(2026, 9, 20),
+    );
     final controller = build();
 
-    await controller.saveSupabaseConfig(
-      url: 'https://p.supabase.co',
-      anonKey: '',
-    );
+    await controller.saveCounterSpreadsheetId('');
 
-    expect((await configStore.read()).isConfigured, isFalse);
-    expect(controller.state.supabaseSaved, isFalse);
-    expect(controller.state.error, contains('both'));
-    expect(pushedToNative, isEmpty);
+    final stored = await counterStore.read();
+    expect(stored.refreshToken, 'refresh');
+    expect(stored.hasCredentials, isTrue);
+    expect(controller.state.counter.isSignedIn, isTrue);
+  });
+
+  test('refreshCounter picks up a sign-in made elsewhere', () async {
+    final controller = build();
+    await controller.load();
+    expect(controller.state.counter.isSignedIn, isFalse);
+
+    await counterStore.saveTokens(
+      accessToken: 'access',
+      refreshToken: 'refresh',
+      expiresAt: DateTime.utc(2026, 9, 20),
+    );
+    await controller.refreshCounter();
+
+    expect(controller.state.counter.isSignedIn, isTrue);
   });
 }

@@ -39,7 +39,7 @@ class YouTubeMusicExtraActions(
     /**
      * Runs the enabled actions for a like that went through. [sharedLikeCount]
      * is the shared counter's answer for this song, or null when it was not
-     * counted (no sign-in, no Supabase, counter unreachable).
+     * counted (no sign-in, no counter sheet, counter unreachable).
      */
     fun run(match: YouTubeDataApi.Match, sharedLikeCount: Int?) {
         if (rules.archiveRemoveEnabled && rules.archivePlaylistName.isNotBlank()) {

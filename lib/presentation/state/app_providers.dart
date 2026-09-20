@@ -2,7 +2,8 @@ import 'package:app_links/app_links.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-import '../../data/likes/supabase_config_store.dart';
+import '../../data/likes/like_counter_account.dart';
+import '../../data/likes/like_counter_store.dart';
 import '../../data/music/active_music_service_repository.dart';
 import '../../data/music/music_service_factory.dart';
 import '../../data/platform/android_platform_service_repository.dart';
@@ -18,7 +19,7 @@ import '../../domain/services/signal_pattern_matcher.dart';
 import 'app_controller.dart';
 import 'app_state.dart';
 import 'service_credentials_controller.dart';
-import 'ytmusic_sign_in_controller.dart';
+import 'device_sign_in_controller.dart';
 
 /// The Spotify client ID and the counter config live here, written by
 /// *Connected services* and read by the repositories at call time. One
@@ -27,8 +28,8 @@ final spotifyTokenStoreProvider = Provider<SpotifyTokenStore>(
   (ref) => SpotifyTokenStore(const FlutterSecureStorage()),
 );
 
-final supabaseConfigStoreProvider = Provider<SupabaseConfigStore>(
-  (ref) => SupabaseConfigStore(const FlutterSecureStorage()),
+final likeCounterStoreProvider = Provider<LikeCounterStore>(
+  (ref) => LikeCounterStore(const FlutterSecureStorage()),
 );
 
 final settingsRepositoryProvider = Provider<SettingsRepository>(
@@ -50,6 +51,16 @@ final deviceSignInRepositoryProvider = Provider<DeviceSignInRepository>(
   (ref) => ref.read(youTubeMusicRepositoryProvider),
 );
 
+/// The shared like counter's own Google account: its own OAuth client, its own
+/// token set and the spreadsheets scope, so the counter works whichever music
+/// service is picked.
+final likeCounterAccountProvider = Provider<LikeCounterAccount>(
+  (ref) => createLikeCounterAccount(
+    store: ref.read(likeCounterStoreProvider),
+    platformServiceRepository: ref.read(platformServiceRepositoryProvider),
+  ),
+);
+
 /// The one instance behind both seams below: it is a music service (the like
 /// path) and the routing rule (which service that is) at once.
 final activeMusicServiceRepositoryProvider =
@@ -59,7 +70,8 @@ final activeMusicServiceRepositoryProvider =
     platformServiceRepository: ref.read(platformServiceRepositoryProvider),
     youTubeMusic: ref.read(youTubeMusicRepositoryProvider),
     spotifyTokenStore: ref.read(spotifyTokenStoreProvider),
-    supabaseConfigStore: ref.read(supabaseConfigStoreProvider),
+    likeCounterStore: ref.read(likeCounterStoreProvider),
+    likeCounterAccount: ref.read(likeCounterAccountProvider),
   ),
 );
 
@@ -85,7 +97,7 @@ final appControllerProvider =
     musicServiceRepository: ref.read(musicServiceRepositoryProvider),
     musicRoutingRepository: ref.read(musicRoutingRepositoryProvider),
     appLinks: ref.read(appLinksProvider),
-    readSupabaseConfig: ref.read(supabaseConfigStoreProvider).read,
+    readLikeCounterConfig: ref.read(likeCounterStoreProvider).read,
   );
 });
 
@@ -96,23 +108,36 @@ final serviceCredentialsControllerProvider = StateNotifierProvider<
     ServiceCredentialsController, ServiceCredentialsState>((ref) {
   final controller = ServiceCredentialsController(
     spotifyTokenStore: ref.read(spotifyTokenStoreProvider),
-    supabaseConfigStore: ref.read(supabaseConfigStoreProvider),
-    onSupabaseConfigChanged: (config) =>
-        ref.read(platformServiceRepositoryProvider).syncSupabaseConfig(
-              supabaseUrl: config.url,
-              supabaseAnonKey: config.anonKey,
-            ),
+    likeCounterStore: ref.read(likeCounterStoreProvider),
+    onLikeCounterConfigChanged: (config) => LikeCounterAccount.pushToNative(
+      ref.read(platformServiceRepositoryProvider),
+      config,
+    ),
   );
   controller.load();
   return controller;
 });
 
 final youTubeMusicSignInControllerProvider = StateNotifierProvider.autoDispose<
-    YouTubeMusicSignInController, YouTubeMusicSignInState>((ref) {
-  final controller = YouTubeMusicSignInController(
+    DeviceSignInController, DeviceSignInState>((ref) {
+  final controller = DeviceSignInController(
     signInRepository: ref.read(deviceSignInRepositoryProvider),
     onSignedIn: () =>
         ref.read(appControllerProvider.notifier).onMusicServiceSignedIn(),
+  );
+  controller.load();
+  return controller;
+});
+
+/// The shared counter's Google sign-in. Separate from YouTube Music's, so both
+/// codes can be on screen without one cancelling the other.
+final likeCounterSignInControllerProvider = StateNotifierProvider.autoDispose<
+    DeviceSignInController, DeviceSignInState>((ref) {
+  final controller = DeviceSignInController(
+    signInRepository: ref.read(likeCounterAccountProvider),
+    // Signing in changes the stored config, which the counter card shows.
+    onSignedIn: () =>
+        ref.read(serviceCredentialsControllerProvider.notifier).refreshCounter(),
   );
   controller.load();
   return controller;

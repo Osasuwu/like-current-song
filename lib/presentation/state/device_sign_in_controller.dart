@@ -14,8 +14,8 @@ enum DeviceSignInPhase {
   awaitingApproval,
 }
 
-class YouTubeMusicSignInState {
-  const YouTubeMusicSignInState({
+class DeviceSignInState {
+  const DeviceSignInState({
     this.credentials,
     this.phase = DeviceSignInPhase.idle,
     this.prompt,
@@ -38,7 +38,7 @@ class YouTubeMusicSignInState {
   bool get hasCredentials => credentials?.isComplete ?? false;
   bool get busy => phase != DeviceSignInPhase.idle;
 
-  YouTubeMusicSignInState copyWith({
+  DeviceSignInState copyWith({
     OAuthClientCredentials? credentials,
     DeviceSignInPhase? phase,
     DeviceSignInPrompt? prompt,
@@ -47,7 +47,7 @@ class YouTubeMusicSignInState {
     bool clearError = false,
     bool? credentialsSaved,
   }) {
-    return YouTubeMusicSignInState(
+    return DeviceSignInState(
       credentials: credentials ?? this.credentials,
       phase: phase ?? this.phase,
       prompt: clearPrompt ? null : (prompt ?? this.prompt),
@@ -57,15 +57,19 @@ class YouTubeMusicSignInState {
   }
 }
 
-/// Drives YouTube Music's Google device-code sign-in on Connected services.
-class YouTubeMusicSignInController
-    extends StateNotifier<YouTubeMusicSignInState> {
-  YouTubeMusicSignInController({
+/// Drives one Google device-code sign-in on *Connected services*.
+///
+/// There are two of them, one per [DeviceSignInRepository]: YouTube Music and
+/// the shared like counter. Each gets its own instance, with its own
+/// credentials and its own code on screen.
+class DeviceSignInController
+    extends StateNotifier<DeviceSignInState> {
+  DeviceSignInController({
     required DeviceSignInRepository signInRepository,
     required Future<void> Function() onSignedIn,
   })  : _repository = signInRepository,
         _onSignedIn = onSignedIn,
-        super(const YouTubeMusicSignInState());
+        super(const DeviceSignInState());
 
   final DeviceSignInRepository _repository;
   final Future<void> Function() _onSignedIn;
@@ -111,7 +115,7 @@ class YouTubeMusicSignInController
   }
 
   /// Runs the whole device flow: get a code, show it, wait for approval.
-  /// Every failure ends in [YouTubeMusicSignInState.error], never a throw.
+  /// Every failure ends in [DeviceSignInState.error], never a throw.
   Future<void> connect() async {
     if (state.busy) return;
     state = state.copyWith(

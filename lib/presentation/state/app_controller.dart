@@ -18,7 +18,7 @@ import '../../domain/entities/music_service_exceptions.dart';
 import '../../domain/entities/pending_like.dart';
 import '../../domain/entities/rule_config.dart';
 import '../../domain/entities/spotify_auth_state.dart';
-import '../../domain/entities/supabase_config.dart';
+import '../../domain/entities/like_counter_config.dart';
 import '../../domain/entities/track_info.dart';
 import '../../domain/entities/trigger_config.dart';
 import '../../domain/repositories/music_routing_repository.dart';
@@ -34,13 +34,13 @@ class AppController extends StateNotifier<AppState> {
     required MusicServiceRepository musicServiceRepository,
     required MusicRoutingRepository musicRoutingRepository,
     required AppLinks appLinks,
-    required Future<SupabaseConfig> Function() readSupabaseConfig,
+    required Future<LikeCounterConfig> Function() readLikeCounterConfig,
   })  : _settingsRepository = settingsRepository,
         _platformServiceRepository = platformServiceRepository,
         _musicServiceRepository = musicServiceRepository,
         _musicRoutingRepository = musicRoutingRepository,
         _appLinks = appLinks,
-        _readSupabaseConfig = readSupabaseConfig,
+        _readLikeCounterConfig = readLikeCounterConfig,
         super(
           AppState.initial(
             const TriggerConfig(
@@ -63,9 +63,10 @@ class AppController extends StateNotifier<AppState> {
   final MusicRoutingRepository _musicRoutingRepository;
   final AppLinks _appLinks;
 
-  /// The shared counter's project, read at startup rather than held: it is
-  /// entered in *Connected services*, so there is nothing to pass in.
-  final Future<SupabaseConfig> Function() _readSupabaseConfig;
+  /// The shared counter's spreadsheet and sign-in, read at startup rather
+  /// than held: they are set up in *Connected services*, so there is nothing
+  /// to pass in.
+  final Future<LikeCounterConfig> Function() _readLikeCounterConfig;
 
   StreamSubscription<Map<String, dynamic>>? _nativeEventsSub;
   StreamSubscription<Uri>? _linkSub;
@@ -94,10 +95,14 @@ class AppController extends StateNotifier<AppState> {
       await _platformServiceRepository.updateMusicRoutingMode(routingMode);
       await _platformServiceRepository.updateTriggerConfig(config);
       await _platformServiceRepository.updateRuleConfig(ruleConfig);
-      final supabase = await _readSupabaseConfig();
-      await _platformServiceRepository.syncSupabaseConfig(
-        supabaseUrl: supabase.url,
-        supabaseAnonKey: supabase.anonKey,
+      final counter = await _readLikeCounterConfig();
+      await _platformServiceRepository.syncLikeCounterConfig(
+        spreadsheetId: counter.spreadsheetId,
+        clientId: counter.clientId,
+        clientSecret: counter.clientSecret,
+        accessToken: counter.accessToken,
+        refreshToken: counter.refreshToken,
+        expiresAtEpochMs: counter.expiresAt?.millisecondsSinceEpoch ?? 0,
       );
 
       state = state.copyWith(
