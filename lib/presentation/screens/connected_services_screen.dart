@@ -8,6 +8,7 @@ import '../../domain/entities/music_provider.dart';
 import '../../domain/entities/music_routing.dart';
 import '../state/app_providers.dart';
 import '../state/ytmusic_sign_in_controller.dart';
+import '../widgets/screen_padding.dart';
 
 class ConnectedServicesScreen extends ConsumerWidget {
   const ConnectedServicesScreen({super.key});
@@ -36,7 +37,7 @@ class ConnectedServicesScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Connected services')),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: scrollBodyPadding(context),
         children: <Widget>[
           Text('Music service', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),

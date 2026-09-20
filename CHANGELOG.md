@@ -199,6 +199,18 @@ still the only option for the desktop half.
 
 ### Fixed
 
+- **Android: the bottom of a screen no longer hides under the navigation bar**
+  ([#139](https://github.com/Osasuwu/like-current-song/issues/139)). Flutter
+  draws edge-to-edge on Android 15+, so a screen ran all the way under the
+  gesture pill and whatever sat at the bottom of it was half covered — most
+  visibly the **Shared like counter** section, the last row of *Connected
+  services*, which could not be scrolled clear. Scrolling screens now add the
+  bar's height to their own padding, so the content scrolls past it; fixed
+  screens keep clear of it.
+- **Android: the MIUI battery instructions dropped the Recents lock.** Step 3
+  told you to lock the app in Recent apps, which has not been necessary since
+  the listener learned to restart itself after a swipe-away. Auto-start and
+  "No restrictions" are still the two that matter.
 - **Likes and artist follows keep working on newly registered Spotify apps**
   ([#121](https://github.com/Osasuwu/like-current-song/issues/121)). Spotify's
   February 2026 migration replaced the per-type library endpoints (`PUT

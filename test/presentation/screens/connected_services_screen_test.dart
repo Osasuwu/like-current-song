@@ -383,4 +383,18 @@ void main() {
     verify(() => harness.platform.updateMusicProvider(MusicProvider.ytmusic))
         .called(1);
   });
+
+  testWidgets('the last section can scroll clear of the navigation bar',
+      (tester) async {
+    // The shared like counter is the bottom row of the list, and Flutter
+    // draws edge-to-edge on Android 15+: without the inset it sits under the
+    // gesture bar with no way to scroll it out.
+    tester.view.padding = const FakeViewPadding(bottom: 48);
+    await pumpScreen(tester, AppControllerHarness());
+
+    expect(
+      tester.widget<ListView>(find.byType(ListView)).padding,
+      const EdgeInsets.fromLTRB(16, 16, 16, 64),
+    );
+  });
 }
