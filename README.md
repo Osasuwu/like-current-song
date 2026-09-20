@@ -18,7 +18,7 @@ At your computer, a **global keyboard shortcut** does the same thing: press `Ctr
 
 Open source (MIT). It talks to your music service through that service's official API, using a developer app you create yourself. There's no UI scraping, and your tokens stay on your devices.
 
-For developers: the desktop side is a **pluggable framework** with five extension points (`Trigger`, `MusicProvider`, `Storage`, `PreLikeAction`, `PostLikeAction`). Ten extensions ship across those five seams, each a folder under `like_spotify/extensions/` with a `manifest.json` describing it. Adding one is a builder function and a registry entry, not a new branch in a dispatcher. See [CONTRIBUTING.md](CONTRIBUTING.md).
+For developers: the desktop side is a **pluggable framework** with five extension points (`Trigger`, `MusicProvider`, `Storage`, `PreLikeAction`, `PostLikeAction`). Nine extensions ship across those five seams, plus one skeleton, each a folder under `like_spotify/extensions/` with a `manifest.json` describing it. Adding one is a builder function and a registry entry, not a new branch in a dispatcher. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## FAQ
 
