@@ -196,9 +196,7 @@ class AppController extends StateNotifier<AppState> {
     if (provider == state.musicProvider && !wasAutomatic) return;
     try {
       if (wasAutomatic) {
-        await _settingsRepository.saveMusicRoutingMode(MusicRoutingMode.picker);
-        await _platformServiceRepository
-            .updateMusicRoutingMode(MusicRoutingMode.picker);
+        await _persistRoutingMode(MusicRoutingMode.picker);
       }
       await _settingsRepository.saveMusicProvider(provider);
       await _platformServiceRepository.updateMusicProvider(provider);
@@ -224,6 +222,13 @@ class AppController extends StateNotifier<AppState> {
     }
   }
 
+  /// Stores the routing mode on both sides at once: the trigger reads the
+  /// native copy while Flutter is detached, so the two must never drift.
+  Future<void> _persistRoutingMode(MusicRoutingMode mode) async {
+    await _settingsRepository.saveMusicRoutingMode(mode);
+    await _platformServiceRepository.updateMusicRoutingMode(mode);
+  }
+
   /// Turns on automatic routing: likes follow whichever connected service is
   /// playing. Opt-in, and only offered while [AppState.canRouteAutomatically]
   /// holds — a request made without it is ignored rather than stored, so the
@@ -232,9 +237,7 @@ class AppController extends StateNotifier<AppState> {
     if (state.musicRoutingMode == MusicRoutingMode.automatic) return;
     if (!state.canRouteAutomatically) return;
     try {
-      await _settingsRepository.saveMusicRoutingMode(MusicRoutingMode.automatic);
-      await _platformServiceRepository
-          .updateMusicRoutingMode(MusicRoutingMode.automatic);
+      await _persistRoutingMode(MusicRoutingMode.automatic);
       state = state.copyWith(
         musicRoutingMode: MusicRoutingMode.automatic,
         clearError: true,
@@ -281,9 +284,7 @@ class AppController extends StateNotifier<AppState> {
   Future<void> _dropAutomaticIfUnavailable() async {
     if (state.musicRoutingMode != MusicRoutingMode.automatic) return;
     if (state.canRouteAutomatically) return;
-    await _settingsRepository.saveMusicRoutingMode(MusicRoutingMode.picker);
-    await _platformServiceRepository
-        .updateMusicRoutingMode(MusicRoutingMode.picker);
+    await _persistRoutingMode(MusicRoutingMode.picker);
     if (!mounted) return;
     state = state.copyWith(musicRoutingMode: MusicRoutingMode.picker);
     await addLog(
