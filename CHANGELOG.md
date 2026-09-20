@@ -152,6 +152,18 @@ Spotify/Supabase credentials (see [README](README.md)).
 
 ### Fixed
 
+- **Likes and artist follows keep working on newly registered Spotify apps**
+  ([#121](https://github.com/Osasuwu/like-current-song/issues/121)). Spotify's
+  February 2026 migration replaced the per-type library endpoints (`PUT
+  /me/tracks`, `PUT /me/following`, `GET /me/tracks/contains`) with one generic
+  `/me/library` that takes Spotify URIs, and client IDs created since then only
+  get the new form. Android (both the app and the background like worker) and
+  the desktop app now call the generic endpoint, and fall back to the old one
+  when Spotify says this client ID does not have it — so the client IDs that
+  were grandfathered onto the old endpoints keep working too. The fallback is
+  remembered for the rest of the session, so at most one like per run pays for
+  the extra request, and rate limits and expired tokens still surface exactly
+  as before.
 - **Android: the listener survives swiping the app out of recents.** Some OEM
   shells (MIUI / HyperOS) tear the foreground service down together with the
   task. The service now re-asserts itself and queues a restart when the task is
