@@ -25,6 +25,35 @@ still the only option for the desktop half.
   to be re-entered. Playlist names you already have on Spotify are untouched.
   Log rows written from now on say `best_add`; older rows keep saying
   `best_of_add`.
+- **Android: the shared like counter now counts in a Google Sheet.** It is the
+  same sheet the desktop half writes — a `Likes` tab with the columns
+  `user_id | track_id | count | backfilled | updated_at` — so a phone and a PC
+  finally add up to one number. Set it up under *Connected services* → *Shared
+  like counter*: paste a Google OAuth client, sign in on another device with
+  the code the app shows, and give it the spreadsheet id from the sheet's URL.
+  The counter signs in to Google separately from YouTube Music, with only the
+  spreadsheets scope; the same OAuth client works for both once the Google
+  Sheets API is enabled on its project. Leave the spreadsheet empty and likes
+  are counted on this device only, exactly as before.
+- **Android: builds can be seeded from `.env` again, for every service.**
+  `flutter build apk --release --dart-define-from-file=.env` now understands
+  `SPOTIFY_CLIENT_ID`, `YTMUSIC_CLIENT_ID`, `YTMUSIC_CLIENT_SECRET`,
+  `COUNTER_SPREADSHEET_ID`, `COUNTER_GOOGLE_CLIENT_ID` and
+  `COUNTER_GOOGLE_CLIENT_SECRET`. As before, a compile-time value only fills a
+  field the app has never been told about: whatever you save in *Connected
+  services* wins from then on, and a field you cleared on purpose stays clear
+  across rebuilds.
+
+### Removed
+
+- **Android: the Supabase counter backend is gone**, along with the Supabase
+  URL and anon key fields in *Connected services*. Google Sheets replaces it,
+  matching the desktop half, which dropped Supabase in the same release.
+  Like counts already stored on your phone are untouched and keep counting up;
+  there is no automatic migration of numbers that lived in Supabase, so a sheet
+  starts from what the phone knows. A track the service had already liked
+  before its first press is seeded at 2 and flagged `backfilled`, the same rule
+  the desktop half uses.
 
 ### Removed
 
