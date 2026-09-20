@@ -415,10 +415,31 @@ class SpotifyLikeWorker(
     }
 
     private fun followArtist(artistId: String, token: String): ApiResult {
-        val encoded = URLEncoder.encode(artistId, Charsets.UTF_8.name())
-        val connection = api("https://api.spotify.com/v1/me/following?type=artist&ids=$encoded", token, "PUT")
-        val code = connection.responseCode
-        return ApiResult(code in 200..299, code)
+        return saveToLibrary(SpotifyLibraryEndpoints.artistUri(artistId), token) {
+            val encoded = URLEncoder.encode(artistId, Charsets.UTF_8.name())
+            api("https://api.spotify.com/v1/me/following?type=artist&ids=$encoded", token, "PUT").responseCode
+        }
+    }
+
+    /**
+     * Saves/follows [uri] through the generic `PUT /me/library` endpoint,
+     * running [legacy] once when that endpoint is not available to this client
+     * ID (see [SpotifyLibraryEndpoints.shouldTryLegacy]). A successful legacy
+     * call is remembered for the process lifetime, so only the first write of a
+     * session pays two round trips.
+     */
+    private fun saveToLibrary(uri: String, token: String, legacy: () -> Int): ApiResult {
+        if (!SpotifyLibraryEndpoints.useLegacyEndpoints) {
+            val body = JSONObject().put("uris", JSONArray().put(uri)).toString()
+            val code = apiWithBody(SpotifyLibraryEndpoints.LIBRARY_URL, token, "PUT", body).responseCode
+            if (code in 200..299) return ApiResult(true, code)
+            if (!SpotifyLibraryEndpoints.shouldTryLegacy(code)) return ApiResult(false, code)
+        }
+
+        val legacyCode = legacy()
+        val ok = legacyCode in 200..299
+        if (ok) SpotifyLibraryEndpoints.rememberLegacyEndpoints()
+        return ApiResult(ok, legacyCode)
     }
 
     // ---- Core like + track lookup -------------------------------------------------
@@ -439,10 +460,10 @@ class SpotifyLikeWorker(
 
     private fun likeTrack(trackId: String, token: String?): ApiResult {
         if (token.isNullOrBlank()) return ApiResult(false, 0)
-        val encodedTrackId = URLEncoder.encode(trackId, Charsets.UTF_8.name())
-        val connection = api("https://api.spotify.com/v1/me/tracks?ids=$encodedTrackId", token, "PUT")
-        val code = connection.responseCode
-        return ApiResult(code in 200..299, code)
+        return saveToLibrary(SpotifyLibraryEndpoints.trackUri(trackId), token) {
+            val encodedTrackId = URLEncoder.encode(trackId, Charsets.UTF_8.name())
+            api("https://api.spotify.com/v1/me/tracks?ids=$encodedTrackId", token, "PUT").responseCode
+        }
     }
 
     private fun refreshAccessToken(refreshToken: String, clientId: String): RefreshedToken? {

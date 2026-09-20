@@ -40,8 +40,31 @@ SCOPES = (
     "user-follow-modify user-follow-read"
 )
 
+# Statuses that mean "this client ID cannot use the generic `/me/library`
+# endpoints", so the entity-specific endpoint they replaced is worth one retry:
+#
+#   404 — the generic path is not routed for this client at all.
+#   403 — Spotify's restricted-access model answers endpoints outside a
+#         client's granted set with Forbidden, which is what a client ID
+#         grandfathered onto the entity-specific endpoints sees here.
+#
+# Deliberately excluded: 401 (token — must surface so the caller refreshes),
+# 429 (rate limit — must surface unchanged), 400 (our own payload; a retry
+# cannot fix it) and 5xx (transient). A 403 caused by a missing scope rather
+# than by endpoint access fails on both forms, and since the fallback is only
+# remembered once the legacy call *succeeds*, such a 403 never pins the process
+# to the legacy endpoints.
+LIBRARY_FALLBACK_STATUSES = frozenset({403, 404})
+
 
 class SpotifyMusicProvider(MusicProvider):
+    # Set once the generic `/me/library` endpoints have proven unavailable to
+    # this client ID *and* an entity-specific endpoint has answered in their
+    # place, so the rest of the process skips the doomed first request. Class
+    # level on purpose: the answer depends on the client ID, not on the
+    # instance.
+    _use_legacy_library_endpoints = False
+
     def __init__(self, client_id: str, token_path: Path) -> None:
         if not client_id:
             raise ValueError("spotify client_id is required")
@@ -225,18 +248,61 @@ class SpotifyMusicProvider(MusicProvider):
             album=(item.get("album") or {}).get("name"),
         )
 
-    def _like_sync(self, track_id: str) -> None:
+    def _save_to_library(self, uri: str, legacy_call) -> None:
+        """Save/follow `uri` through the generic `PUT /me/library` endpoint that
+        replaced `PUT /me/tracks`, `PUT /me/following` and friends in Spotify's
+        February 2026 API migration.
+
+        Client IDs registered before 2026-02-11 were grandfathered onto the
+        entity-specific endpoints, so when `/me/library` is unavailable to this
+        client (see `LIBRARY_FALLBACK_STATUSES`) `legacy_call(token)` runs once
+        instead. A successful legacy call is remembered for the process
+        lifetime, so only the first write of a session pays two round trips.
+        """
         token = self._access_token()
-        r = requests.put(
-            f"{API_BASE}/me/tracks",
-            headers={"Authorization": f"Bearer {token}"},
-            params={"ids": track_id},
-            timeout=5,
-        )
-        _raise_for_status(r)
+        if not SpotifyMusicProvider._use_legacy_library_endpoints:
+            r = requests.put(
+                f"{API_BASE}/me/library",
+                headers={"Authorization": f"Bearer {token}"},
+                json={"uris": [uri]},
+                timeout=5,
+            )
+            if 200 <= r.status_code < 300:
+                return
+            if r.status_code not in LIBRARY_FALLBACK_STATUSES:
+                _raise_for_status(r)
+
+        _raise_for_status(legacy_call(token))
+        SpotifyMusicProvider._use_legacy_library_endpoints = True
+
+    def _like_sync(self, track_id: str) -> None:
+        def legacy(token: str):
+            return requests.put(
+                f"{API_BASE}/me/tracks",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"ids": track_id},
+                timeout=5,
+            )
+
+        self._save_to_library(f"spotify:track:{track_id}", legacy)
 
     def _is_liked_sync(self, track_id: str) -> bool:
+        """`GET /me/library/contains`, falling back to `GET /me/tracks/contains`
+        under the same rule as `_save_to_library`."""
         token = self._access_token()
+        uri = f"spotify:track:{track_id}"
+        if not SpotifyMusicProvider._use_legacy_library_endpoints:
+            r = requests.get(
+                f"{API_BASE}/me/library/contains",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"uris": uri},
+                timeout=5,
+            )
+            if 200 <= r.status_code < 300:
+                return _contains_flag(r.json(), uri)
+            if r.status_code not in LIBRARY_FALLBACK_STATUSES:
+                _raise_for_status(r)
+
         r = requests.get(
             f"{API_BASE}/me/tracks/contains",
             headers={"Authorization": f"Bearer {token}"},
@@ -244,8 +310,8 @@ class SpotifyMusicProvider(MusicProvider):
             timeout=5,
         )
         _raise_for_status(r)
-        body = r.json()
-        return bool(body) and bool(body[0])
+        SpotifyMusicProvider._use_legacy_library_endpoints = True
+        return _contains_flag(r.json(), uri)
 
     def _find_playlist_by_name_sync(self, name: str) -> str | None:
         needle = name.strip().lower()
@@ -339,14 +405,15 @@ class SpotifyMusicProvider(MusicProvider):
         return pid
 
     def _follow_artist_sync(self, artist_id: str) -> None:
-        token = self._access_token()
-        r = requests.put(
-            f"{API_BASE}/me/following",
-            headers={"Authorization": f"Bearer {token}"},
-            params={"type": "artist", "ids": artist_id},
-            timeout=5,
-        )
-        _raise_for_status(r)
+        def legacy(token: str):
+            return requests.put(
+                f"{API_BASE}/me/following",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"type": "artist", "ids": artist_id},
+                timeout=5,
+            )
+
+        self._save_to_library(f"spotify:artist:{artist_id}", legacy)
 
     def _fetch_user_id_sync(self) -> str:
         token = self._access_token()
@@ -383,6 +450,19 @@ def _augment_tokens(payload: dict) -> dict:
     tokens = dict(payload)
     tokens["expires_at"] = time.time() + tokens.get("expires_in", 3600)
     return tokens
+
+
+def _contains_flag(body, uri: str) -> bool:
+    """Read the saved/not-saved answer for `uri` out of a contains response.
+
+    The legacy `/me/tracks/contains` answers with one boolean per requested id,
+    in order. The migration guide documents only the *input* change for
+    `/me/library/contains`, so the same list is expected there; a mapping keyed
+    by URI is accepted as well rather than trusting one undocumented shape.
+    """
+    if isinstance(body, dict):
+        return bool(body.get(uri))
+    return bool(body) and bool(body[0])
 
 
 def _raise_for_status(r: requests.Response) -> None:
