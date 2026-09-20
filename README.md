@@ -13,7 +13,7 @@ At your computer, a **global keyboard shortcut** does the same thing: press `Ctr
 - **Android**: works with the screen off and the phone locked. It reacts to Spotify's pause/play state, so anything that pauses and resumes playback can trigger it: wired or Bluetooth headphones, earbud taps, a smartwatch, or a car stereo. The pattern is configurable, and a short sound confirms the like.
 - **Windows**: a tray app with a global hotkey to like the current track, plus a second hotkey to remove it from a playlist.
 - **macOS / Linux**: a `like-current-song like-once` command you can bind to any shortcut.
-- **Beyond "like"** (optional rules): remove the track from a Discover Weekly archive playlist, promote it to a "best-of" playlist after you like it N times across devices, and auto-follow an artist after N liked tracks. Counters are stored in Supabase or Google Sheets, so your phone and computer see the same numbers.
+- **Beyond "like"** (optional rules): remove the track from a Discover Weekly archive playlist, promote it to a "best" playlist after you like it N times across devices, and auto-follow an artist after N liked tracks. Counters are stored in Supabase or Google Sheets, so your phone and computer see the same numbers.
 
 Open source (MIT). It uses the official Spotify Web API with your own Spotify Developer app. There's no UI scraping, and your tokens stay on your devices.
 
@@ -31,7 +31,7 @@ Yes. The app watches Spotify's playback state rather than one specific button, s
 Yes. The Windows tray host binds `Ctrl+Shift+Alt+W` (configurable) to "save current track to Liked Songs", and it works while Spotify is minimized or in the background. On macOS and Linux, bind `like-current-song like-once` to a shortcut in your OS settings, Raycast, skhd, or similar.
 
 ### Can it add the song to a playlist too, not only Liked Songs?
-Yes, through the rule engine: it can promote a track to a "best-of" playlist after N likes and remove it from an archive playlist. New actions are small Python plugins.
+Yes, through the rule engine: it can promote a track to a "best" playlist after N likes and remove it from an archive playlist. New actions are small Python plugins.
 
 ### Does it work on iPhone?
 No. iOS doesn't let third-party apps observe another app's playback in the background. Android and desktop only.
@@ -45,7 +45,7 @@ No. iOS doesn't let third-party apps observe another app's playback in the backg
 1. **Trigger** — pause-play your headset (Android) or press a hotkey (desktop)
 2. **Like** — the current track is added to your Spotify Liked Songs
 3. **Archive cleanup** — if the track is in your archive playlist, it gets removed
-4. **Best-of promotion** — like a track 3 times across devices and it's added to your best-of playlist
+4. **Best promotion** — like a track 3 times across devices and it's added to your best playlist
 5. **Artist follow** — like 5+ tracks from an artist and they get auto-followed
 
 Steps 3–5 are optional and off until you set them up. On Android they live
@@ -55,7 +55,7 @@ under **Trigger configuration → Extra actions**.
 
 Several desktop hotkey tools can like the current Spotify song. We haven't found another open-source project that does it **from a phone with the screen off**, or one that covers phone and desktop with shared rules. If you only need a Windows hotkey, the smaller tools below may fit you better.
 
-| Project | One-press like | Headset trigger (phone) | Hotkey trigger (desktop) | Rule engine (archive/best-of/follow) | Cross-device counters | Pluggable | Use **theirs** when |
+| Project | One-press like | Headset trigger (phone) | Hotkey trigger (desktop) | Rule engine (archive/best/follow) | Cross-device counters | Pluggable | Use **theirs** when |
 |---|---|---|---|---|---|---|---|
 | **Like Current Song** (this) | ✓ | ✓ Android | ✓ Windows tray + mac/linux CLI | ✓ | ✓ Supabase / Sheets | ✓ 5 typed seams + manifest discovery | n/a |
 | [Pano Scrobbler](https://github.com/kawaiiDango/pano-scrobbler) | partial (love via UI) | — (notification scrape) | — | — (scrobble target only) | — | provider seam only (write target) | you want **scrobbling history** to last.fm/listenbrainz/librefm/pleroma. Pano is the right answer for "where did my listens go" — we don't try to replace it. |
@@ -233,7 +233,7 @@ Spotify's, so switching services keeps both signed in. **Disconnect** signs out
 of YouTube Music only and keeps the client ID and secret.
 
 The opt-in **Extra actions** work under YouTube Music too: archive clean-up,
-promote-to-best-of and follow-artist act on your ordinary YouTube playlists and
+promote-to-best and follow-artist act on your ordinary YouTube playlists and
 channel subscriptions. Each one spends about 50 units of the 10,000-unit daily
 pool — the pool the song lookup above does *not* draw on — so a like with all
 three enabled costs a couple of hundred units out of 10,000, and you would need
@@ -305,7 +305,7 @@ autostart.
 terminal: the music service and the account sign-in (the same browser flow
 as `--setup`), the hotkeys, the sound volume (with a Test button), the like
 counter storage, and autostart. The optional **Extra actions** (archive
-clean-up, best-of, follow artist, like cooldown) sit in a collapsed
+clean-up, best, follow artist, like cooldown) sit in a collapsed
 section, each with a one-line explanation. On a fresh install they all
 start switched off. On Windows, open it from the tray menu (**Settings…**).
 Saved changes apply right away, hotkeys included. If the new settings can't
@@ -338,7 +338,7 @@ prompt in `--setup`. The hotkey then likes the song playing in the YT Music
 browser tab or desktop app, and it lands in YT Music's *Liked music*. You need
 your own free Google OAuth client with the YouTube Data API enabled; the steps
 are in [`extensions/ytmusic/README.md`](like_spotify/extensions/ytmusic/README.md).
-The playlist actions (archive-remove, best-of, follow-artist) work there too.
+The playlist actions (archive-remove, best, follow-artist) work there too.
 Follow-artist subscribes to the artist's channel, and each playlist write
 costs YouTube API quota (see that README).
 
@@ -407,8 +407,8 @@ Android (Flutter + Kotlin)          Desktop (Python framework)
 │  • like track        │           │  Storage  → #22          │
 │  • remove from       │           │  PostLikeAction → #23/26 │
 │    archive           │           │    · archive remove      │
-│  • Supabase counter  │           │    · best-of promote     │
-│  • best-of / follow  │           │    · artist follow       │
+│  • Supabase counter  │           │    · best promote        │
+│  • best / follow     │           │    · artist follow       │
 └──────┬───────────────┘           └──────┬───────────────────┘
        │                                  │
        └──────────┬───────────────────────┘
@@ -438,7 +438,7 @@ settings window (`like-current-song --settings`, or **Settings…** in the tray 
 | Supabase URL / anon key | In-app UI (*Connected services*), stored in `FlutterSecureStorage`; `.env` (`SUPABASE_URL`, `SUPABASE_ANON_KEY`) seeds a build | `like-current-song --setup` → `~/.like_spotify/config.json` |
 | Storage backend | (Supabase only; blank = counts stay on the device) | `~/.like_spotify/config.json` → `storage.backend` (`supabase` / `sheets` / `none`) |
 | Google Sheets tokens | n/a | `~/.like_spotify/google_token.json` (refreshed automatically) |
-| Best-of / follow | In-app UI | `~/.like_spotify/config.json` → `actions.{promote_to_best_of,follow_artist}` |
+| Best / follow | In-app UI | `~/.like_spotify/config.json` → `actions.{promote_to_best,follow_artist}` |
 
 ## Contributing
 

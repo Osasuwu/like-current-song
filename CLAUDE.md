@@ -61,7 +61,7 @@ like_spotify/
 ├── core/                 # Pure interfaces — no I/O, no platform code
 ├── extensions/           # Pluggable impls (spotify, tray_hotkey_trigger,
 │                         #   supabase_storage, google_sheets_storage,
-│                         #   archive_remove, promote_to_best_of,
+│                         #   archive_remove, promote_to_best,
 │                         #   follow_artist, like_cooldown)
 ├── hosts/
 │   ├── windows/          # Resident tray + global hotkey + autostart
