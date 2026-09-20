@@ -251,7 +251,10 @@ class YouTubeMusicExtraActions(
 
     companion object {
         private const val PAGE_SIZE = 50
-        private const val PLAYLIST_DESCRIPTION = "Managed by Like Spotify Mobile App"
+        // Same wording the desktop YouTube Music provider writes, and not the
+        // Spotify path's "Like Spotify" — a YouTube playlist should not name a
+        // service it has nothing to do with.
+        private const val PLAYLIST_DESCRIPTION = "Managed by Like Current Song"
 
         /** Log action types, shared with the Spotify pipeline so the log screen groups them. */
         private const val ARCHIVE_ACTION = "archive_remove"
