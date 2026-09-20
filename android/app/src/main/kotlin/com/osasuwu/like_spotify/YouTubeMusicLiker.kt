@@ -428,6 +428,13 @@ class YouTubeMusicLiker(context: Context) {
         /** Serialises likes from the service and the Flutter channel. */
         private val LOCK = Any()
 
+        /**
+         * Separator between the artist and title halves of [cooldownKey].
+         * Written as an escape on purpose: a literal U+001F here is
+         * invisible, and reads as a missing delimiter.
+         */
+        private const val SEP = "\u001F"
+
         /** cooldownKey -> videoId: saves 100 quota units on a repeat fallback. */
         private val RESOLVED = LinkedHashMap<String, String>()
 
@@ -436,8 +443,13 @@ class YouTubeMusicLiker(context: Context) {
          * videoId, so the song is identified by title + artist, case-folded.
          * The `ytmusic:` prefix keeps it apart from Spotify track ids in the
          * shared last-liked map.
+         *
+         * The two halves are joined by [SEP] (U+001F), which no session
+         * metadata carries. Without it `ab`+`c` and `a`+`bc` fold onto one
+         * key, and since the key also picks the cached videoId, a collision
+         * would rate the wrong video.
          */
         fun cooldownKey(title: String, artist: String): String =
-            "ytmusic:${artist.trim().lowercase()}${title.trim().lowercase()}"
+            "ytmusic:${artist.trim().lowercase()}$SEP${title.trim().lowercase()}"
     }
 }
