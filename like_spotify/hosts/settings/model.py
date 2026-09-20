@@ -303,6 +303,15 @@ def _ensure(cfg: dict, key: str) -> dict:
     return value
 
 
+def _retired_backend(cfg: dict) -> bool:
+    """Does `cfg` name a counter backend this build no longer ships?
+
+    A missing `storage` block, or one with no `backend` key, is not retired —
+    it is simply unset, and `apply_settings` leaves untouched keys untouched.
+    """
+    return _section(cfg, "storage").get("backend", "none") not in STORAGE_BACKENDS
+
+
 def _changed(s: Settings, baseline: Settings | None, *names: str) -> bool:
     if baseline is None:
         return True
@@ -327,7 +336,22 @@ def apply_settings(cfg: dict, s: Settings, baseline: Settings | None = None) -> 
     ):
         _ensure(out, "spotify")["client_id"] = s.spotify_client_id.strip()
 
-    if _changed(s, baseline, "storage_backend"):
+    # Baseline diffing is not enough for the backend: a config left on a
+    # retired backend reads back as "none" (`_infer_storage_backend`), so a
+    # user who opens the window and leaves the counter off changes nothing,
+    # nothing is written, and the stale name survives in `config.json` —
+    # `build_storage` would then print its retirement notice on every startup
+    # with no way out but `--setup`. So a name we no longer ship also forces
+    # the write. Invariant: one save from this window always leaves
+    # `storage.backend` set to a backend we still ship.
+    #
+    # The now-dead `supabase` block is deliberately left alone. `apply_settings`
+    # preserves keys it doesn't own — that is what lets an older or newer
+    # config survive a save — and the block holds a project URL and key the
+    # user pasted in by hand. Making the settings window the one place that
+    # quietly deletes a user's credentials is not worth the tidiness; it is
+    # inert either way, and the user can remove it themselves.
+    if _changed(s, baseline, "storage_backend") or _retired_backend(out):
         _ensure(out, "storage")["backend"] = s.storage_backend
     if _changed(s, baseline, "sheets_spreadsheet_id") and (
         s.sheets_spreadsheet_id or "sheets" in out

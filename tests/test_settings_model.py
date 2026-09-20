@@ -192,6 +192,40 @@ def test_legacy_supabase_block_is_no_longer_inferred() -> None:
     assert model.settings_from_config(cfg).storage_backend == "none"
 
 
+@pytest.mark.parametrize("keep_counter_off", [True, False])
+def test_one_save_normalises_a_retired_backend(keep_counter_off: bool) -> None:
+    """After any save from the window, `storage.backend` is a backend we
+    still ship.
+
+    The counter-off case is the one that used to slip through: a retired
+    backend reads back as "none", so leaving the counter alone was not a
+    *change*, nothing was written, and `build_storage` kept printing its
+    retirement notice on every startup.
+    """
+    cfg = {"storage": {"backend": "supabase"}, "supabase": {"url": "https://x"}}
+    baseline = model.settings_from_config(cfg)
+    s = (
+        baseline
+        if keep_counter_off
+        else replace(baseline, storage_backend="sheets", sheets_spreadsheet_id="sid")
+    )
+
+    out = model.apply_settings(cfg, s, baseline=baseline)
+
+    assert out["storage"]["backend"] in model.STORAGE_BACKENDS
+    assert out["storage"]["backend"] == ("none" if keep_counter_off else "sheets")
+    # The dead credentials block is left alone on purpose - see apply_settings.
+    assert out["supabase"] == {"url": "https://x"}
+
+
+def test_save_does_not_invent_a_backend_key() -> None:
+    """Normalising a retired name must not turn into "always write the
+    backend": a config that never set one keeps not having one."""
+    s = model.settings_from_config(_EXISTING)
+    out = model.apply_settings(_EXISTING, s, baseline=s)
+    assert "backend" not in out.get("storage", {})
+
+
 def test_volume_is_clamped_on_read_and_rounded_on_write() -> None:
     assert model.settings_from_config({"trigger": {"feedback_volume": 7}}).feedback_volume == 1.0
     out = model.apply_settings({}, replace(Settings(), feedback_volume=1 / 3))
