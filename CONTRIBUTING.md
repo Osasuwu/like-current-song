@@ -347,9 +347,15 @@ proceeds. **Independence is the contract** — if you need a hard veto
 that survives a raise, raise from inside `run` and the host will catch
 it; but plan around that as the rare case.
 
-No `PreLikeAction` ships in default flavor yet — first impl is the
-obvious good-first-PR. Examples: "skip likes on tracks shorter than
-30s", "skip on the first 10s of a track (probably a misclick)".
+**Existing impl**: `like_cooldown` — ignores a repeat like on the same
+track within a configurable window (10 minutes by default), local-only,
+no `Storage` round-trip. It is the one this seam ships, so it is also
+the shortest thing to read before writing your own.
+
+**Wanted next** (good-first-PR): a rule keyed on position rather than
+history — "skip likes on tracks shorter than 30s", or "skip in the first
+10s of a track, probably a misclick on the previous one". Either is
+about fifty lines.
 
 ### 5. `PostLikeAction` — react to a successful like
 
