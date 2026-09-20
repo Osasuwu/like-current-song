@@ -45,4 +45,45 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('does not say ACTIVE while nothing can reach the trigger',
+      (tester) async {
+    await tester.pumpWidget(
+      hostScreen(
+        const MainScreen(),
+        serviceEnabled: true,
+        notificationAccess: false,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // The service is running, but without notification access a pause-play
+    // produces nothing at all — the silence #153 was filed about.
+    expect(find.text('ACTIVE'), findsNothing);
+    expect(find.text('NOT LISTENING'), findsOneWidget);
+    expect(find.text('Notification access is off'), findsOneWidget);
+    expect(find.text('Grant notification access'), findsOneWidget);
+  });
+
+  testWidgets('warns about the missing grant before the service is even on',
+      (tester) async {
+    await tester.pumpWidget(
+      hostScreen(const MainScreen(), notificationAccess: false),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('INACTIVE'), findsOneWidget);
+    expect(find.text('Notification access is off'), findsOneWidget);
+  });
+
+  testWidgets('says ACTIVE, and warns about nothing, once the grant is there',
+      (tester) async {
+    await tester.pumpWidget(
+      hostScreen(const MainScreen(), serviceEnabled: true),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('ACTIVE'), findsOneWidget);
+    expect(find.text('Notification access is off'), findsNothing);
+  });
 }

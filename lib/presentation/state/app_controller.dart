@@ -156,6 +156,13 @@ class AppController extends StateNotifier<AppState> {
         result: LogResult.success,
         message: 'Service ${enabled ? 'enabled' : 'disabled'}',
       );
+      if (enabled) {
+        // Switching on is where the grant matters, and it is the moment the
+        // user is most likely to have just changed it. Re-read it rather than
+        // trusting startup, so the screen cannot say ACTIVE over a service
+        // that has no way of hearing anything.
+        await refreshNotificationListenerStatus();
+      }
     } catch (error) {
       state = state.copyWith(lastError: error.toString());
     }
@@ -426,7 +433,8 @@ class AppController extends StateNotifier<AppState> {
       await addLog(
         actionType: 'notification_listener',
         result: LogResult.failure,
-        message: 'Notification access is disabled; playback-state fallback is unavailable',
+        message: 'Notification access is off — the trigger cannot see '
+            'pause/play, so it will never fire',
       );
     }
   }

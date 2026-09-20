@@ -46,6 +46,20 @@ still the only option for the desktop half.
   halves of the Android app now look the id up on the like itself. A failed
   lookup still counts locally rather than failing the like.
 
+- **Android: the app no longer says it is listening when it cannot hear
+  anything.** Notification access was presented as a *fallback*, so it was easy
+  to leave off — and with it off a pause-play did nothing at all, while the
+  service notification still read *Listening for headset pattern*. It is not a
+  fallback: Android hands the headset button to the music app, so reading that
+  player's pause/play state is the only way a press ever reaches us. The
+  permissions screen now calls the grant **required** and says in one line why;
+  the main screen says **NOT LISTENING** and offers a one-tap *Grant
+  notification access* while it is missing; the ongoing notification says
+  *Notification access is off — pause-play cannot reach the app*, with a
+  *Grant access* action, and re-words itself the moment the grant changes
+  rather than only at startup. The *Logs* screen gets a line about it too,
+  instead of staying silent about why nothing happens.
+
 - **Android: the trigger configuration screen no longer takes an empty
   pattern.** Clearing the *Pattern* field — or leaving only commas and spaces
   in it — saved a trigger with no events in it, and the background listener

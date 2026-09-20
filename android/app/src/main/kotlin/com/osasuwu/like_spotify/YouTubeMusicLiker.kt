@@ -221,7 +221,7 @@ class YouTubeMusicLiker(context: Context) {
 
     /**
      * The YouTube Music controller, preferring one that is playing. Needs
-     * notification access (the same grant the playback-state fallback uses).
+     * notification access — the same grant the trigger itself runs on.
      */
     private fun findController(): MediaController? {
         val manager = context.getSystemService(Context.MEDIA_SESSION_SERVICE) as? MediaSessionManager
