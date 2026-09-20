@@ -99,7 +99,7 @@ def do_setup(reauth: bool = False) -> int:
 
     _common.save_config(cfg)
     print(f"\nConfig saved: {_common.CONFIG_FILE}")
-    print("Done. Launch with: like-spotify")
+    print("Done. Launch with: like-current-song")
     return 0
 
 
@@ -296,23 +296,23 @@ def _setup_autostart() -> None:
         if sys.platform == "darwin":
             print(
                 "  macOS: add a Launch Agent to start at login. Example "
-                "(write to ~/Library/LaunchAgents/com.osasuwu.like-spotify.plist):"
+                "(write to ~/Library/LaunchAgents/com.osasuwu.like-current-song.plist):"
             )
             print(
                 '    <plist version="1.0"><dict>'
-                '<key>Label</key><string>com.osasuwu.like-spotify</string>'
+                '<key>Label</key><string>com.osasuwu.like-current-song</string>'
                 '<key>ProgramArguments</key><array>'
-                '<string>like-spotify</string><string>like-once</string>'
+                '<string>like-current-song</string><string>like-once</string>'
                 '</array>'
                 '<key>RunAtLoad</key><true/></dict></plist>'
             )
-            print("    then: launchctl load ~/Library/LaunchAgents/com.osasuwu.like-spotify.plist")
+            print("    then: launchctl load ~/Library/LaunchAgents/com.osasuwu.like-current-song.plist")
         else:
             print(
                 "  Linux: drop a .desktop entry into ~/.config/autostart/, e.g.\n"
                 "    [Desktop Entry]\n"
                 "    Type=Application\n"
-                "    Exec=like-spotify like-once\n"
+                "    Exec=like-current-song like-once\n"
                 "    Hidden=false\n"
                 "    NoDisplay=false\n"
                 "    Name=Like Spotify"

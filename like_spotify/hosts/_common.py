@@ -448,7 +448,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         --config   — print config / token paths and exit.
         --settings — open the settings window (tkinter; see hosts/settings).
     """
-    p = argparse.ArgumentParser(prog="like-spotify")
+    p = argparse.ArgumentParser(prog="like-current-song")
     p.add_argument(
         "command",
         nargs="?",

@@ -1,4 +1,4 @@
-"""like-spotify — pluggable hotkey-to-like framework.
+"""like-current-song — pluggable hotkey-to-like framework.
 
 Phase 1 tracer bullet (#21): Trigger + MusicProvider seams + a tray host
 that wires the default-flavor extensions (tray_hotkey_trigger + spotify).

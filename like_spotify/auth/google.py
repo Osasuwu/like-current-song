@@ -186,7 +186,7 @@ def make_token_provider(token_path: Path) -> Callable[[], str]:
         with lock:
             if not state.get("refresh_token"):
                 raise AuthError(
-                    "google not authenticated; run `like-spotify --setup` first"
+                    "google not authenticated; run `like-current-song --setup` first"
                 )
             if time.time() > state.get("expires_at", 0) - 60:
                 _refresh(state, token_path)
@@ -210,7 +210,7 @@ def _refresh(state: dict, token_path: Path) -> None:
     if not client_id or not client_secret:
         raise AuthError(
             "google client_id/secret missing from token store; "
-            "re-run `like-spotify --setup --reauth`"
+            "re-run `like-current-song --setup --reauth`"
         )
     r = requests.post(
         TOKEN_URL,

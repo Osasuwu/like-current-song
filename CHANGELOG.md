@@ -92,6 +92,22 @@ Spotify/Supabase credentials (see [README](README.md)).
 
 ### Changed
 
+- **Desktop: the package and commands are now `like-current-song`**
+  ([#101](https://github.com/Osasuwu/like-current-song/issues/101)).
+  The pip/pipx package is `like-current-song`, and the commands are
+  `like-current-song` and `like-current-song-gui`. The old `like-spotify` and
+  `like-spotify-gui` commands still work for at least one more release. The
+  console one prints a one-line note first; the windowed one stays silent.
+  Your config and tokens stay in `~/.like_spotify/`, and the Python import
+  name is still `like_spotify`.
+  **To upgrade**, re-run `install.ps1` or `install.sh`. It removes the old
+  `like-spotify` pipx package, then installs the new one. By hand:
+  `pipx uninstall like-spotify`, then `pipx install` the repo again. On
+  Windows, an autostart entry from an older version is moved to
+  `like-current-song-gui` the next time the tray starts, or when `--setup`
+  asks about autostart. Update any scripts or hotkey tools that call the old
+  names.
+
 - **Desktop: `PlaylistCapableProvider` gained `find_or_create_playlist` and
   `add_track_to_playlist`.** Promote-to-best-of now checks the protocol
   instead of `SpotifyMusicProvider`, so any provider that implements all six

@@ -166,7 +166,7 @@ def test_autostart_target_routes_through_wscript(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
         autostart, "_resident_launch_plan", lambda: ('"py.exe" -m like_spotify', None)
     )
-    # An editable dev install puts like-spotify-gui.exe next to the venv's
+    # An editable dev install puts like-current-song-gui.exe next to the venv's
     # python, which `_autostart_target` prefers. Hide it so this test covers
     # the VBScript branch regardless of how the test env was installed.
     monkeypatch.setattr(autostart, "_gui_script_path", lambda: None)
@@ -214,7 +214,7 @@ def test_venv_bypass_none_outside_a_venv(tmp_path) -> None:
 
 
 def test_autostart_target_prefers_gui_script_shim(tmp_path, monkeypatch) -> None:
-    # A `like-spotify-gui` shim beside the interpreter is windowed-subsystem
+    # A `like-current-song-gui` shim beside the interpreter is windowed-subsystem
     # already — no VBScript/pythonw-bypass indirection needed or wanted.
     monkeypatch.setattr(
         "like_spotify.hosts._common.CONFIG_FILE", tmp_path / "config.json"
@@ -224,7 +224,7 @@ def test_autostart_target_prefers_gui_script_shim(tmp_path, monkeypatch) -> None
     scripts.mkdir()
     python_exe = scripts / "python.exe"
     python_exe.write_bytes(b"")
-    gui_exe = scripts / "like-spotify-gui.exe"
+    gui_exe = scripts / "like-current-song-gui.exe"
     gui_exe.write_bytes(b"")
     monkeypatch.setattr(autostart.sys, "executable", str(python_exe), raising=False)
 
@@ -256,6 +256,149 @@ def test_autostart_target_frozen_launches_exe_directly(monkeypatch) -> None:
 
     assert "wscript" not in target
     assert "LikeSpotify.exe" in target
+
+
+# ── #101 rename: legacy `like-spotify-gui` shim + autostart migration ──
+
+
+def _fake_scripts(tmp_path: Path, monkeypatch, *names: str) -> Path:
+    """A Scripts dir holding python.exe plus `names`, set as sys.executable."""
+    scripts = tmp_path / "Scripts"
+    scripts.mkdir(parents=True, exist_ok=True)
+    python_exe = scripts / "python.exe"
+    python_exe.write_bytes(b"")
+    for name in names:
+        (scripts / name).write_bytes(b"")
+    monkeypatch.setattr(autostart.sys, "executable", str(python_exe), raising=False)
+    monkeypatch.setattr(autostart.sys, "frozen", False, raising=False)
+    return scripts
+
+
+def test_gui_script_path_prefers_new_name_over_legacy(tmp_path, monkeypatch) -> None:
+    scripts = _fake_scripts(
+        tmp_path, monkeypatch, "like-current-song-gui.exe", "like-spotify-gui.exe"
+    )
+
+    assert autostart._gui_script_path() == scripts / "like-current-song-gui.exe"
+
+
+def test_gui_script_path_falls_back_to_legacy_shim(tmp_path, monkeypatch) -> None:
+    scripts = _fake_scripts(tmp_path, monkeypatch, "like-spotify-gui.exe")
+
+    assert autostart._gui_script_path() == scripts / "like-spotify-gui.exe"
+
+
+@pytest.fixture
+def run_key(monkeypatch):
+    """In-memory stand-in for the HKCU Run value; records writes."""
+    state: dict = {"value": None, "writes": []}
+
+    def _set(enabled: bool) -> None:
+        state["writes"].append(enabled)
+        state["value"] = autostart._autostart_target() if enabled else None
+
+    monkeypatch.setattr(autostart, "_autostart_value", lambda: state["value"])
+    monkeypatch.setattr(autostart, "_autostart_set", _set)
+    return state
+
+
+def test_migrate_rewrites_legacy_entry_of_same_install(tmp_path, monkeypatch, run_key) -> None:
+    # Upgraded in place: both shims sit beside this interpreter, and the Run
+    # value still names the old one.
+    scripts = _fake_scripts(
+        tmp_path, monkeypatch, "like-current-song-gui.exe", "like-spotify-gui.exe"
+    )
+    run_key["value"] = f'"{scripts / "like-spotify-gui.exe"}"'
+
+    assert autostart.migrate_legacy_entry() is True
+    assert run_key["value"] == f'"{scripts / "like-current-song-gui.exe"}"'
+
+
+def test_migrate_rewrites_legacy_entry_whose_shim_is_gone(tmp_path, monkeypatch, run_key) -> None:
+    # The old pipx `like-spotify` venv was uninstalled: the entry is dead.
+    scripts = _fake_scripts(tmp_path / "new", monkeypatch, "like-current-song-gui.exe")
+    run_key["value"] = f'"{tmp_path / "old" / "Scripts" / "like-spotify-gui.exe"}"'
+
+    assert autostart.migrate_legacy_entry() is True
+    assert run_key["value"] == f'"{scripts / "like-current-song-gui.exe"}"'
+
+
+def test_migrate_leaves_other_live_install_alone(tmp_path, monkeypatch, run_key) -> None:
+    # A dev checkout must not hijack autostart from a working pipx install.
+    other = tmp_path / "pipx" / "Scripts"
+    other.mkdir(parents=True)
+    (other / "like-spotify-gui.exe").write_bytes(b"")
+    _fake_scripts(tmp_path / "dev", monkeypatch, "like-current-song-gui.exe")
+    original = f'"{other / "like-spotify-gui.exe"}"'
+    run_key["value"] = original
+
+    assert autostart.migrate_legacy_entry() is False
+    assert run_key["value"] == original
+    assert run_key["writes"] == []
+
+
+@pytest.mark.parametrize(
+    "value",
+    [None, '"C:\\x\\Scripts\\like-current-song-gui.exe"', 'wscript.exe //B //Nologo "C:\\a.vbs"'],
+)
+def test_migrate_ignores_non_legacy_entries(tmp_path, monkeypatch, run_key, value) -> None:
+    _fake_scripts(tmp_path, monkeypatch, "like-current-song-gui.exe")
+    run_key["value"] = value
+
+    assert autostart.migrate_legacy_entry() is False
+    assert run_key["writes"] == []
+
+
+def test_migrate_skipped_when_frozen(monkeypatch, run_key) -> None:
+    monkeypatch.setattr(autostart.sys, "frozen", True, raising=False)
+    run_key["value"] = '"C:\\gone\\Scripts\\like-spotify-gui.exe"'
+
+    assert autostart.migrate_legacy_entry() is False
+    assert run_key["writes"] == []
+
+
+# ── #101 rename: entry points ──────────────────────────────────────────
+
+
+def test_legacy_main_prints_note_and_delegates(monkeypatch, capsys) -> None:
+    import like_spotify.hosts as hosts
+
+    calls = []
+    monkeypatch.setattr(hosts, "select_host", lambda: lambda argv: calls.append(argv) or 7)
+
+    assert hosts.legacy_main(["like-once"]) == 7
+    assert calls == [["like-once"]]
+    err = capsys.readouterr().err
+    assert err.strip() == hosts.LEGACY_NOTE
+    assert len(err.strip().splitlines()) == 1
+    assert "like-current-song" in err
+
+
+def test_main_prints_no_deprecation_note(monkeypatch, capsys) -> None:
+    import like_spotify.hosts as hosts
+
+    monkeypatch.setattr(hosts, "select_host", lambda: lambda argv: 0)
+
+    assert hosts.main([]) == 0
+    assert capsys.readouterr().err == ""
+
+
+def test_pyproject_declares_new_names_and_aliases() -> None:
+    import tomllib
+
+    root = Path(__file__).resolve().parent.parent
+    project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+
+    assert project["name"] == "like-current-song"
+    assert project["scripts"] == {
+        "like-current-song": "like_spotify.hosts:main",
+        "like-spotify": "like_spotify.hosts:legacy_main",
+    }
+    # The gui alias must stay silent: a windowed exe has no console.
+    assert project["gui-scripts"] == {
+        "like-current-song-gui": "like_spotify.hosts:main",
+        "like-spotify-gui": "like_spotify.hosts:main",
+    }
 
 
 # ── Stub host: surface CLI failures cleanly ────────────────────────────
