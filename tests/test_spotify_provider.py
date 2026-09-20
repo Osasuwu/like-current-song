@@ -152,7 +152,9 @@ async def test_like_uses_the_generic_library_endpoint(monkeypatch, tmp_path) -> 
 
     assert len(calls) == 1
     assert calls[0]["url"].endswith("/me/library")
-    assert calls[0]["json"] == {"uris": ["spotify:track:trk-42"]}
+    # `uris` is a query parameter; a JSON body gets a 400 (#150).
+    assert calls[0]["params"] == {"uris": "spotify:track:trk-42"}
+    assert calls[0]["json"] is None
 
 
 @pytest.mark.asyncio
@@ -220,6 +222,26 @@ async def test_a_failing_fallback_is_not_remembered(monkeypatch, tmp_path) -> No
 
 
 @pytest.mark.asyncio
+async def test_a_bad_request_never_falls_back_and_carries_the_body(
+    monkeypatch, tmp_path
+) -> None:
+    body = '{"error":{"status":400,"message":"Invalid uris"}}'
+    calls = _record(
+        monkeypatch, "put", lambda url: FakeResponse(status_code=400, text=body)
+    )
+
+    p = _provider(tmp_path)
+    with pytest.raises(RuntimeError) as excinfo:
+        await p.like(_track("trk-42"))
+
+    # 400 means our own payload is wrong; the legacy endpoint cannot fix that,
+    # so it must not be tried — and Spotify's message has to reach the caller.
+    assert len(calls) == 1
+    assert calls[0]["url"].endswith("/me/library")
+    assert body in str(excinfo.value)
+
+
+@pytest.mark.asyncio
 async def test_rate_limits_surface_without_a_retry(monkeypatch, tmp_path) -> None:
     calls = _record(
         monkeypatch,
@@ -260,7 +282,8 @@ async def test_follow_artist_uses_the_generic_library_endpoint(
 
     assert len(calls) == 1
     assert calls[0]["url"].endswith("/me/library")
-    assert calls[0]["json"] == {"uris": ["spotify:artist:art-7"]}
+    assert calls[0]["params"] == {"uris": "spotify:artist:art-7"}
+    assert calls[0]["json"] is None
 
 
 @pytest.mark.asyncio

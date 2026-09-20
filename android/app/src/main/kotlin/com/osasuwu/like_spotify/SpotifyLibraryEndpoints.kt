@@ -1,9 +1,11 @@
 package com.osasuwu.like_spotify
 
+import java.net.URLEncoder
+
 /**
  * Where the background like lands, after Spotify's February 2026 API migration
  * replaced `PUT /me/tracks`, `PUT /me/following` and friends with one generic
- * `PUT /me/library` that takes Spotify URIs in a JSON body.
+ * `PUT /me/library` that takes Spotify URIs in a `uris` **query parameter**.
  *
  * Client IDs registered before 2026-02-11 were grandfathered onto the
  * entity-specific endpoints, so both forms have to keep working: the caller
@@ -14,6 +16,23 @@ package com.osasuwu.like_spotify
 object SpotifyLibraryEndpoints {
 
     const val LIBRARY_URL: String = "https://api.spotify.com/v1/me/library"
+
+    /** Spotify's documented maximum for one `PUT /me/library` request. */
+    const val MAX_URIS_PER_REQUEST: Int = 40
+
+    /**
+     * `PUT /v1/me/library?uris=…` for a single [uri].
+     *
+     * `uris` is a query parameter — the reference page lists it with Location
+     * `Query` and percent-encoded URIs in its example — not a request body.
+     * The JSON-body form is rejected as malformed with 400 every time (#150),
+     * so the URI is deliberately percent-encoded into the query string here
+     * and the request carries no body and no `Content-Type`; don't "simplify"
+     * it back. This half never writes more than one URI per call, so
+     * [MAX_URIS_PER_REQUEST] is out of reach and nothing needs chunking.
+     */
+    fun libraryUrl(uri: String): String =
+        LIBRARY_URL + "?uris=" + URLEncoder.encode(uri, Charsets.UTF_8.name())
 
     fun trackUri(trackId: String): String = "spotify:track:$trackId"
 

@@ -52,6 +52,20 @@ class SpotifyLibraryEndpointsTest {
         assertEquals("spotify:artist:art1", SpotifyLibraryEndpoints.artistUri("art1"))
     }
 
+    @Test
+    fun `the uri travels in the query string, percent-encoded`() {
+        // `uris` is a query parameter. Put the list back in a JSON body and
+        // Spotify answers 400 every time (#150).
+        assertEquals(
+            "https://api.spotify.com/v1/me/library?uris=spotify%3Atrack%3Atrk1",
+            SpotifyLibraryEndpoints.libraryUrl(SpotifyLibraryEndpoints.trackUri("trk1"))
+        )
+        assertEquals(
+            "https://api.spotify.com/v1/me/library?uris=spotify%3Aartist%3Aart1",
+            SpotifyLibraryEndpoints.libraryUrl(SpotifyLibraryEndpoints.artistUri("art1"))
+        )
+    }
+
     // ---- the remembered decision -------------------------------------------------
 
     @Test
