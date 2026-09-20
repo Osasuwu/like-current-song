@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../domain/entities/music_provider.dart';
+import '../../domain/entities/music_routing.dart';
 import '../state/app_providers.dart';
 import '../state/ytmusic_sign_in_controller.dart';
 
@@ -20,6 +21,13 @@ class ConnectedServicesScreen extends ConsumerWidget {
     final signInBusy = isYouTubeMusic &&
         ref.watch(youTubeMusicSignInControllerProvider.select((s) => s.busy));
     final accountId = state.authState.connected ? state.authState.accountId : null;
+    // Automatic is offered only while it can be honoured; if it was on and the
+    // gate closed, the controller falls back to the picker, so showing the
+    // picked service here matches where a like would actually go.
+    final automaticOffered = state.canRouteAutomatically;
+    final automatic =
+        automaticOffered && state.musicRoutingMode == MusicRoutingMode.automatic;
+    final blockedReason = state.automaticRoutingBlockedReason;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Connected services')),
@@ -28,23 +36,46 @@ class ConnectedServicesScreen extends ConsumerWidget {
         children: <Widget>[
           Text('Music service', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
-          SegmentedButton<MusicProvider>(
-            segments: <ButtonSegment<MusicProvider>>[
+          // `null` is Automatic: the absence of an explicit pick.
+          SegmentedButton<MusicProvider?>(
+            segments: <ButtonSegment<MusicProvider?>>[
               for (final p in MusicProvider.values)
-                ButtonSegment<MusicProvider>(
+                ButtonSegment<MusicProvider?>(
                   value: p,
                   label: Text(p.displayName),
                 ),
+              if (automaticOffered)
+                const ButtonSegment<MusicProvider?>(
+                  value: null,
+                  label: Text('Automatic'),
+                ),
             ],
-            selected: <MusicProvider>{provider},
+            selected: <MusicProvider?>{automatic ? null : provider},
             onSelectionChanged: signInBusy
                 ? null
-                : (selection) => controller.selectMusicProvider(selection.single),
+                : (selection) {
+                    final choice = selection.single;
+                    if (choice == null) {
+                      controller.selectAutomaticRouting();
+                    } else {
+                      controller.selectMusicProvider(choice);
+                    }
+                  },
           ),
           const SizedBox(height: 8),
-          const Text(
-            'Likes from your media-button pattern go to this service.',
+          Text(
+            automatic
+                ? 'Likes from your media-button pattern go to whichever '
+                    'connected service is playing, and to $name when none is.'
+                : 'Likes from your media-button pattern go to this service.',
           ),
+          if (blockedReason != null) ...<Widget>[
+            const SizedBox(height: 8),
+            Text(
+              blockedReason,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
           const SizedBox(height: 20),
           Text('$name installed: ${state.musicAppInstalled ? 'Yes' : 'No'}'),
           const SizedBox(height: 8),

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:like_spotify_mobile_app/core/app_constants.dart';
 import 'package:like_spotify_mobile_app/domain/entities/app_log.dart';
 import 'package:like_spotify_mobile_app/domain/entities/music_provider.dart';
+import 'package:like_spotify_mobile_app/domain/entities/music_routing.dart';
 import 'package:like_spotify_mobile_app/domain/entities/pending_like.dart';
 import 'package:like_spotify_mobile_app/domain/entities/rule_config.dart';
 import 'package:like_spotify_mobile_app/domain/entities/spotify_auth_state.dart';
@@ -34,17 +35,25 @@ Widget hostScreen(
   int pendingLikes = 0,
 }) {
   registerFallbackValue(MusicProvider.spotify);
+  registerFallbackValue(MusicRoutingMode.defaultMode);
   registerFallbackValue(_triggerConfig);
   registerFallbackValue(RuleConfig.defaults());
 
   final settings = MockSettingsRepository();
   final platform = MockPlatformServiceRepository();
   final music = MockMusicServiceRepository();
+  final routing = MockMusicRoutingRepository();
   final appLinks = MockAppLinks();
 
   when(() => settings.loadTriggerConfig())
       .thenAnswer((_) async => _triggerConfig);
   when(() => settings.loadMusicProvider()).thenAnswer((_) async => provider);
+  // Automatic routing is opt-in; these screens are about the picked service.
+  when(() => settings.loadMusicRoutingMode())
+      .thenAnswer((_) async => MusicRoutingMode.picker);
+  when(() => settings.saveMusicRoutingMode(any())).thenAnswer((_) async {});
+  when(() => routing.connectedProviders())
+      .thenAnswer((_) async => <MusicProvider>{provider});
   when(() => settings.loadRuleConfig())
       .thenAnswer((_) async => RuleConfig.defaults());
   when(() => settings.loadLogs()).thenAnswer((_) async => <AppLog>[]);
@@ -68,6 +77,9 @@ Widget hostScreen(
   when(() => platform.isMiuiDevice()).thenAnswer((_) async => false);
   when(() => platform.isMusicAppInstalled(any())).thenAnswer((_) async => true);
   when(() => platform.updateMusicProvider(any())).thenAnswer((_) async {});
+  when(() => platform.updateMusicRoutingMode(any())).thenAnswer((_) async {});
+  when(() => platform.readMusicSessions())
+      .thenAnswer((_) async => const MusicSessionSnapshot());
   when(() => platform.updateTriggerConfig(any())).thenAnswer((_) async {});
   when(() => platform.updateRuleConfig(any())).thenAnswer((_) async {});
   when(() => platform.syncSupabaseConfig(
@@ -88,6 +100,7 @@ Widget hostScreen(
           settingsRepository: settings,
           platformServiceRepository: platform,
           musicServiceRepository: music,
+          musicRoutingRepository: routing,
           appLinks: appLinks,
         ),
       ),

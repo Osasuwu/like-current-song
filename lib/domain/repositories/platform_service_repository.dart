@@ -1,4 +1,5 @@
 import '../entities/music_provider.dart';
+import '../entities/music_routing.dart';
 import '../entities/rule_config.dart';
 import '../entities/trigger_config.dart';
 
@@ -23,6 +24,18 @@ abstract class PlatformServiceRepository {
 
   /// Tells the native listener which service a pause-play should like on.
   Future<void> updateMusicProvider(MusicProvider provider);
+
+  /// Tells the native listener whether to route a like to the picked service
+  /// or to whichever connected service is playing.
+  Future<void> updateMusicRoutingMode(MusicRoutingMode mode);
+
+  /// What the native side sees on the device's media sessions right now:
+  /// which providers own a playing session, and which one played last.
+  ///
+  /// Reading sessions needs notification access; without it the snapshot is
+  /// empty rather than an error, because that is a legitimate state — Spotify
+  /// likes work without it.
+  Future<MusicSessionSnapshot> readMusicSessions();
   Future<void> updateRuleConfig(RuleConfig config);
   Stream<Map<String, dynamic>> events();
   Future<void> syncSpotifyTokens({

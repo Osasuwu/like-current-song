@@ -12,6 +12,21 @@ object AppConstants {
     /** Selected music service id ("spotify" | "ytmusic"); see [MusicProvider]. */
     const val KEY_MUSIC_PROVIDER = "music_provider"
 
+    /**
+     * How likes are routed ("picker" | "automatic"); see
+     * [MusicRoutingMode]. Absent means "picker", so an install
+     * upgraded from a build without automatic routing keeps its picked
+     * service until the user opts in.
+     */
+    const val KEY_MUSIC_ROUTING_MODE = "music_routing_mode"
+
+    /**
+     * Id of the provider whose media session was last seen playing, written
+     * by [PlaybackNotificationListenerService]. Automatic routing falls back
+     * to it when nothing is playing right now.
+     */
+    const val KEY_LAST_PLAYING_PROVIDER = "last_playing_provider"
+
     const val KEY_SPOTIFY_ACCESS_TOKEN = "spotify_access_token"
     const val KEY_SPOTIFY_REFRESH_TOKEN = "spotify_refresh_token"
     const val KEY_SPOTIFY_EXPIRES_AT = "spotify_expires_at"

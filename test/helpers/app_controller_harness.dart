@@ -6,6 +6,7 @@ import 'package:like_spotify_mobile_app/core/app_constants.dart';
 import 'package:like_spotify_mobile_app/data/music/active_music_service_repository.dart';
 import 'package:like_spotify_mobile_app/domain/entities/app_log.dart';
 import 'package:like_spotify_mobile_app/domain/entities/music_provider.dart';
+import 'package:like_spotify_mobile_app/domain/entities/music_routing.dart';
 import 'package:like_spotify_mobile_app/domain/entities/pending_like.dart';
 import 'package:like_spotify_mobile_app/domain/entities/rule_config.dart';
 import 'package:like_spotify_mobile_app/domain/entities/spotify_auth_state.dart';
@@ -26,6 +27,7 @@ class MockDeviceSignInRepository extends Mock
 /// Call from `setUpAll`, before the first harness is built.
 void registerAppControllerFallbacks() {
   registerFallbackValue(MusicProvider.defaultProvider);
+  registerFallbackValue(MusicRoutingMode.defaultMode);
   registerFallbackValue(
     const TriggerConfig(pattern: '', windowMs: 0, debounceMs: 0),
   );
@@ -55,6 +57,7 @@ class AppControllerHarness {
       : _selected = selected {
     music = ActiveMusicServiceRepository(
       settingsRepository: settings,
+      platformServiceRepository: platform,
       repositories: <MusicProvider, MockMusicServiceRepository>{
         MusicProvider.spotify: spotify,
         MusicProvider.ytmusic: ytmusic,
@@ -72,16 +75,29 @@ class AppControllerHarness {
   late final ActiveMusicServiceRepository music;
 
   MusicProvider _selected;
+  MusicRoutingMode _routingMode = MusicRoutingMode.defaultMode;
+
+  /// What `readMusicSessions` answers; a test that cares sets it before acting.
+  MusicSessionSnapshot sessions = const MusicSessionSnapshot();
 
   /// What `loadMusicProvider` answers right now: an in-memory stand-in for
   /// SharedPreferences, so a saved choice is visible to the next read — which
   /// is how [ActiveMusicServiceRepository] picks the service to talk to.
   MusicProvider get selected => _selected;
 
+  /// The stored routing mode, same in-memory stand-in as [selected].
+  MusicRoutingMode get routingMode => _routingMode;
+
   void _stubStartUp() {
     when(() => settings.loadMusicProvider()).thenAnswer((_) async => _selected);
     when(() => settings.saveMusicProvider(any())).thenAnswer((invocation) async {
       _selected = invocation.positionalArguments.single as MusicProvider;
+    });
+    when(() => settings.loadMusicRoutingMode())
+        .thenAnswer((_) async => _routingMode);
+    when(() => settings.saveMusicRoutingMode(any()))
+        .thenAnswer((invocation) async {
+      _routingMode = invocation.positionalArguments.single as MusicRoutingMode;
     });
     when(() => settings.loadTriggerConfig()).thenAnswer(
       (_) async => const TriggerConfig(
@@ -106,6 +122,8 @@ class AppControllerHarness {
     when(() => platform.isMusicAppInstalled(any()))
         .thenAnswer((_) async => true);
     when(() => platform.updateMusicProvider(any())).thenAnswer((_) async {});
+    when(() => platform.updateMusicRoutingMode(any())).thenAnswer((_) async {});
+    when(() => platform.readMusicSessions()).thenAnswer((_) async => sessions);
     when(() => platform.updateTriggerConfig(any())).thenAnswer((_) async {});
     when(() => platform.updateRuleConfig(any())).thenAnswer((_) async {});
     when(
@@ -132,6 +150,7 @@ class AppControllerHarness {
         settingsRepository: settings,
         platformServiceRepository: platform,
         musicServiceRepository: music,
+        musicRoutingRepository: music,
         appLinks: appLinks,
       );
 
@@ -141,6 +160,7 @@ class AppControllerHarness {
         settingsRepositoryProvider.overrideWithValue(settings),
         platformServiceRepositoryProvider.overrideWithValue(platform),
         musicServiceRepositoryProvider.overrideWithValue(music),
+        musicRoutingRepositoryProvider.overrideWithValue(music),
         deviceSignInRepositoryProvider.overrideWithValue(signIn),
         appLinksProvider.overrideWithValue(appLinks),
       ];

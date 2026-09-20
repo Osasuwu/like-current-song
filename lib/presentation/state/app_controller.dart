@@ -13,12 +13,14 @@ import '../../core/app_constants.dart';
 import '../../domain/entities/app_log.dart';
 import '../../domain/entities/like_result.dart';
 import '../../domain/entities/music_provider.dart';
+import '../../domain/entities/music_routing.dart';
 import '../../domain/entities/music_service_exceptions.dart';
 import '../../domain/entities/pending_like.dart';
 import '../../domain/entities/rule_config.dart';
 import '../../domain/entities/spotify_auth_state.dart';
 import '../../domain/entities/track_info.dart';
 import '../../domain/entities/trigger_config.dart';
+import '../../domain/repositories/music_routing_repository.dart';
 import '../../domain/repositories/music_service_repository.dart';
 import '../../domain/repositories/platform_service_repository.dart';
 import '../../domain/repositories/settings_repository.dart';
@@ -29,12 +31,14 @@ class AppController extends StateNotifier<AppState> {
     required SettingsRepository settingsRepository,
     required PlatformServiceRepository platformServiceRepository,
     required MusicServiceRepository musicServiceRepository,
+    required MusicRoutingRepository musicRoutingRepository,
     required AppLinks appLinks,
     this.supabaseUrl = '',
     this.supabaseAnonKey = '',
   })  : _settingsRepository = settingsRepository,
         _platformServiceRepository = platformServiceRepository,
         _musicServiceRepository = musicServiceRepository,
+        _musicRoutingRepository = musicRoutingRepository,
         _appLinks = appLinks,
         super(
           AppState.initial(
@@ -46,12 +50,16 @@ class AppController extends StateNotifier<AppState> {
             ),
           ),
         ) {
+    // Logged as the like is routed, so the Logs screen shows the service the
+    // like actually went to rather than a second, later guess.
+    _musicRoutingRepository.onAutomaticRouting = _onAutomaticRouting;
     _initialize();
   }
 
   final SettingsRepository _settingsRepository;
   final PlatformServiceRepository _platformServiceRepository;
   final MusicServiceRepository _musicServiceRepository;
+  final MusicRoutingRepository _musicRoutingRepository;
   final AppLinks _appLinks;
   final String supabaseUrl;
   final String supabaseAnonKey;
@@ -65,6 +73,7 @@ class AppController extends StateNotifier<AppState> {
     try {
       final config = await _settingsRepository.loadTriggerConfig();
       final musicProvider = await _settingsRepository.loadMusicProvider();
+      final routingMode = await _settingsRepository.loadMusicRoutingMode();
       final serviceEnabled = await _platformServiceRepository.isServiceEnabled();
       final auth = await _musicServiceRepository.getAuthState();
       final ruleConfig = await _settingsRepository.loadRuleConfig();
@@ -76,8 +85,10 @@ class AppController extends StateNotifier<AppState> {
       final musicAppInstalled =
           await _platformServiceRepository.isMusicAppInstalled(musicProvider);
       final logLines = await _settingsRepository.loadLogs();
+      final connected = await _musicRoutingRepository.connectedProviders();
 
       await _platformServiceRepository.updateMusicProvider(musicProvider);
+      await _platformServiceRepository.updateMusicRoutingMode(routingMode);
       await _platformServiceRepository.updateTriggerConfig(config);
       await _platformServiceRepository.updateRuleConfig(ruleConfig);
       await _platformServiceRepository.syncSupabaseConfig(
@@ -94,6 +105,8 @@ class AppController extends StateNotifier<AppState> {
         notificationListenerEnabled: notificationListenerEnabled,
         isMiui: isMiui,
         musicProvider: musicProvider,
+        musicRoutingMode: routingMode,
+        connectedProviders: connected,
         musicAppInstalled: musicAppInstalled,
         ruleConfig: ruleConfig,
         logs: logLines,
@@ -175,9 +188,16 @@ class AppController extends StateNotifier<AppState> {
 
   /// Switches the music service that likes go to, both here and in the
   /// native listener, and refreshes the connection state shown for it.
+  ///
+  /// Picking a service explicitly also leaves automatic routing, which is why
+  /// re-picking the service already shown is not a no-op while automatic is on.
   Future<void> selectMusicProvider(MusicProvider provider) async {
-    if (provider == state.musicProvider) return;
+    final wasAutomatic = state.musicRoutingMode == MusicRoutingMode.automatic;
+    if (provider == state.musicProvider && !wasAutomatic) return;
     try {
+      if (wasAutomatic) {
+        await _persistRoutingMode(MusicRoutingMode.picker);
+      }
       await _settingsRepository.saveMusicProvider(provider);
       await _platformServiceRepository.updateMusicProvider(provider);
       final auth = await _musicServiceRepository.getAuthState();
@@ -185,6 +205,7 @@ class AppController extends StateNotifier<AppState> {
           await _platformServiceRepository.isMusicAppInstalled(provider);
       state = state.copyWith(
         musicProvider: provider,
+        musicRoutingMode: MusicRoutingMode.picker,
         authState: auth,
         musicAppInstalled: installed,
         clearError: true,
@@ -199,6 +220,79 @@ class AppController extends StateNotifier<AppState> {
     } catch (error) {
       state = state.copyWith(lastError: error.toString());
     }
+  }
+
+  /// Stores the routing mode on both sides at once: the trigger reads the
+  /// native copy while Flutter is detached, so the two must never drift.
+  Future<void> _persistRoutingMode(MusicRoutingMode mode) async {
+    await _settingsRepository.saveMusicRoutingMode(mode);
+    await _platformServiceRepository.updateMusicRoutingMode(mode);
+  }
+
+  /// Turns on automatic routing: likes follow whichever connected service is
+  /// playing. Opt-in, and only offered while [AppState.canRouteAutomatically]
+  /// holds — a request made without it is ignored rather than stored, so the
+  /// app never sits in a mode it cannot honour.
+  Future<void> selectAutomaticRouting() async {
+    if (state.musicRoutingMode == MusicRoutingMode.automatic) return;
+    if (!state.canRouteAutomatically) return;
+    try {
+      await _persistRoutingMode(MusicRoutingMode.automatic);
+      state = state.copyWith(
+        musicRoutingMode: MusicRoutingMode.automatic,
+        clearError: true,
+        clearLikeResult: true,
+      );
+      await addLog(
+        actionType: 'music_provider',
+        result: LogResult.success,
+        message: 'Music service set to Automatic '
+            '(follows whichever connected service is playing)',
+      );
+    } catch (error) {
+      state = state.copyWith(lastError: error.toString());
+    }
+  }
+
+  /// Records which service an automatic like went to, and why.
+  void _onAutomaticRouting(MusicRoutingDecision decision) {
+    if (!mounted) return;
+    unawaited(addLog(
+      actionType: 'music_routing',
+      result: LogResult.info,
+      message: decision.logLine,
+    ));
+  }
+
+  /// Re-reads which services are signed in; automatic routing is only on
+  /// offer while at least two are.
+  Future<void> refreshConnectedProviders() async {
+    try {
+      final connected = await _musicRoutingRepository.connectedProviders();
+      if (!mounted) return;
+      state = state.copyWith(connectedProviders: connected);
+      await _dropAutomaticIfUnavailable();
+    } catch (_) {
+      // Leaving the previous set in place beats emptying it on a transient
+      // failure: the picker keeps working either way.
+    }
+  }
+
+  /// Falls back to the picker when automatic can no longer be honoured (a
+  /// service signed out, or notification access was revoked), so the stored
+  /// mode never disagrees with what the UI offers.
+  Future<void> _dropAutomaticIfUnavailable() async {
+    if (state.musicRoutingMode != MusicRoutingMode.automatic) return;
+    if (state.canRouteAutomatically) return;
+    await _persistRoutingMode(MusicRoutingMode.picker);
+    if (!mounted) return;
+    state = state.copyWith(musicRoutingMode: MusicRoutingMode.picker);
+    await addLog(
+      actionType: 'music_provider',
+      result: LogResult.info,
+      message: 'Automatic routing is unavailable; '
+          'likes go to ${state.musicProvider.displayName}',
+    );
   }
 
   Future<void> connectMusicService() async {
@@ -228,6 +322,7 @@ class AppController extends StateNotifier<AppState> {
     try {
       final auth = await _musicServiceRepository.getAuthState();
       state = state.copyWith(authState: auth, clearError: true);
+      await refreshConnectedProviders();
       await addLog(
         actionType: 'service_connect',
         result: LogResult.success,
@@ -244,6 +339,7 @@ class AppController extends StateNotifier<AppState> {
       authState: const SpotifyAuthState.disconnected(),
       clearError: true,
     );
+    await refreshConnectedProviders();
     await addLog(
       actionType: 'service_disconnect',
       result: LogResult.success,
@@ -311,6 +407,7 @@ class AppController extends StateNotifier<AppState> {
   Future<void> refreshNotificationListenerStatus() async {
     final enabled = await _platformServiceRepository.isNotificationListenerEnabled();
     state = state.copyWith(notificationListenerEnabled: enabled);
+    await _dropAutomaticIfUnavailable();
     if (!enabled) {
       await addLog(
         actionType: 'notification_listener',
@@ -668,6 +765,7 @@ class AppController extends StateNotifier<AppState> {
 
   @override
   void dispose() {
+    _musicRoutingRepository.onAutomaticRouting = null;
     _nativeEventsSub?.cancel();
     _linkSub?.cancel();
     _connectivitySub?.cancel();

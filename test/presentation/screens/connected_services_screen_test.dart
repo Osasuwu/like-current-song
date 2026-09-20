@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:like_spotify_mobile_app/domain/entities/device_sign_in.dart';
 import 'package:like_spotify_mobile_app/domain/entities/music_provider.dart';
+import 'package:like_spotify_mobile_app/domain/entities/music_routing.dart';
+import 'package:like_spotify_mobile_app/domain/entities/spotify_auth_state.dart';
 import 'package:like_spotify_mobile_app/presentation/screens/connected_services_screen.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -57,10 +59,40 @@ void main() {
     return launched;
   }
 
-  SegmentedButton<MusicProvider> picker(WidgetTester tester) =>
-      tester.widget<SegmentedButton<MusicProvider>>(
-        find.byType(SegmentedButton<MusicProvider>),
+  /// The service picker. `null` is the Automatic segment — the absence of an
+  /// explicit pick — which is why the generic is nullable.
+  SegmentedButton<MusicProvider?> picker(WidgetTester tester) =>
+      tester.widget<SegmentedButton<MusicProvider?>>(
+        find.byType(SegmentedButton<MusicProvider?>),
       );
+
+  /// Opens both gates automatic routing is behind: notification access, and
+  /// two signed-in services to choose between.
+  AppControllerHarness automaticReady({
+    MusicProvider selected = MusicProvider.spotify,
+  }) {
+    final harness = AppControllerHarness(selected: selected);
+    when(() => harness.platform.isNotificationListenerEnabled())
+        .thenAnswer((_) async => true);
+    for (final repository in <MusicProvider>[
+      MusicProvider.spotify,
+      MusicProvider.ytmusic,
+    ]) {
+      final mock = repository == MusicProvider.spotify
+          ? harness.spotify
+          : harness.ytmusic;
+      when(mock.getAuthState).thenAnswer(
+        (_) async => SpotifyAuthState(
+          accessToken: 'token',
+          refreshToken: null,
+          expiresAt: null,
+          connected: true,
+          accountId: repository.id,
+        ),
+      );
+    }
+    return harness;
+  }
 
   testWidgets('offers every music service, in MusicProvider order',
       (tester) async {
@@ -76,7 +108,98 @@ void main() {
       segments.map((s) => (s.label! as Text).data),
       <String>['Spotify', 'YouTube Music'],
     );
-    expect(picker(tester).selected, <MusicProvider>{MusicProvider.spotify});
+    expect(picker(tester).selected, <MusicProvider?>{MusicProvider.spotify});
+  });
+
+  testWidgets('without notification access, Automatic is not on offer',
+      (tester) async {
+    // The harness leaves notification access off, as a fresh install has it.
+    await pumpScreen(tester, AppControllerHarness());
+
+    expect(picker(tester).segments.map((s) => s.value), MusicProvider.values);
+    expect(find.text('Automatic'), findsNothing);
+    expect(
+      find.text('Automatic needs notification access to see what is playing.'),
+      findsOneWidget,
+      reason: 'a missing option with no reason given is just a missing option',
+    );
+  });
+
+  testWidgets('with one service connected, Automatic is not on offer',
+      (tester) async {
+    final harness = AppControllerHarness();
+    when(() => harness.platform.isNotificationListenerEnabled())
+        .thenAnswer((_) async => true);
+    when(harness.spotify.getAuthState).thenAnswer(
+      (_) async => const SpotifyAuthState(
+        accessToken: 'token',
+        refreshToken: null,
+        expiresAt: null,
+        connected: true,
+      ),
+    );
+
+    await pumpScreen(tester, harness);
+
+    expect(find.text('Automatic'), findsNothing);
+    expect(
+      find.text('Automatic needs two connected services to choose between.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('with both gates open, Automatic joins the picker unselected',
+      (tester) async {
+    await pumpScreen(tester, automaticReady());
+
+    expect(
+      picker(tester).segments.map((s) => s.value),
+      <MusicProvider?>[MusicProvider.spotify, MusicProvider.ytmusic, null],
+      reason: 'Automatic is last: the explicit picks come first',
+    );
+    expect(
+      picker(tester).selected,
+      <MusicProvider?>{MusicProvider.spotify},
+      reason: 'automatic is opt-in — offering it must not select it',
+    );
+    expect(find.textContaining('Automatic needs'), findsNothing);
+  });
+
+  testWidgets('choosing Automatic persists it and tells the native listener',
+      (tester) async {
+    final harness = automaticReady();
+    await pumpScreen(tester, harness);
+
+    await tester.tap(find.text('Automatic'));
+    await tester.pumpAndSettle();
+
+    expect(picker(tester).selected, <MusicProvider?>{null});
+    expect(harness.routingMode, MusicRoutingMode.automatic);
+    verify(() => harness.settings
+        .saveMusicRoutingMode(MusicRoutingMode.automatic)).called(1);
+    verify(() => harness.platform
+        .updateMusicRoutingMode(MusicRoutingMode.automatic)).called(1);
+    expect(
+      find.textContaining('whichever connected service is playing'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('picking a service again leaves Automatic', (tester) async {
+    final harness = automaticReady();
+    await pumpScreen(tester, harness);
+
+    await tester.tap(find.text('Automatic'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Spotify'));
+    await tester.pumpAndSettle();
+
+    expect(picker(tester).selected, <MusicProvider?>{MusicProvider.spotify});
+    expect(harness.routingMode, MusicRoutingMode.picker);
+    // Start-up pushes the stored mode too, so only the save is a clean count.
+    verify(() =>
+        harness.settings.saveMusicRoutingMode(MusicRoutingMode.picker))
+        .called(1);
   });
 
   testWidgets('Spotify gets its OAuth connect button and the client-id note',

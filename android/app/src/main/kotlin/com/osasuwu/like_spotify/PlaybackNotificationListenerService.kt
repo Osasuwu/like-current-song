@@ -99,12 +99,18 @@ class PlaybackNotificationListenerService : NotificationListenerService() {
                     }
                     lastStateByPackage[packageName] = rawState
 
-                    if (MusicProvider.current(this@PlaybackNotificationListenerService).ownsSession(packageName)) {
+                    val service = this@PlaybackNotificationListenerService
+                    // Remembered even for a service the trigger ignores: it is
+                    // what automatic routing falls back to once playback stops.
+                    if (rawState == android.media.session.PlaybackState.STATE_PLAYING) {
+                        MusicProvider.values()
+                            .firstOrNull { it.ownsSession(packageName) }
+                            ?.let { MusicProvider.recordPlaying(service, it) }
+                    }
+
+                    if (MusicProvider.listensTo(service, packageName)) {
                         log("Playback state from $packageName: $mapped")
-                        MediaButtonForegroundService.dispatchExternalMediaEvent(
-                            this@PlaybackNotificationListenerService,
-                            mapped
-                        )
+                        MediaButtonForegroundService.dispatchExternalMediaEvent(service, mapped)
                     }
                 }
             }

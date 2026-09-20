@@ -130,6 +130,17 @@ trigger then gives the playing song a thumbs-up through the YT Music app's own
 media session, so it works with the screen off and needs **no Google sign-in
 at all** — only the notification access the listener already uses.
 
+**Automatic (optional).** If you use both services, *Connected services* also
+offers **Automatic**, which sends the like to whichever connected service is
+currently playing instead of to one service you picked. It resolves, in order:
+the one connected service with a playing media session; otherwise the last one
+that was playing; otherwise the service still shown in the picker. Automatic is
+off until you choose it — upgrading never changes where your likes go — and it
+is only offered while notification access is granted **and** at least two
+services are connected, since that is what it takes to tell them apart. When it
+isn't offered, the picker says which of the two is missing. Every automatic like
+logs which service it went to and why, on the *Logs* screen.
+
 **Signing in is optional, and the rest of this section is only about that.**
 It buys two things: a YouTube Data API fallback for when the session rating
 doesn't take, and likes that count in the shared counter (the same one the
@@ -389,7 +400,7 @@ settings window (`like-current-song --settings`, or **Settings…** in the tray 
 | Trigger pattern / hotkey | In-app UI | `~/.like_spotify/config.json` → `trigger.hotkey` (default `Ctrl+Shift+Alt+W`) |
 | Remove-from-archive hotkey | n/a (one trigger on headphones) | `~/.like_spotify/config.json` → `trigger.remove_hotkey` (default `Ctrl+Shift+Alt+Q`) |
 | Archive playlist name | In-app UI | `~/.like_spotify/config.json` → `actions.archive_remove.playlist_name` (blank = archive-remove disabled) |
-| Music service | In-app UI (Spotify / YouTube Music) | `~/.like_spotify/config.json` → `music.provider` (`spotify` / `ytmusic`, default `spotify`) |
+| Music service | In-app UI (Spotify / YouTube Music / Automatic) | `~/.like_spotify/config.json` → `music.provider` (`spotify` / `ytmusic`, default `spotify`) |
 | YouTube Music tokens | n/a (planned) | `~/.like_spotify/youtube_token.json` (refreshed automatically) |
 | Spotify client_id | `.env` (`SPOTIFY_CLIENT_ID`) | `like-current-song --setup` → `~/.like_spotify/config.json` |
 | Spotify tokens | `FlutterSecureStorage` | `~/.like_spotify/spotify_token.json` |

@@ -9,6 +9,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -33,9 +34,14 @@ class SpotifyLikeWorker(
 ) : Worker(appContext, params) {
 
     override fun doWork(): Result {
-        // The service switched away from Spotify after this job was queued:
-        // never send a Spotify request for another service's trigger.
-        val provider = MusicProvider.current(applicationContext)
+        // The service the trigger resolved to, carried from enqueue time: the
+        // job honours the decision that was made (and logged) rather than
+        // resolving again against state that has since moved on. A job queued
+        // before this input existed falls back to resolving now.
+        val provider = inputData.getString(KEY_ROUTED_PROVIDER)
+            ?.let { id -> MusicProvider.values().firstOrNull { it.id == id } }
+            ?: MusicProvider.resolve(applicationContext).provider
+        // Never send a Spotify request for another service's trigger.
         if (provider != MusicProvider.SPOTIFY) {
             log("Like skipped: music service is ${provider.displayName}, not Spotify", actionType = "like_track", result = "info")
             return Result.success()
@@ -575,13 +581,17 @@ class SpotifyLikeWorker(
     )
 
     companion object {
-        fun enqueue(context: Context) {
+        /** Id of the [MusicProvider] the trigger routed to; see [doWork]. */
+        private const val KEY_ROUTED_PROVIDER = "routed_provider"
+
+        fun enqueue(context: Context, provider: MusicProvider) {
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build()
 
             val request = OneTimeWorkRequestBuilder<SpotifyLikeWorker>()
                 .setConstraints(constraints)
+                .setInputData(workDataOf(KEY_ROUTED_PROVIDER to provider.id))
                 .build()
 
             WorkManager.getInstance(context).enqueueUniqueWork(

@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/app_constants.dart';
 import '../../domain/entities/app_log.dart';
 import '../../domain/entities/music_provider.dart';
+import '../../domain/entities/music_routing.dart';
 import '../../domain/entities/pending_like.dart';
 import '../../domain/entities/rule_config.dart';
 import '../../domain/entities/trigger_config.dart';
@@ -21,6 +22,9 @@ class SharedPrefsSettingsRepository implements SettingsRepository {
   static const _keyRuleConfig = 'rule_config';
   static const _keyServiceEnabled = 'service_enabled';
   static const _keyMusicProvider = 'music_provider';
+  // Deliberately a separate key from _keyMusicProvider: automatic routing is
+  // opt-in, so an install that never wrote this key keeps its picked service.
+  static const _keyMusicRoutingMode = 'music_routing_mode';
   static const _keyLogs = 'logs';
   static const _keyPendingLikes = 'pending_likes';
 
@@ -106,6 +110,18 @@ class SharedPrefsSettingsRepository implements SettingsRepository {
   Future<void> saveMusicProvider(MusicProvider provider) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyMusicProvider, provider.id);
+  }
+
+  @override
+  Future<MusicRoutingMode> loadMusicRoutingMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    return MusicRoutingMode.fromId(prefs.getString(_keyMusicRoutingMode));
+  }
+
+  @override
+  Future<void> saveMusicRoutingMode(MusicRoutingMode mode) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyMusicRoutingMode, mode.id);
   }
 
   @override
