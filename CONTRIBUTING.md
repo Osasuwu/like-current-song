@@ -27,7 +27,7 @@ like_spotify/
 │   ├── ytmusic/                  # YouTube Music provider (beta, Windows).
 │   ├── tray_hotkey_trigger/      # Global-hotkey trigger (Windows).
 │   ├── one_shot_cli_trigger/     # Per-invocation trigger (every OS).
-│   ├── volume_button_trigger/    # Volume-key trigger.
+│   ├── volume_button_trigger/    # Volume-key trigger (skeleton, #74).
 │   ├── google_sheets_storage/    # Counter kept in a sheet you own.
 │   ├── like_cooldown/            # PreLikeAction.
 │   ├── archive_remove/           # PostLikeAction.
@@ -132,7 +132,7 @@ because someone imported it and registered its factory in
 the matching registry (`_STORAGE_BUILDERS`, `PROVIDER_BUILDERS`,
 `_ACTION_EXTENSION_BUILDERS`). That is the whole wiring cost, and the
 checklist below walks it. Scanning `extensions/` for manifests and
-loading them without that edit is [#28](https://github.com/Osasuwu/like-current-song/issues/28);
+loading them without that edit is [#144](https://github.com/Osasuwu/like-current-song/issues/144);
 the manifest shape here is what that work will read, which is why it is
 worth filling in properly now.
 
@@ -154,7 +154,7 @@ Example manifest:
 `stage` is one of `experimental | beta | stable | deprecated`, and it
 is documentation, not something enforced at runtime — nothing reads the
 manifest yet (see above). `requirements` is pip-compatible; resolving it
-at first enable is part of [#28](https://github.com/Osasuwu/like-current-song/issues/28),
+at first enable is part of [#144](https://github.com/Osasuwu/like-current-song/issues/144),
 so for now declare a dependency there **and** say so in your extension's
 README.
 

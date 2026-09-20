@@ -444,8 +444,8 @@ track somewhere, and a **counter** that knows how to add one to a number.
 Android (Flutter + Kotlin)            Desktop (Python framework)
 ┌────────────────────────────┐       ┌────────────────────────────┐
 │ Trigger                    │       │ Trigger                    │
-│  · headset pause-play      │       │  · tray + global hotkey    │
-│  · volume buttons          │       │  · one-shot CLI            │
+│  · headset / media buttons │       │  · tray + global hotkey    │
+│    (pause-play patterns)   │       │  · one-shot CLI            │
 │            ↓               │       │            ↓               │
 │ Music service              │       │ MusicProvider              │
 │  · Spotify   · YT Music    │       │  · Spotify   · YT Music    │
@@ -467,15 +467,21 @@ Android (Flutter + Kotlin)            Desktop (Python framework)
 
 The desktop side names those seams as five ABCs in `like_spotify/core/`:
 `Trigger`, `MusicProvider`, `Storage`, `PreLikeAction` and `PostLikeAction`.
-Ten extensions ship against them:
+Nine extensions ship against them, plus one skeleton:
 
 | Seam | Ships today |
 |---|---|
-| `Trigger` | `tray_hotkey_trigger`, `one_shot_cli_trigger`, `volume_button_trigger` |
-| `MusicProvider` | `spotify`, `ytmusic` |
+| `Trigger` | `tray_hotkey_trigger`, `one_shot_cli_trigger` |
+| `MusicProvider` | `spotify`, `ytmusic` (beta) |
 | `Storage` | `google_sheets_storage` |
 | `PreLikeAction` | `like_cooldown` |
 | `PostLikeAction` | `archive_remove`, `promote_to_best`, `follow_artist` |
+
+`volume_button_trigger` is in the tree as well, but it is a skeleton: the
+pattern matching is written, the HID read loop is a TODO, and its manifest
+stage says `experimental`. Finishing it is
+[#74](https://github.com/Osasuwu/like-current-song/issues/74), and it is a
+good way to see the `Trigger` seam end to end.
 
 Each lives in its own folder under `like_spotify/extensions/` with a
 `manifest.json` describing it, and is wired in by one builder function plus one

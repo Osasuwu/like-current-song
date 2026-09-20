@@ -12,7 +12,7 @@ Two halves that share Spotify state and a cross-device like counter:
   `PostLikeAction`). Each extension is a folder under `extensions/` with a
   `manifest.json`, wired in by a builder function + a registry entry in
   `hosts/_common.py`. The manifest is metadata only — nothing reads it at
-  runtime, and automatic discovery is #28; don't describe it as shipped.
+  runtime, and automatic discovery is #144; don't describe it as shipped.
   Default flavor: Windows tray host + global hotkey; `_stub.py` CLI fallback
   on macOS/Linux.
 
