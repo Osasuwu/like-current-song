@@ -74,18 +74,16 @@ def _scripted_input(answers: list[str]):
     return _input
 
 
-# ── do_setup happy path: Spotify + Supabase + no autostart ─────────────
+# ── do_setup happy path: Spotify + no counter + no autostart ───────────
 
 
-def test_setup_supabase_writes_config_and_runs_oauth(
+def test_setup_writes_config_and_runs_oauth(
     tmp_paths, fake_provider, monkeypatch
 ) -> None:
     answers = [
         "",                    # music service — default spotify
         "abc123client",        # Spotify Client ID
-        "supabase",            # Storage backend
-        "https://x.supabase.co",  # Supabase URL
-        "anon-key-xyz",        # Supabase anon key
+        "none",                # Storage backend
         "",                    # [3/4] archive playlist name — blank = skip
         # autostart prompt only fires on win32 — we patch sys.platform off
     ]
@@ -97,9 +95,7 @@ def test_setup_supabase_writes_config_and_runs_oauth(
 
     cfg = _common.load_config()
     assert cfg["spotify"]["client_id"] == "abc123client"
-    assert cfg["storage"]["backend"] == "supabase"
-    assert cfg["supabase"]["url"] == "https://x.supabase.co"
-    assert cfg["supabase"]["anon_key"] == "anon-key-xyz"
+    assert cfg["storage"]["backend"] == "none"
     assert fake_provider.authorize_calls == 1
 
 
@@ -166,8 +162,7 @@ def test_setup_storage_none_writes_backend_marker(
     assert rc == 0
     cfg = _common.load_config()
     assert cfg["storage"]["backend"] == "none"
-    # No supabase / sheets blocks created.
-    assert "supabase" not in cfg or not cfg.get("supabase")
+    # No sheets block created.
     assert "sheets" not in cfg or not cfg.get("sheets")
 
 
@@ -265,21 +260,40 @@ def test_setup_archive_dash_when_nothing_configured_disables_cleanly(
     assert "Already disabled" in capsys.readouterr().out
 
 
-def test_setup_aborts_when_supabase_creds_blank(
+def test_setup_aborts_when_spreadsheet_id_blank(
     tmp_paths, fake_provider, monkeypatch, capsys
 ) -> None:
     monkeypatch.setattr("builtins.input", _scripted_input([
         "",  # music service — default spotify
         "abc123client",
-        "supabase",
-        "",  # empty URL
-        "",  # empty anon key
+        "sheets",
+        "",  # empty spreadsheet id
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
     rc = _setup.do_setup(reauth=False)
     assert rc == 2
-    assert "supabase" in capsys.readouterr().err.lower()
+    assert "spreadsheet" in capsys.readouterr().err.lower()
+
+
+def test_setup_does_not_default_to_a_retired_backend(
+    tmp_paths, fake_provider, monkeypatch
+) -> None:
+    """A config left on the removed Supabase backend must not become the
+    prompt's default - a blank Enter would be rejected forever. Bare Enter
+    falls through to "none", which the user can then change to sheets."""
+    _common.save_config({"storage": {"backend": "supabase"}})
+    monkeypatch.setattr("builtins.input", _scripted_input([
+        "",  # music service — default spotify
+        "abc123client",
+        "",  # storage backend — bare Enter takes the default
+        "",  # [3/4] archive — skip
+    ]))
+    monkeypatch.setattr(_common.sys, "platform", "linux")
+
+    rc = _setup.do_setup(reauth=False)
+    assert rc == 0
+    assert _common.load_config()["storage"]["backend"] == "none"
 
 
 def test_setup_sheets_branch_runs_google_oauth(
@@ -354,35 +368,35 @@ def test_setup_sheets_skips_google_oauth_when_refresh_token_present(
 # ── build_storage dispatch ─────────────────────────────────────────────
 
 
-def test_build_storage_supabase_backend(tmp_paths) -> None:
+def test_build_storage_retired_supabase_backend_returns_none(
+    tmp_paths, capsys
+) -> None:
+    """THE upgrade path: an existing `~/.like_spotify/config.json` still
+    says `backend: "supabase"`. It must resolve to None - likes keep
+    working and count nowhere - never raise, and say so once on stderr."""
     storage = _common.build_storage({
         "storage": {"backend": "supabase"},
         "supabase": {"url": "https://x.supabase.co", "anon_key": "k"},
     })
-    assert storage is not None
-    assert type(storage).__name__ == "SupabaseStorage"
+    assert storage is None
+    err = capsys.readouterr().err
+    assert "--setup" in err
+    assert "sheets" in err.lower()
 
 
-def test_build_storage_supabase_back_compat_legacy_config(tmp_paths) -> None:
-    """Configs written before #28 only have a `supabase` block, no
-    `storage.backend` marker. They must keep working."""
-    storage = _common.build_storage({
+def test_build_storage_legacy_supabase_block_returns_none(tmp_paths) -> None:
+    """A pre-#28 config with only a `supabase` block and no backend marker
+    no longer infers anything - it is just an unconfigured counter."""
+    assert _common.build_storage({
         "supabase": {"url": "https://x.supabase.co", "anon_key": "k"},
-    })
-    assert storage is not None
-    assert type(storage).__name__ == "SupabaseStorage"
+    }) is None
 
 
-def test_build_storage_supabase_back_compat_env_vars_only(
-    tmp_paths, monkeypatch
-) -> None:
-    """Pre-#28: only env vars (no config block at all) was a supported
-    deploy path. The dispatcher must keep that working."""
+def test_build_storage_ignores_supabase_env_vars(tmp_paths, monkeypatch) -> None:
+    """Pre-#28 env-var-only deploys no longer wire a backend either."""
     monkeypatch.setenv("SUPABASE_URL", "https://x.supabase.co")
     monkeypatch.setenv("SUPABASE_ANON_KEY", "k")
-    storage = _common.build_storage({})
-    assert storage is not None
-    assert type(storage).__name__ == "SupabaseStorage"
+    assert _common.build_storage({}) is None
 
 
 def test_build_storage_sheets_backend(tmp_paths) -> None:
@@ -403,16 +417,10 @@ def test_build_storage_none_backend_returns_none(tmp_paths) -> None:
     assert _common.build_storage({"storage": {"backend": "none"}}) is None
 
 
-def test_build_storage_missing_supabase_creds_returns_none(tmp_paths) -> None:
+def test_build_storage_unknown_backend_returns_none(tmp_paths) -> None:
     """Acceptance criterion #22: like still succeeds when storage is
-    unconfigured. The host must not crash on a half-filled supabase block."""
-    assert (
-        _common.build_storage({
-            "storage": {"backend": "supabase"},
-            "supabase": {"url": ""},
-        })
-        is None
-    )
+    unconfigured. A backend name the host does not know is not a crash."""
+    assert _common.build_storage({"storage": {"backend": "redis"}}) is None
 
 
 def test_build_storage_missing_spreadsheet_id_returns_none(tmp_paths) -> None:

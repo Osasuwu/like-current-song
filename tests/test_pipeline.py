@@ -176,7 +176,7 @@ async def test_storage_increment_count_surfaces_in_title() -> None:
 @pytest.mark.asyncio
 async def test_storage_failure_does_not_fail_like() -> None:
     provider = FakeProvider(track=_track())
-    storage = FakeStorage(raises=RuntimeError("supabase down"))
+    storage = FakeStorage(raises=RuntimeError("counter backend down"))
     fb = Feedback()
 
     await Pipeline(provider=provider, feedback=fb, storage=storage).run_once()

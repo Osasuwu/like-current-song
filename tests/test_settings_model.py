@@ -162,14 +162,13 @@ def test_provider_and_storage_round_trip() -> None:
     s = replace(
         Settings(),
         provider="ytmusic",
-        storage_backend="supabase",
-        supabase_url="https://x.supabase.co",
-        supabase_anon_key="k",
+        storage_backend="sheets",
+        sheets_spreadsheet_id="sid",
     )
     out = model.apply_settings({}, s)
     assert out["music"]["provider"] == "ytmusic"
-    assert out["storage"]["backend"] == "supabase"
-    assert out["supabase"] == {"url": "https://x.supabase.co", "anon_key": "k"}
+    assert out["storage"]["backend"] == "sheets"
+    assert out["sheets"] == {"spreadsheet_id": "sid"}
     assert "spotify" not in out  # nothing to write
     assert model.settings_from_config(out) == replace(
         s,
@@ -180,9 +179,17 @@ def test_provider_and_storage_round_trip() -> None:
     )
 
 
-def test_supabase_block_without_backend_is_inferred() -> None:
+def test_retired_backend_reads_back_as_none() -> None:
+    """A config still on the removed Supabase backend opens the window on
+    "none" - matching what the host does with it - rather than showing a
+    backend the window can no longer configure."""
+    cfg = {"storage": {"backend": "supabase"}, "supabase": {"url": "https://x"}}
+    assert model.settings_from_config(cfg).storage_backend == "none"
+
+
+def test_legacy_supabase_block_is_no_longer_inferred() -> None:
     cfg = {"supabase": {"url": "https://x", "anon_key": "k"}}
-    assert model.settings_from_config(cfg).storage_backend == "supabase"
+    assert model.settings_from_config(cfg).storage_backend == "none"
 
 
 def test_volume_is_clamped_on_read_and_rounded_on_write() -> None:
@@ -211,11 +218,7 @@ def test_spotify_needs_client_id_but_ytmusic_does_not() -> None:
     "changes, field",
     [
         ({"provider": "tidal"}, "provider"),
-        ({"storage_backend": "supabase"}, "supabase_url"),
-        (
-            {"storage_backend": "supabase", "supabase_url": "x.co", "supabase_anon_key": "k"},
-            "supabase_url",
-        ),
+        ({"storage_backend": "supabase"}, "storage_backend"),
         ({"storage_backend": "sheets"}, "sheets_spreadsheet_id"),
         ({"hotkey": ""}, "hotkey"),
         ({"hotkey": "ctrl++w"}, "hotkey"),
