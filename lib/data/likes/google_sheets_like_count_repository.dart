@@ -258,7 +258,7 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
         '${two(now.day)}T${two(now.hour)}:${two(now.minute)}:${two(now.second)}Z';
   }
 
-  static String _key(String userId, String trackId) => '$userId $trackId';
+  static String _key(String userId, String trackId) => '$userId\u0000$trackId';
 
   // ── Everything else stays on this device ───────────────────────────────
   //
