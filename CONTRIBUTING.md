@@ -27,8 +27,9 @@ like_spotify/
 │   ├── ytmusic/                  # YouTube Music provider (beta, Windows).
 │   ├── tray_hotkey_trigger/      # Global-hotkey trigger (Windows).
 │   ├── one_shot_cli_trigger/     # Per-invocation trigger (every OS).
-│   ├── supabase_storage/         # Default counter backend.
-│   ├── google_sheets_storage/    # Sheets-backed counter (second impl).
+│   ├── volume_button_trigger/    # Volume-key trigger.
+│   ├── google_sheets_storage/    # Counter kept in a sheet you own.
+│   ├── like_cooldown/            # PreLikeAction.
 │   ├── archive_remove/           # PostLikeAction.
 │   ├── promote_to_best/          # PostLikeAction.
 │   └── follow_artist/            # PostLikeAction (needs Storage).
@@ -89,9 +90,10 @@ Same shape as macOS:
 
 ### Smaller wins
 
-- **`Storage` impls** — anything tabular works. Already shipped:
-  Supabase + Google Sheets. Wanted: SQLite (zero-config local) for users
-  who don't want a cloud backend.
+- **`Storage` impls** — anything tabular works. One ships today (Google
+  Sheets), which is exactly why this is the most useful seam to fill:
+  SQLite for a purely local counter, or whatever service you already
+  keep data in. The contract suite means you inherit the tests.
 - **`Trigger` impls** — global hotkey is one signal source; an MQTT
   trigger or a "shake your phone" → webhook flow would be a fun second
   resident trigger.
@@ -313,16 +315,21 @@ backfill flag — on first encounter with `True`, seed `count=2` and a
 [#24](https://github.com/Osasuwu/like-current-song/issues/24)
 for why this exists.
 
-**Existing impls** (≥2, so the abstraction is real):
+**Existing impls**: `google_sheets_storage` — REST PUT/APPEND on a sheet
+you own. A Supabase backend shipped alongside it until the release after
+v1.1.0 and was removed: a hosted Postgres project was a lot of setup to
+ask of someone who wanted a like counter, and the Sheets impl covered the
+same job. What it left behind is the useful part — `core/storage.py` is
+written against neither, and the Android half keeps the same counts
+through its own independent implementation of this interface.
 
-- `supabase_storage` — Postgres RPC (`increment_track_like`).
-- `google_sheets_storage` — REST PUT/APPEND on a sheet.
-
-**Wanted next** (good-first-PR): `sqlite_storage` for users who don't
-want a cloud backend. The shared contract test in
-`tests/test_storage_contract.py` is parametrised over
-`(SupabaseStorage | GoogleSheetsStorage)` already — drop a SQLite
-fixture in there and you get all seven invariants for free.
+**Wanted next** (good-first-PR): `sqlite_storage`, for a counter that
+never leaves the machine. The shared contract test in
+`tests/test_storage_contract.py` is already parametrised over the
+`Storage` implementations rather than hard-coded to one — add a fixture
+and you get all seven invariants for free. This is currently the only
+seam with a single shipped implementation, so it is also the one where a
+second impl does the most to keep the interface honest.
 
 ### 4. `PreLikeAction` — veto a like before it happens
 
