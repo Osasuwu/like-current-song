@@ -17,6 +17,9 @@ from __future__ import annotations
 import sys
 
 from like_spotify.auth import google as google_auth
+from like_spotify.extensions.google_sheets_storage.create import (
+    create_counter_spreadsheet,
+)
 from like_spotify.extensions.tray_hotkey_trigger import DEFAULT_HOTKEY
 
 from . import _common
@@ -193,43 +196,116 @@ def _setup_storage(cfg: dict, *, reauth: bool) -> None:
     backend = _prompt_choice("  Backend", choices=STORAGE_CHOICES, default=default)
     cfg.setdefault("storage", {})["backend"] = backend
 
-    if backend == "sheets":
-        sheets = cfg.setdefault("sheets", {})
-        sheets["spreadsheet_id"] = _prompt_secret(
-            "  Spreadsheet ID (from the sheet URL)",
-            current=sheets.get("spreadsheet_id", ""),
-        )
-        if not sheets["spreadsheet_id"]:
-            raise _SetupAbort("spreadsheet ID is required for sheets backend")
-
-        tokens = google_auth.load_tokens(_common.GOOGLE_TOKEN_FILE)
-        if tokens.get("refresh_token") and not reauth:
-            print("  ✓ Google tokens already saved — skipping browser auth")
-            print("    (use --reauth to force a re-login)")
-        else:
-            client_id = _prompt_secret(
-                "  Google OAuth Client ID (Desktop app)",
-                current=tokens.get("client_id", ""),
-            )
-            client_secret = _prompt_secret(
-                "  Google OAuth Client Secret",
-                current=tokens.get("client_secret", ""),
-            )
-            if not client_id or not client_secret:
-                raise _SetupAbort(
-                    "google client id + secret are both required "
-                    "(create a Desktop OAuth client at "
-                    "https://console.cloud.google.com/apis/credentials)"
-                )
-            print("  Opening browser for Google authorization…")
-            google_auth.authorize(
-                client_id=client_id,
-                client_secret=client_secret,
-                token_path=_common.GOOGLE_TOKEN_FILE,
-            )
-            print(f"  ✓ Google tokens saved: {_common.GOOGLE_TOKEN_FILE}")
-    else:
+    if backend != "sheets":
         print("  ✓ Counter disabled — likes still work, no count tracking.")
+        return
+
+    # Google first, spreadsheet second: creating one needs the tokens, and
+    # asking for an id the user may not have yet — then aborting on a blank
+    # — used to end the whole wizard before it ever reached this auth.
+    tokens = google_auth.load_tokens(_common.GOOGLE_TOKEN_FILE)
+    if tokens.get("refresh_token") and not reauth:
+        print("  ✓ Google tokens already saved — skipping browser auth")
+        print("    (use --reauth to force a re-login)")
+    else:
+        client_id = _prompt_secret(
+            "  Google OAuth Client ID (Desktop app)",
+            current=tokens.get("client_id", ""),
+        )
+        client_secret = _prompt_secret(
+            "  Google OAuth Client Secret",
+            current=tokens.get("client_secret", ""),
+        )
+        if not client_id or not client_secret:
+            raise _SetupAbort(
+                "google client id + secret are both required "
+                "(create a Desktop OAuth client at "
+                "https://console.cloud.google.com/apis/credentials)"
+            )
+        print("  Opening browser for Google authorization…")
+        google_auth.authorize(
+            client_id=client_id,
+            client_secret=client_secret,
+            token_path=_common.GOOGLE_TOKEN_FILE,
+        )
+        print(f"  ✓ Google tokens saved: {_common.GOOGLE_TOKEN_FILE}")
+
+    _setup_spreadsheet(cfg)
+
+
+SPREADSHEET_CHOICES = ["create", "paste", "skip"]
+
+
+def _setup_spreadsheet(cfg: dict) -> None:
+    """Pick the counter's spreadsheet: make one, paste one, or do without.
+
+    Pasting stays first-class — a household sheet the phone or another PC
+    already counts in is the whole point of a *shared* counter, and there
+    is no way to reach it but by its id.
+    """
+    sheets = cfg.setdefault("sheets", {})
+    current = (sheets.get("spreadsheet_id") or "").strip()
+
+    if current:
+        # Acceptance criterion: never quietly make a second one. A stray
+        # Enter here would otherwise orphan the sheet the counts are in.
+        print(f"  A spreadsheet is already configured: {current}")
+        choice = _prompt_choice(
+            "  Spreadsheet",
+            choices=["keep", *SPREADSHEET_CHOICES],
+            default="keep",
+        )
+        if choice == "keep":
+            print("  ✓ Keeping the configured spreadsheet.")
+            return
+        if choice == "create" and not _prompt_yes_no(
+            "  Really make a second spreadsheet? The counts in the old one "
+            "stay there and stop growing.",
+            default=False,
+        ):
+            print("  ✓ Keeping the configured spreadsheet.")
+            return
+    else:
+        print(
+            "  'create' makes one in your Google Drive, tabs and headers and\n"
+            "  all; 'paste' reuses a sheet another device already counts in;\n"
+            "  'skip' turns the counter off."
+        )
+        choice = _prompt_choice(
+            "  Spreadsheet", choices=SPREADSHEET_CHOICES, default="create"
+        )
+
+    if choice == "skip":
+        cfg.setdefault("storage", {})["backend"] = "none"
+        sheets["spreadsheet_id"] = ""
+        print("  ✓ Counter disabled — likes still work, no count tracking.")
+        return
+
+    if choice == "paste":
+        entered = _prompt_secret(
+            "  Spreadsheet ID (from the sheet URL)", current=current
+        ).strip()
+        if not entered:
+            raise _SetupAbort(
+                "no spreadsheet ID entered — re-run --setup and pick "
+                "'create' or 'skip' if you don't have one"
+            )
+        sheets["spreadsheet_id"] = entered
+        print("  ✓ Counting into the spreadsheet you named.")
+        return
+
+    print("  Creating a spreadsheet in your Google Drive…")
+    try:
+        created = create_counter_spreadsheet(
+            google_auth.make_token_provider(_common.GOOGLE_TOKEN_FILE)
+        )
+    except Exception as exc:  # the wizard's own error channel says why
+        raise _SetupAbort(f"could not create the spreadsheet: {exc}") from exc
+    sheets["spreadsheet_id"] = created.spreadsheet_id
+    print(f"  ✓ Created: {created.spreadsheet_id}")
+    if created.url:
+        print(f"    {created.url}")
+    print("    Paste that ID into your phone to share the count.")
 
 
 def _setup_archive(cfg: dict) -> None:

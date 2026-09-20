@@ -32,7 +32,9 @@ class SettingsWindow:
         self.root = root
         self.doc = doc
         self.from_tray = from_tray
-        self._results: queue.Queue[tuple[str, Exception | None]] = queue.Queue()
+        # (kind, error, result) — `result` carries the created spreadsheet
+        # back from the worker thread; the connect jobs leave it None.
+        self._results: queue.Queue[tuple[str, Exception | None, object]] = queue.Queue()
         self._busy = False
 
         s = doc.initial_settings()
@@ -299,18 +301,33 @@ class SettingsWindow:
 
         self.sheets_frame = ttk.Frame(box)
         self.sheets_frame.columnconfigure(1, weight=1)
-        self._entry(self.sheets_frame, "Spreadsheet ID", self.v_sheet_id, 0)
-        self._entry(self.sheets_frame, "Google Client ID", self.v_g_id, 1)
-        self._entry(self.sheets_frame, "Client Secret", self.v_g_secret, 2, secret=True)
+        self._entry(self.sheets_frame, "Google Client ID", self.v_g_id, 0)
+        self._entry(self.sheets_frame, "Client Secret", self.v_g_secret, 1, secret=True)
         ttk.Label(self.sheets_frame, textvariable=self.v_sheets_status).grid(
-            row=3, column=0, columnspan=2, sticky="w", padx=8
+            row=2, column=0, columnspan=2, sticky="w", padx=8
         )
         self.sheets_button = ttk.Button(
             self.sheets_frame, text="Connect Google…", command=self._on_connect_sheets
         )
-        self.sheets_button.grid(row=3, column=2, sticky="e", padx=8)
+        self.sheets_button.grid(row=2, column=2, sticky="e", padx=8)
+        # Creating comes before the ID box, because that is the order most
+        # people need: sign in, get a sheet, and only paste one when they
+        # already have a household sheet to join.
+        self.create_sheet_button = ttk.Button(
+            self.sheets_frame, text="Create spreadsheet", command=self._on_create_sheet
+        )
+        self.create_sheet_button.grid(row=3, column=2, sticky="e", padx=8)
+        self._hint(
+            self.sheets_frame,
+            "Once Google is connected, 'Create spreadsheet' makes one in your "
+            "Drive with the tabs and headers filled in. Already have one — a "
+            "sheet your phone counts in? Paste its ID instead.",
+            3,
+            columnspan=2,
+        )
+        self._entry(self.sheets_frame, "Spreadsheet ID", self.v_sheet_id, 4)
         self._link(
-            self.sheets_frame, "Create a Google OAuth client", services.GOOGLE_CREDENTIALS_URL, 4
+            self.sheets_frame, "Create a Google OAuth client", services.GOOGLE_CREDENTIALS_URL, 5
         )
         return box
 
@@ -449,35 +466,75 @@ class SettingsWindow:
             "sheets", lambda: services.connect_sheets(self.v_g_id.get(), self.v_g_secret.get())
         )
 
-    def _run_connect(self, kind: str, fn: Callable[[], None]) -> None:
+    def _on_create_sheet(self) -> None:
+        """Make the counter spreadsheet, unless one is already named.
+
+        Refusing out loud rather than quietly obliging: a second sheet
+        would leave the counts in the first one stranded, and the field
+        below is the only record of which sheet the other devices use.
+        """
+        existing = self.v_sheet_id.get().strip()
+        if existing:
+            self.v_status.set(
+                f"A spreadsheet is already set up ({existing}). Clear the "
+                "Spreadsheet ID first if you really want a new one."
+            )
+            return
+        if not services.sheets_connected():
+            self.v_status.set("Connect Google first — creating a sheet needs the tokens.")
+            return
+        self._run_connect(
+            "create_sheet",
+            services.create_counter_sheet,
+            status="Creating a spreadsheet in your Google Drive…",
+        )
+
+    def _run_connect(
+        self,
+        kind: str,
+        fn: Callable[[], object],
+        *,
+        status: str = "Waiting for you to finish signing in in the browser…",
+    ) -> None:
         if self._busy:
             return
         self._busy = True
         self.connect_button.state(["disabled"])
         self.sheets_button.state(["disabled"])
-        self.v_status.set("Waiting for you to finish signing in in the browser…")
+        self.create_sheet_button.state(["disabled"])
+        self.v_status.set(status)
 
         def work() -> None:
             try:
-                fn()
-                self._results.put((kind, None))
+                self._results.put((kind, None, fn()))
             except Exception as e:  # surfaced in the window, never swallowed
-                self._results.put((kind, e))
+                self._results.put((kind, e, None))
 
         threading.Thread(target=work, daemon=True).start()
         self.root.after(200, self._poll_connect)
 
     def _poll_connect(self) -> None:
         try:
-            kind, error = self._results.get_nowait()
+            kind, error, result = self._results.get_nowait()
         except queue.Empty:
             self.root.after(200, self._poll_connect)
             return
         self._busy = False
         self.connect_button.state(["!disabled"])
         self.sheets_button.state(["!disabled"])
-        if error is not None:
+        self.create_sheet_button.state(["!disabled"])
+        if error is not None and kind == "create_sheet":
+            self.v_status.set(f"Could not create the spreadsheet: {error}")
+        elif error is not None:
             self.v_status.set(f"Sign-in failed: {error}")
+        elif kind == "create_sheet":
+            # The id goes straight into the field the counter reads, so
+            # Save keeps it and the user can copy it to their phone.
+            self.v_sheet_id.set(result.spreadsheet_id)
+            where = f" — {result.url}" if result.url else ""
+            self.v_status.set(
+                f"Created {result.spreadsheet_id}{where}. Save to keep your settings."
+            )
         elif kind == "sheets":
             self.v_status.set("Google connected. Save to keep your settings.")
         else:

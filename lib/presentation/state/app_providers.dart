@@ -2,6 +2,7 @@ import 'package:app_links/app_links.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../../data/likes/counter_spreadsheet_creator.dart';
 import '../../data/likes/like_counter_account.dart';
 import '../../data/likes/like_counter_store.dart';
 import '../../data/music/active_music_service_repository.dart';
@@ -101,6 +102,15 @@ final appControllerProvider =
   );
 });
 
+/// Makes the counter spreadsheet on request, with the counter's own Google
+/// sign-in — the same account and the same `spreadsheets` scope the counter
+/// already writes with, so creating one asks for no new permission.
+final counterSpreadsheetCreatorProvider = Provider<CounterSpreadsheetCreator>(
+  (ref) => CounterSpreadsheetCreator(
+    readAccessToken: ref.read(likeCounterAccountProvider).freshAccessToken,
+  ),
+);
+
 /// The credentials typed on *Connected services*. Not auto-disposed: the
 /// screen's Connect button reads it too, and a saved client ID should not be
 /// re-read from storage on every rebuild.
@@ -113,6 +123,8 @@ final serviceCredentialsControllerProvider = StateNotifierProvider<
       ref.read(platformServiceRepositoryProvider),
       config,
     ),
+    createCounterSheet: () =>
+        ref.read(counterSpreadsheetCreatorProvider).create(),
   );
   controller.load();
   return controller;
