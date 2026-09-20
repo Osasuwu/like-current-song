@@ -173,7 +173,7 @@ class SpotifyLikeWorker(
             }
         }
 
-        val trackCount = runCatching { incrementTrackLikeCount(prefs, track.id) }
+        val trackCount = runCatching { incrementTrackLikeCount(prefs, token, track.id) }
             .getOrElse { incrementLocalCount(prefs, AppConstants.KEY_TRACK_LIKE_COUNTS, track.id) }
         if (ruleConfig.bestEnabled &&
             ruleConfig.bestPlaylistName.isNotBlank() &&
@@ -273,7 +273,13 @@ class SpotifyLikeWorker(
 
     // ---- Like counting -------------------------------------------------
 
-    private fun incrementTrackLikeCount(prefs: SharedPreferences, trackId: String): Int {
+    private fun incrementTrackLikeCount(prefs: SharedPreferences, token: String, trackId: String): Int {
+        // The shared sheet keys its rows by Spotify user id, and nothing on
+        // the like path used to fetch one: the id was a side effect of
+        // creating a playlist. With the extra rules off -- the default -- it
+        // was never there, so every like fell through to the local count and
+        // the user's sheet stayed empty with nothing to say why.
+        getCurrentUserId(prefs, token)
         LikeCounter.target(prefs, MusicProvider.SPOTIFY)?.let { target ->
             LikeCounter.increment(prefs, target, trackId)?.let { return it }
         }

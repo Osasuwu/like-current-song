@@ -437,5 +437,40 @@ void main() {
       verifyNever(() => mockSettings.removePendingLike(any()));
     });
   });
+
+  group('ensureUserId', () {
+    test('asks Spotify for the id without creating a playlist first', () async {
+      // The regression: the id used to be a side effect of playlist creation,
+      // so with the playlist rules off -- the default -- the shared like
+      // counter never had a key for its rows and every like silently stayed
+      // on the device while the user's sheet stayed empty.
+      when(() => mockClient.getCurrentUserId('valid-token'))
+          .thenAnswer((_) async => 'spotify-user');
+
+      expect(await repo.ensureUserId(), 'spotify-user');
+      verifyNever(() => mockClient.getUserPlaylists(any(), offset: any(named: 'offset')));
+      verifyNever(() => mockClient.createPlaylist(any(),
+          userId: any(named: 'userId'), name: any(named: 'name')));
+    });
+
+    test('asks once and keeps the answer', () async {
+      when(() => mockClient.getCurrentUserId(any()))
+          .thenAnswer((_) async => 'spotify-user');
+
+      expect(await repo.ensureUserId(), 'spotify-user');
+      expect(await repo.ensureUserId(), 'spotify-user');
+
+      verify(() => mockClient.getCurrentUserId(any())).called(1);
+    });
+
+    test('answers null when the lookup fails, rather than throwing', () async {
+      // A like must not fail because the counter could not name its row; the
+      // caller reads null as "count locally for this press".
+      when(() => mockClient.getCurrentUserId(any()))
+          .thenThrow(Exception('network down'));
+
+      expect(await repo.ensureUserId(), isNull);
+    });
+  });
 }
 

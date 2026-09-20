@@ -409,7 +409,18 @@ class SpotifyMusicServiceRepository implements MusicServiceRepository {
     };
   }
 
-  /// Expose the playlist service's cached user ID, which keys the shared like
-  /// counter's rows.
-  String? get cachedUserId => _playlistService.cachedUserId;
+  /// The signed-in account's Spotify user id, which keys the shared like
+  /// counter's rows. Fetched on first ask and kept afterwards.
+  ///
+  /// Null when nobody is signed in, or when the lookup failed — the counter
+  /// treats that as "count locally for now" rather than an error, so the
+  /// failure must not propagate.
+  Future<String?> ensureUserId() async {
+    try {
+      return await _playlistService.ensureUserId(await _ensureAccessToken());
+    } catch (error) {
+      debugPrint('Spotify user id unavailable for the like counter: $error');
+      return null;
+    }
+  }
 }

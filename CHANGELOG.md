@@ -36,6 +36,16 @@ still the only option for the desktop half.
 
 ### Fixed
 
+- **Likes reach the shared spreadsheet even with every playlist rule off.**
+  Setting the counter up and liking a track left the sheet empty: the count in
+  the app went up, but nothing was ever written, and nothing said why. The
+  counter keys its rows by your Spotify user id, and that id was only ever
+  looked up as a side effect of *creating a playlist* — so with the archive,
+  best-of and follow-artist rules switched off, which is the default, there was
+  never an id to key by and every like quietly stayed on the device. Both
+  halves of the Android app now look the id up on the like itself. A failed
+  lookup still counts locally rather than failing the like.
+
 - **Liking a track works again for newly registered Spotify Client IDs.**
   Every write to Spotify's library — liking the current track and following an
   artist — failed with an API error (HTTP 400) unless your Client ID was old

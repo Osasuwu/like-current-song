@@ -58,7 +58,7 @@ class SpotifyPlaylistService {
 
     _cache.clear(); // invalidate before creation
 
-    final userId = await _getUserId(accessToken);
+    final userId = await ensureUserId(accessToken);
     if (userId == null) return null;
 
     try {
@@ -93,13 +93,16 @@ class SpotifyPlaylistService {
     }
   }
 
-  Future<String?> _getUserId(String accessToken) async {
+  /// The signed-in account's Spotify user id, fetched once and kept.
+  ///
+  /// Not private, because the shared like counter keys its rows by this id and
+  /// has to be able to ask for it: while this lived behind playlist creation,
+  /// anyone whose rules were off never had one, and every like they made went
+  /// to the local count with the shared sheet left empty.
+  Future<String?> ensureUserId(String accessToken) async {
     _cachedUserId ??= await _client.getCurrentUserId(accessToken);
     return _cachedUserId;
   }
-
-  /// Expose user ID getter for like count repository.
-  String? get cachedUserId => _cachedUserId;
 
   /// Force-clear the playlist name → ID cache.
   void invalidateCache() {
