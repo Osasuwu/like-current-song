@@ -24,6 +24,17 @@ import java.net.URL
 import java.net.URLEncoder
 
 /**
+ * A Data API call that came back non-2xx, already turned into something the
+ * user can read. [reason] is Google's own `error.errors[0].reason`, which some
+ * callers act on (`subscriptionDuplicate`).
+ */
+class ApiFailure(
+    val outcomeError: String,
+    val httpCode: Int?,
+    val reason: String? = null,
+) : Exception(outcomeError)
+
+/**
  * Likes the song playing in the YouTube Music app.
  *
  * 1. **Session like (primary).** YouTube Music's media session exposes no
@@ -36,11 +47,12 @@ import java.net.URLEncoder
  *    then `videos.rate`. Needs the device-flow tokens from #94.
  *
  * After a like goes through, [count] adds it to the shared Supabase counter
- * under the Google account's `sub`, the key desktop YouTube Music uses (#96).
+ * under the Google account's `sub`, the key desktop YouTube Music uses (#96),
+ * and [extraActions] runs the opt-in playlist and follow rules (#98).
  *
- * Blocking (sleeps and HTTP): call [like] and [count] off the main thread. The
- * caller owns the outcome's feedback tone and final log line; this class only
- * logs the intermediate steps.
+ * Blocking (sleeps and HTTP): call [like], [count] and [extraActions] off the
+ * main thread. The caller owns the outcome's feedback tone and final log line;
+ * this class only logs the intermediate steps.
  */
 class YouTubeMusicLiker(context: Context) {
     private val context = context.applicationContext
@@ -109,13 +121,54 @@ class YouTubeMusicLiker(context: Context) {
      */
     fun count(outcome: Outcome): Outcome = synchronized(LOCK) { countLocked(outcome) }
 
+    /**
+     * Runs the user's extra like actions — archive removal, best-of promotion,
+     * artist auto-follow — for a like that went through. Pass the outcome
+     * [count] returned, so the best-of threshold reads the shared count
+     * instead of a second one.
+     *
+     * All three are off by default and each costs Data API quota, so nothing
+     * here touches the network unless the user turned an action on. Failures
+     * are logged, never rethrown: the like itself already happened.
+     */
+    fun extraActions(outcome: Outcome) = synchronized(LOCK) { extraActionsLocked(outcome) }
+
+    private fun extraActionsLocked(outcome: Outcome) {
+        val nowPlaying = outcome.nowPlaying ?: return
+        if (outcome.kind != Kind.LIKED && outcome.kind != Kind.ALREADY_LIKED) return
+
+        val actions = YouTubeMusicExtraActions(
+            prefs,
+            apiCall = ::apiCall,
+            log = { message, actionType, result, httpCode ->
+                log(message, result = result, httpCode = httpCode, actionType = actionType)
+            },
+        )
+        if (!actions.anyEnabled()) return
+
+        val match = try {
+            resolveMatch(nowPlaying)
+        } catch (failure: ApiFailure) {
+            log("Extra actions skipped: ${failure.outcomeError}", httpCode = failure.httpCode, actionType = EXTRAS_ACTION)
+            return
+        } catch (e: Exception) {
+            log("Extra actions skipped: network error: ${e.message}", actionType = EXTRAS_ACTION)
+            return
+        }
+        if (match == null) {
+            log("Extra actions skipped: no YouTube match for this song", actionType = EXTRAS_ACTION)
+            return
+        }
+        actions.run(match, outcome.likeCount)
+    }
+
     private fun countLocked(outcome: Outcome): Outcome {
         val nowPlaying = outcome.nowPlaying ?: return outcome
         if (outcome.kind != Kind.LIKED && outcome.kind != Kind.ALREADY_LIKED) return outcome
         val target = LikeCounter.target(prefs, MusicProvider.YTMUSIC) ?: return outcome
 
         val videoId = try {
-            resolveVideoId(nowPlaying)
+            resolveMatch(nowPlaying)?.videoId
         } catch (failure: ApiFailure) {
             log("Like not counted: ${failure.outcomeError}", actionType = COUNT_ACTION, httpCode = failure.httpCode)
             return outcome
@@ -229,8 +282,6 @@ class YouTubeMusicLiker(context: Context) {
 
     // ---- Data API fallback -------------------------------------------------
 
-    private class ApiFailure(val outcomeError: String, val httpCode: Int?) : Exception(outcomeError)
-
     private fun apiLike(nowPlaying: NowPlaying): Outcome {
         val refreshToken = prefs.getString(AppConstants.KEY_YTM_REFRESH_TOKEN, null)
         val accessToken = prefs.getString(AppConstants.KEY_YTM_ACCESS_TOKEN, null)
@@ -239,7 +290,7 @@ class YouTubeMusicLiker(context: Context) {
             return Outcome(Kind.FAILED, nowPlaying.display, error = "sign in to YouTube Music for the fallback")
         }
         return try {
-            val videoId = resolveVideoId(nowPlaying)
+            val videoId = resolveMatch(nowPlaying)?.videoId
                 ?: return Outcome(Kind.FAILED, nowPlaying.display, error = "no YouTube match for this song")
             val encoded = URLEncoder.encode(videoId, Charsets.UTF_8.name())
             apiCall("POST", "${YouTubeDataApi.API_BASE}/videos/rate?id=$encoded&rating=like")
@@ -252,7 +303,7 @@ class YouTubeMusicLiker(context: Context) {
         }
     }
 
-    private fun resolveVideoId(nowPlaying: NowPlaying): String? {
+    private fun resolveMatch(nowPlaying: NowPlaying): YouTubeDataApi.Match? {
         val cacheKey = cooldownKey(nowPlaying.title, nowPlaying.artist)
         synchronized(RESOLVED) { RESOLVED[cacheKey] }?.let { return it }
 
@@ -260,24 +311,27 @@ class YouTubeMusicLiker(context: Context) {
             YouTubeDataApi.searchQuery(nowPlaying.artist, nowPlaying.title),
             Charsets.UTF_8.name(),
         )
-        val fields = URLEncoder.encode("items(id/videoId,snippet/channelTitle)", Charsets.UTF_8.name())
+        val fields = URLEncoder.encode(
+            "items(id/videoId,snippet/channelTitle,snippet/channelId)",
+            Charsets.UTF_8.name(),
+        )
         val body = apiCall(
             "GET",
             "${YouTubeDataApi.API_BASE}/search?part=snippet&type=video" +
                 "&videoCategoryId=${YouTubeDataApi.MUSIC_CATEGORY_ID}" +
                 "&maxResults=${YouTubeDataApi.SEARCH_MAX_RESULTS}&fields=$fields&q=$query",
         )
-        val videoId = YouTubeDataApi.pickVideo(YouTubeDataApi.parseSearchCandidates(body), nowPlaying.artist)
+        val match = YouTubeDataApi.pickMatch(YouTubeDataApi.parseSearchCandidates(body), nowPlaying.artist)
             ?: return null
         synchronized(RESOLVED) {
             if (RESOLVED.size >= RESOLVED_CACHE_SIZE) RESOLVED.remove(RESOLVED.keys.first())
-            RESOLVED[cacheKey] = videoId
+            RESOLVED[cacheKey] = match
         }
-        return videoId
+        return match
     }
 
     /** One Data API call with a single refresh-and-retry on 401. Returns the body. */
-    private fun apiCall(method: String, url: String): String {
+    private fun apiCall(method: String, url: String, body: String? = null): String {
         var token = freshAccessToken(forceRefresh = false)
         var retried = false
         while (true) {
@@ -287,10 +341,17 @@ class YouTubeMusicLiker(context: Context) {
             connection.readTimeout = HTTP_TIMEOUT_MS
             connection.setRequestProperty("Authorization", "Bearer $token")
             if (method == "POST") {
-                // videos.rate takes everything in the query string; send an empty body.
                 connection.doOutput = true
-                connection.setFixedLengthStreamingMode(0)
-                connection.outputStream.close()
+                if (body == null) {
+                    // videos.rate takes everything in the query string; send an empty body.
+                    connection.setFixedLengthStreamingMode(0)
+                    connection.outputStream.close()
+                } else {
+                    val payload = body.toByteArray(Charsets.UTF_8)
+                    connection.setRequestProperty("Content-Type", "application/json")
+                    connection.setFixedLengthStreamingMode(payload.size)
+                    connection.outputStream.use { it.write(payload) }
+                }
             }
             val status = connection.responseCode
             if (status in 200..299) return readBody(connection, error = false).orEmpty()
@@ -320,8 +381,10 @@ class YouTubeMusicLiker(context: Context) {
                 }
                 YouTubeDataApi.ErrorKind.TRANSIENT ->
                     throw ApiFailure("YouTube Data API unavailable", status)
-                YouTubeDataApi.ErrorKind.FAILED ->
-                    throw ApiFailure("YouTube Data API error ${YouTubeDataApi.errorReason(errorBody) ?: status}", status)
+                YouTubeDataApi.ErrorKind.FAILED -> {
+                    val reason = YouTubeDataApi.errorReason(errorBody)
+                    throw ApiFailure("YouTube Data API error ${reason ?: status}", status, reason)
+                }
             }
         }
     }
@@ -484,6 +547,9 @@ class YouTubeMusicLiker(context: Context) {
         /** Log action type for the shared-counter step. */
         private const val COUNT_ACTION = "like_count"
 
+        /** Log action type for extras that never got as far as a single action. */
+        private const val EXTRAS_ACTION = "extra_actions"
+
         /** Serialises likes from the service and the Flutter channel. */
         private val LOCK = Any()
 
@@ -494,8 +560,8 @@ class YouTubeMusicLiker(context: Context) {
          */
         private const val SEP = "\u001F"
 
-        /** cooldownKey -> videoId: saves 100 quota units on a repeat fallback or count. */
-        private val RESOLVED = LinkedHashMap<String, String>()
+        /** cooldownKey -> search match: saves 100 quota units on a repeat fallback, count or extra action. */
+        private val RESOLVED = LinkedHashMap<String, YouTubeDataApi.Match>()
 
         /**
          * Cooldown (and search-cache) key. YouTube Music's session has no

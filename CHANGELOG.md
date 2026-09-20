@@ -74,6 +74,21 @@ Spotify/Supabase credentials (see [README](README.md)).
   never turns a successful like into a failure — it only shows up in the log.
   Each counted like costs one YouTube Data API search (100 quota units),
   reusing the match the like itself made for the same song.
+- **Android: extra actions work with YouTube Music**
+  ([#98](https://github.com/Osasuwu/like-current-song/issues/98)). Remove from
+  archive playlist, promote to best-of playlist and auto-follow artist now run
+  under YouTube Music as well as Spotify, from the same switches and with the
+  same thresholds; all three stay off on a fresh install. Playlists are your
+  ordinary YouTube playlists, matched by name and created (private) if the
+  best-of one doesn't exist yet. Auto-follow subscribes to the artist's
+  channel, but only when the matched song came from their own "Topic" channel
+  or a channel named after them, and an already-followed channel is not an
+  error. Best-of uses the shared like count the counter just returned rather
+  than counting again. The actions reuse the match the like already made, and
+  playlist ids are cached, so each one costs about 50 units of the 10,000-unit
+  daily YouTube API quota — the settings section now says so. Nothing here
+  touches the network unless you turned an action on, and a failed action is
+  logged and never turns a successful like into a failure.
 
 ### Changed
 

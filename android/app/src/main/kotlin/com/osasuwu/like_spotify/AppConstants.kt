@@ -47,6 +47,12 @@ object AppConstants {
     const val KEY_TRACK_LAST_LIKED_AT = "track_last_liked_at"
     const val KEY_PLAYLIST_CACHE = "playlist_cache"
     const val KEY_PLAYLIST_CACHE_TIMESTAMP = "playlist_cache_timestamp"
+
+    // Playlist name -> id for YouTube Music. A separate cache from Spotify's:
+    // the same playlist name means a different id on each service.
+    const val KEY_YTM_PLAYLIST_CACHE = "ytm_playlist_cache"
+    const val KEY_YTM_PLAYLIST_CACHE_TIMESTAMP = "ytm_playlist_cache_timestamp"
+
     const val KEY_SUPABASE_URL = "supabase_url"
     const val KEY_SUPABASE_ANON_KEY = "supabase_anon_key"
     const val PLAYLIST_CACHE_TTL_MS = 12 * 60 * 60 * 1000L  // 12 hours
