@@ -127,7 +127,7 @@ class YouTubeMusicProvider(MusicProvider):
         sub = _id_token_sub(tokens.get("id_token", ""))
         if not sub:
             raise AuthError(
-                "youtube token has no id_token; re-run `like-spotify --setup --reauth`"
+                "youtube token has no id_token; re-run `like-current-song --setup --reauth`"
             )
         return sub
 

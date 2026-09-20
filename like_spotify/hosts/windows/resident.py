@@ -30,7 +30,7 @@ from like_spotify.extensions.tray_hotkey_trigger import (
 from .. import _common, _setup
 from .._stub import CliFeedback
 from . import tray
-from .autostart import _autostart_enabled, _autostart_set
+from .autostart import _autostart_enabled, _autostart_set, migrate_legacy_entry
 from .feedback import TrayFeedback
 
 # ── Single-instance guard ──────────────────────────────────────────────
@@ -78,13 +78,13 @@ def _resolved_provider_or_hint():
     provider = _common.build_provider(cfg)
     if provider is None:
         _msgbox(
-            "Not configured. Run from a terminal:\n\n    like-spotify --setup\n",
+            "Not configured. Run from a terminal:\n\n    like-current-song --setup\n",
             title="Like Spotify — setup required",
         )
         return None, 2, cfg
     if not provider.has_tokens:
         _msgbox(
-            "Not authenticated. Run from a terminal:\n\n    like-spotify --setup\n",
+            "Not authenticated. Run from a terminal:\n\n    like-current-song --setup\n",
             title="Like Spotify — auth required",
         )
         return None, 2, cfg
@@ -119,7 +119,7 @@ def _run_remove_once() -> int:
     if pipeline is None:
         _msgbox(
             "No archive playlist configured. Run from a terminal:\n\n"
-            "    like-spotify --setup\n",
+            "    like-current-song --setup\n",
             title="Like Spotify — setup required",
         )
         return 2
@@ -465,7 +465,7 @@ def _offer_settings(problem: str, title: str) -> bool:
     """First-run path: offer the window instead of only pointing at --setup.
     Returns True if the window was shown (the caller re-reads config)."""
     if not _ask_yes_no(
-        f"{problem}\n\nOpen Settings now?\n\n(Or run `like-spotify --setup` from a terminal.)",
+        f"{problem}\n\nOpen Settings now?\n\n(Or run `like-current-song --setup` from a terminal.)",
         title,
     ):
         return False
@@ -500,6 +500,13 @@ def _run_resident_host() -> int:
 
     mutex = _ensure_single_instance()
     feedback.set_volume(wiring.volume)
+    try:
+        if migrate_legacy_entry():
+            _log("autostart: migrated legacy like-spotify-gui entry to like-current-song-gui")
+    except Exception:
+        import traceback
+
+        _log("autostart migration failed:\n" + traceback.format_exc())
 
     loop = asyncio.new_event_loop()
     threading.Thread(target=loop.run_forever, daemon=True).start()

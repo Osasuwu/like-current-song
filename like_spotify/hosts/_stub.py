@@ -1,11 +1,11 @@
 """Stub host — macOS / Linux CLI fallback.
 
 Phase 1 ships Windows as the only first-class host. On every other
-platform we still want `pip install like-spotify` to be useful, so this
+platform we still want `pip install like-current-song` to be useful, so this
 stub host wires up:
 
     - `--setup` / `--config` (identical to Windows)
-    - `like-spotify like-once`  → single like via OneShotCliTrigger
+    - `like-current-song like-once`  → single like via OneShotCliTrigger
 
 The long-lived `run` command prints a friendly message and exits with a
 non-zero code — full tray + global-hotkey support on mac/linux is left
@@ -26,13 +26,13 @@ from . import _common, _setup
 _PLATFORM_HINT = {
     "darwin": (
         "Resident tray host is not implemented for macOS yet. Use:\n"
-        "    like-spotify like-once\n"
+        "    like-current-song like-once\n"
         "to like the currently-playing track. See CONTRIBUTING.md "
         "(`hosts/macos.py`) if you'd like to ship the tray flavor."
     ),
     "linux": (
         "Resident tray host is not implemented for Linux yet. Use:\n"
-        "    like-spotify like-once\n"
+        "    like-current-song like-once\n"
         "to like the currently-playing track. See CONTRIBUTING.md "
         "(`hosts/linux.py`) if you'd like to ship the tray flavor."
     ),
@@ -74,14 +74,14 @@ def _resolved_provider_or_hint():
     provider = _common.build_provider(cfg)
     if provider is None:
         _common.msgbox(
-            "Not configured. Run:\n\n    like-spotify --setup\n",
+            "Not configured. Run:\n\n    like-current-song --setup\n",
             title="Like Spotify — setup required",
         )
         return None, 2, cfg
 
     if not provider.has_tokens:
         _common.msgbox(
-            "Not authenticated. Run:\n\n    like-spotify --setup\n",
+            "Not authenticated. Run:\n\n    like-current-song --setup\n",
             title="Like Spotify — auth required",
         )
         return None, 2, cfg
@@ -115,7 +115,7 @@ def _run_remove_once() -> int:
     pipeline = _common.build_remove_pipeline(cfg, provider, feedback)
     if pipeline is None:
         _common.msgbox(
-            "No archive playlist configured. Run:\n\n    like-spotify --setup\n",
+            "No archive playlist configured. Run:\n\n    like-current-song --setup\n",
             title="Like Spotify — setup required",
         )
         return 2

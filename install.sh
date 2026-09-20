@@ -3,7 +3,7 @@
 # One-liner installer for Like Spotify on macOS / Linux.
 #
 # Checks for Python 3.11+, installs pipx if missing, installs the
-# like-spotify package from this repo, then runs the interactive setup
+# like-current-song package from this repo, then runs the interactive setup
 # wizard. Re-runnable; existing tokens are kept unless --reauth is
 # passed.
 #
@@ -82,17 +82,26 @@ else
     ok "pipx installed"
 fi
 
-# ── like-spotify ───────────────────────────────────────────────────────
+# ── like-current-song ──────────────────────────────────────────────────
 
-step "Installing like-spotify from '$SOURCE'"
+# Before #101 the package was called `like-spotify`. Both ship the
+# `like-spotify` command (the new one keeps it as a deprecated alias), so
+# pipx can't hold both. Remove the old package first; ~/.like_spotify/ is kept.
+if pipx list --short 2>/dev/null | grep -q '^like-spotify '; then
+    step "Removing the old 'like-spotify' pipx package (now called like-current-song)"
+    pipx uninstall like-spotify
+    ok "old package removed; config in ~/.like_spotify/ is kept"
+fi
+
+step "Installing like-current-song from '$SOURCE'"
 pipx install --force "$SOURCE"
-ok "like-spotify on PATH"
+ok "like-current-song on PATH"
 
 # ── setup ──────────────────────────────────────────────────────────────
 
 if [[ "$SKIP_SETUP" == "1" ]]; then
     step "Skipping --setup (per --skip-setup)"
-    echo "Next: run 'like-spotify --setup' manually."
+    echo "Next: run 'like-current-song --setup' manually."
     exit 0
 fi
 
@@ -102,9 +111,9 @@ setup_args=(--setup)
 # Don't use `if ! cmd`: in bash that captures the exit code of `!`, not
 # the command, masking real failures behind a 0 exit. Capture rc directly.
 rc=0
-like-spotify "${setup_args[@]}" || rc=$?
+like-current-song "${setup_args[@]}" || rc=$?
 if [[ "$rc" -ne 0 ]]; then
-    warn "setup exited with code $rc. Re-run 'like-spotify --setup' once you have the credentials."
+    warn "setup exited with code $rc. Re-run 'like-current-song --setup' once you have the credentials."
     exit "$rc"
 fi
 
@@ -112,11 +121,11 @@ echo
 step "Done."
 case "$(uname -s)" in
     Darwin)
-        echo "       macOS: no resident tray host yet. Use 'like-spotify like-once' to like the current track,"
+        echo "       macOS: no resident tray host yet. Use 'like-current-song like-once' to like the current track,"
         echo "              or bind it to a hotkey via Shortcuts / Karabiner."
         ;;
     Linux)
-        echo "       Linux: no resident tray host yet. Use 'like-spotify like-once' to like the current track,"
+        echo "       Linux: no resident tray host yet. Use 'like-current-song like-once' to like the current track,"
         echo "              or bind it to a hotkey via your DE's shortcut settings."
         ;;
 esac

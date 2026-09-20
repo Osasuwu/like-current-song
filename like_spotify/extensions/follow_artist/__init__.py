@@ -75,7 +75,7 @@ class FollowArtistAction(PostLikeAction):
             except AuthError as e:
                 logger.warning(
                     "follow-artist unauthorized (%s) — re-run "
-                    "`like-spotify --setup` to grant follow scope",
+                    "`like-current-song --setup` to grant follow scope",
                     e,
                 )
             except Exception as e:

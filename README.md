@@ -12,7 +12,7 @@ At your computer, a **global keyboard shortcut** does the same thing: press `Ctr
 
 - **Android**: works with the screen off and the phone locked. It reacts to Spotify's pause/play state, so anything that pauses and resumes playback can trigger it: wired or Bluetooth headphones, earbud taps, a smartwatch, or a car stereo. The pattern is configurable, and a short sound confirms the like.
 - **Windows**: a tray app with a global hotkey to like the current track, plus a second hotkey to remove it from a playlist.
-- **macOS / Linux**: a `like-spotify like-once` command you can bind to any shortcut.
+- **macOS / Linux**: a `like-current-song like-once` command you can bind to any shortcut.
 - **Beyond "like"** (optional rules): remove the track from a Discover Weekly archive playlist, promote it to a "best-of" playlist after you like it N times across devices, and auto-follow an artist after N liked tracks. Counters are stored in Supabase or Google Sheets, so your phone and computer see the same numbers.
 
 Open source (MIT). It uses the official Spotify Web API with your own Spotify Developer app. There's no UI scraping, and your tokens stay on your devices.
@@ -28,7 +28,7 @@ Yes, that's the main use case. Install the Android app, connect Spotify, and tur
 Yes. The app watches Spotify's playback state rather than one specific button, so any device that pauses and resumes Spotify works.
 
 ### Is there a global keyboard shortcut to like the current Spotify song on Windows?
-Yes. The Windows tray host binds `Ctrl+Shift+Alt+W` (configurable) to "save current track to Liked Songs", and it works while Spotify is minimized or in the background. On macOS and Linux, bind `like-spotify like-once` to a shortcut in your OS settings, Raycast, skhd, or similar.
+Yes. The Windows tray host binds `Ctrl+Shift+Alt+W` (configurable) to "save current track to Liked Songs", and it works while Spotify is minimized or in the background. On macOS and Linux, bind `like-current-song like-once` to a shortcut in your OS settings, Raycast, skhd, or similar.
 
 ### Can it add the song to a playlist too, not only Liked Songs?
 Yes, through the rule engine: it can promote a track to a "best-of" playlist after N likes and remove it from an archive playlist. New actions are small Python plugins.
@@ -165,7 +165,7 @@ cd like-current-song
 ```
 
 The installer checks for Python 3.11+, installs `pipx` if missing,
-installs the `like-spotify` package, then walks you through the
+installs the `like-current-song` package, then walks you through the
 interactive setup wizard:
 
 1. **Spotify** — paste a Client ID from
@@ -184,12 +184,22 @@ The wizard is re-runnable; existing tokens are kept unless you pass
 **After install:**
 
 ```bash
-like-spotify            # Windows: tray host with the hotkey (default Ctrl+Shift+Alt+W)
-like-spotify like-once  # any OS: like the currently-playing track and exit
-like-spotify remove-once # any OS: remove the current track from the archive playlist (no like)
-like-spotify --config   # print config + token paths
-like-spotify --settings # open the settings window
+like-current-song             # Windows: tray host with the hotkey (default Ctrl+Shift+Alt+W)
+like-current-song like-once   # any OS: like the currently-playing track and exit
+like-current-song remove-once # any OS: remove the current track from the archive playlist (no like)
+like-current-song --config    # print config + token paths
+like-current-song --settings  # open the settings window
 ```
+
+**Upgrading from `like-spotify`.** The package and commands used to be
+called `like-spotify` / `like-spotify-gui`. Re-run the installer: it
+removes the old pipx package and installs `like-current-song`. Your config
+and tokens in `~/.like_spotify/` stay where they are. The old command names
+still work for now (the console one prints a short note), but they will be
+removed in a future release, so update any scripts or hotkey tools. On
+Windows, an autostart entry from the old version is moved to the new
+launcher the next time the tray starts, or when `--setup` asks about
+autostart.
 
 **Settings window.** Everything the wizard asks, in one window instead of a
 terminal: the music service and the account sign-in (the same browser flow
@@ -201,19 +211,19 @@ start switched off. On Windows, open it from the tray menu (**Settings…**).
 Saved changes apply right away, hotkeys included. If the new settings can't
 run yet (for example, you switched service but haven't signed in), the tray
 keeps the old ones and tells you why. If a change can't be applied live, it
-offers to restart. From a terminal, run `like-spotify --settings` (or
-`like-spotify-gui --settings`). It needs Tk: on Linux, install your
+offers to restart. From a terminal, run `like-current-song --settings` (or
+`like-current-song-gui --settings`). It needs Tk: on Linux, install your
 distro's `python3-tk` package. The window only edits the keys it knows, so
 anything else you added to `config.json` by hand is kept as is.
 
-`like-spotify` is a console-subsystem executable, so any of the above
+`like-current-song` is a console-subsystem executable, so any of the above
 briefly shows a terminal window. On Windows, a windowed twin is also
-installed — `like-spotify-gui` — that runs the exact same commands with no
+installed — `like-current-song-gui` — that runs the exact same commands with no
 console at all. Autostart uses it automatically; if you trigger `like-once`
 / `remove-once` from an external hotkey tool (AutoHotkey, a macro app, a
-Stream Deck, etc.), point it at `like-spotify-gui like-once` instead of
-`like-spotify like-once` to avoid the flash. (`--setup` / `--config` still
-need `like-spotify`, since they read from the terminal.)
+Stream Deck, etc.), point it at `like-current-song-gui like-once` instead of
+`like-current-song like-once` to avoid the flash. (`--setup` / `--config` still
+need `like-current-song`, since they read from the terminal.)
 
 On Windows the tray host also binds a **second** global hotkey (default
 `Ctrl+Shift+Alt+Q`) that removes the currently-playing track from your
@@ -277,7 +287,7 @@ If you'd rather see counts in a spreadsheet you control:
 
 1. Create a Google Sheet with header row `user_id | track_id | count | backfilled | updated_at` on a tab named `Likes`. Optionally add an `ArtistTracks` tab for the follow-artist rule.
 2. Create a Google Cloud OAuth client (type: **Desktop app**) at [console.cloud.google.com/apis/credentials](https://console.cloud.google.com/apis/credentials). Enable the Google Sheets API for the project. Note the Client ID + secret.
-3. Run `like-spotify --setup`, pick `sheets`, paste the spreadsheet ID (from the URL), Client ID, and secret. A browser opens for Google authorization — tokens are refreshed automatically afterwards.
+3. Run `like-current-song --setup`, pick `sheets`, paste the spreadsheet ID (from the URL), Client ID, and secret. A browser opens for Google authorization — tokens are refreshed automatically afterwards.
 
 Without a backend, counters are silently skipped — likes still write to your Spotify Liked Songs.
 
@@ -310,7 +320,7 @@ Android (Flutter + Kotlin)          Desktop (Python framework)
 ## Configuration
 
 Every desktop setting below except the token files can be changed in the
-settings window (`like-spotify --settings`, or **Settings…** in the tray menu).
+settings window (`like-current-song --settings`, or **Settings…** in the tray menu).
 
 | Setting | Android | Desktop |
 |---------|---------|---------|
@@ -319,7 +329,7 @@ settings window (`like-spotify --settings`, or **Settings…** in the tray menu)
 | Archive playlist name | In-app UI | `~/.like_spotify/config.json` → `actions.archive_remove.playlist_name` (blank = archive-remove disabled) |
 | Music service | In-app UI (Spotify / YouTube Music) | `~/.like_spotify/config.json` → `music.provider` (`spotify` / `ytmusic`, default `spotify`) |
 | YouTube Music tokens | n/a (planned) | `~/.like_spotify/youtube_token.json` (refreshed automatically) |
-| Spotify client_id | `.env` (`SPOTIFY_CLIENT_ID`) | `like-spotify --setup` → `~/.like_spotify/config.json` |
+| Spotify client_id | `.env` (`SPOTIFY_CLIENT_ID`) | `like-current-song --setup` → `~/.like_spotify/config.json` |
 | Spotify tokens | `FlutterSecureStorage` | `~/.like_spotify/spotify_token.json` |
 | Storage backend | (Supabase only) | `~/.like_spotify/config.json` → `storage.backend` (`supabase` / `sheets` / `none`) |
 | Google Sheets tokens | n/a | `~/.like_spotify/google_token.json` (refreshed automatically) |

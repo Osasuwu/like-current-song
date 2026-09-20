@@ -57,8 +57,8 @@ extension — never in `core/`.
 
 ### `hosts/macos.py` — native tray host for macOS
 
-Today macOS gets the `_stub` host: `like-spotify --setup` and
-`like-spotify like-once` work; the resident tray does not. A native
+Today macOS gets the `_stub` host: `like-current-song --setup` and
+`like-current-song like-once` work; the resident tray does not. A native
 macOS host would:
 
 - Render a menu-bar icon (`rumps` is the easy path, `pyobjc` if you want
@@ -355,7 +355,7 @@ feeds the standalone **remove-without-like** flow: `RemoveFromPlaylistPipeline`
 (in `core/pipeline.py`) removes the currently-playing track from that
 playlist *without* a like. The Windows tray host binds it to a second
 global hotkey, `trigger.remove_hotkey` (default `Ctrl+Shift+Alt+Q`), and
-every host exposes it as `like-spotify remove-once`. The hotkey is
+every host exposes it as `like-current-song remove-once`. The hotkey is
 skipped if it equals `trigger.hotkey` or no archive name is configured.
 `resolve_archive_playlist_name` in `hosts/_common.py` is the single
 source of truth both flows read.
