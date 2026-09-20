@@ -68,7 +68,7 @@ Several desktop hotkey tools can like the current Spotify song. We haven't found
 
 | Project | One-press like | Headset trigger (phone) | Hotkey trigger (desktop) | Rule engine (archive/best/follow) | Cross-device counters | Pluggable | Use **theirs** when |
 |---|---|---|---|---|---|---|---|
-| **Like Current Song** (this) | ✓ | ✓ Android | ✓ Windows tray + mac/linux CLI | ✓ | ✓ a Google Sheet you own | ✓ 5 typed seams, 10 extensions | n/a |
+| **Like Current Song** (this) | ✓ | ✓ Android | ✓ Windows tray + mac/linux CLI | ✓ | ✓ a Google Sheet you own | ✓ 5 typed seams, 9 extensions | n/a |
 | [Pano Scrobbler](https://github.com/kawaiiDango/pano-scrobbler) | partial (love via UI) | — (notification scrape) | — | — (scrobble target only) | — | provider seam only (write target) | you want **scrobbling history** to last.fm/listenbrainz/librefm/pleroma. Pano is the right answer for "where did my listens go" — we don't try to replace it. |
 | [BeatBind](https://github.com/justinknguyen/BeatBind) | ✓ (save / remove) | — | ✓ Windows tray (.NET) | — | — | — | you want a polished **Windows-only** global-hotkey app for full playback control (play/pause, skip, volume, seek) as well as saving tracks. |
 | [Spotikey](https://github.com/dannj90/Spotikey) | ✓ | — | ✓ Windows (`Ctrl+Alt+L`) | — | — | — | you want **only** a like hotkey, as a single small executable. |
