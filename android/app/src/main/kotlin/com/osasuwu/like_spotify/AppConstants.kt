@@ -96,6 +96,14 @@ object AppConstants {
     const val ACTION_SERVICE_STATE = "com.osasuwu.like_spotify.SERVICE_STATE"
     const val ACTION_TRIGGER_LIKE = "com.osasuwu.like_spotify.TRIGGER_LIKE"
 
+    /**
+     * Notification access was granted or revoked. In-process only (everything
+     * here shares one process), so the foreground service can re-word its
+     * notification the moment the grant it depends on changes.
+     */
+    const val ACTION_LISTENER_STATE_CHANGED =
+        "com.osasuwu.like_spotify.LISTENER_STATE_CHANGED"
+
     const val EXTRA_EVENT = "event"
     const val EXTRA_LOG = "log"
     const val EXTRA_ACTIVE = "active"

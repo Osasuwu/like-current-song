@@ -319,5 +319,33 @@ void main() {
         expect(updated.logs[1].message, equals('Second log'));
       });
     });
+
+    group('triggerCanFire', () {
+      test('a running service without the grant hears nothing', () {
+        // The state #153 was filed about: everything looks on, and a
+        // pause-play produces nothing.
+        final state = buildState(
+          serviceEnabled: true,
+          notificationListenerEnabled: false,
+        );
+
+        expect(state.triggerCanFire, isFalse);
+      });
+
+      test('the grant alone is not enough either', () {
+        final state = buildState(notificationListenerEnabled: true);
+
+        expect(state.triggerCanFire, isFalse);
+      });
+
+      test('a running service with the grant can fire', () {
+        final state = buildState(
+          serviceEnabled: true,
+          notificationListenerEnabled: true,
+        );
+
+        expect(state.triggerCanFire, isTrue);
+      });
+    });
   });
 }
