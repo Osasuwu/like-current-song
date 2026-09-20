@@ -107,6 +107,22 @@ on the API calls afterwards. Add the account, then reconnect in the app.
 
 ### 2. Android
 
+Download `app-release.apk` from the
+[latest release](https://github.com/Osasuwu/like-current-song/releases/latest)
+and install it. Android will warn you about an app from outside the Play Store;
+that is expected for a sideloaded APK.
+
+Then open *Connected services* and paste the Client ID from step 1 into
+**Spotify credentials** → *Save client ID*. The redirect URI to add in the
+dashboard is shown right there, with a copy button. **Connect Spotify** turns on
+once the ID is saved. Then enable the listener service.
+
+The client ID lives in the app's encrypted storage, so it survives updates and
+a disconnect — you type it once, not once per build. The published APK carries
+no credentials of anyone else's.
+
+**Building it yourself instead.**
+
 ```bash
 git clone https://github.com/Osasuwu/like-current-song.git
 cd like-current-song
@@ -114,13 +130,11 @@ flutter pub get
 flutter build apk --release
 ```
 
-Install the APK, then open *Connected services* and paste the Client ID from
-step 1 into **Spotify credentials** → *Save client ID*. The redirect URI to add
-in the dashboard is shown right there, with a copy button. **Connect Spotify**
-turns on once the ID is saved. Then enable the listener service.
-
-The client ID lives in the app's encrypted storage, so it survives updates and
-a disconnect — you type it once, not once per build.
+A build with no keystore of your own is signed with your machine's debug key.
+That is fine for your own phone, but it cannot be upgraded in place by the
+released APK — you would have to uninstall first. See
+[CONTRIBUTING.md](CONTRIBUTING.md#signing-an-android-release) for signing with a
+real key.
 
 **Building with your credentials baked in (optional).** If you flash the app
 often, or hand builds to the four other people on your allowlist, you can seed
