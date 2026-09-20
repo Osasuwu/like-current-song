@@ -70,12 +70,40 @@ Several desktop hotkey tools can like the current Spotify song. We haven't found
 
 ### 1. Spotify Developer App
 
+You run this against your own Spotify app, which stays in Spotify's
+**development mode**. Since the February 2026 changes (in force for existing
+integrations from 9 March 2026), that mode has three limits worth knowing
+before you start — see
+[quota modes](https://developer.spotify.com/documentation/web-api/concepts/quota-modes):
+
+- **The owner needs Spotify Premium.** "The app owner must have a Spotify
+  Premium account for apps in development mode to function." On a free
+  account your own app does not work at all.
+- **Five users, allowlisted by hand.** "Up to 5 authenticated Spotify users
+  can use an app that is in development mode" (it was 25). Everyone counts,
+  you included, and each one is added manually in the dashboard.
+- **One development-mode app per developer.** "Developers will be limited to
+  one Development Mode Client ID", so a single client ID has to serve your
+  phone and your computer — which is how this project uses it anyway.
+
+Extended quota mode is not an escape hatch for a project like this one: since
+15 May 2025 Spotify only accepts applications from organizations, not
+individuals, and expects at least 250k monthly active users.
+
 1. Go to [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard)
 2. Create an app
 3. Add redirect URIs:
    - `likespotify://auth-callback` (Android)
    - `http://127.0.0.1:8793/callback` (Desktop)
-4. Copy your Client ID
+4. Open the app's **Settings → User Management** and add every Spotify
+   account that will use it — your own included — by display name and the
+   email on the account
+5. Copy your Client ID
+
+**If likes fail with 403 right after a successful login**, that is the
+allowlist, not a bug here. An account that is not under *User Management* can
+still complete the whole OAuth flow and look connected; the limit is enforced
+on the API calls afterwards. Add the account, then reconnect in the app.
 
 ### 2. Android
 
@@ -99,16 +127,25 @@ Install the APK, connect Spotify in the app, enable the listener service.
 
 **YouTube Music (beta).** Pick YouTube Music under *Connected services*. The
 trigger then gives the playing song a thumbs-up through the YT Music app's own
-media session, so it works with the screen off and needs **no sign-in**, only
-the notification access the listener already uses. Signing in is optional: it
-adds a YouTube Data API fallback for when the session rating doesn't take, and
-it lets your likes count in the shared counter (the same one the desktop app
-uses, keyed by your Google account, and only when Supabase is configured).
-Counting looks the song up through the Data API the first time it is
-liked, which costs 100 of the 10,000 daily quota units — about 100 new
-songs a day; repeats of a song already looked up are free. Past that,
-likes still work, they just stop counting until the quota resets at
-midnight Pacific time.
+media session, so it works with the screen off and needs **no Google sign-in
+at all** — only the notification access the listener already uses.
+
+**Signing in is optional, and the rest of this section is only about that.**
+It buys two things: a YouTube Data API fallback for when the session rating
+doesn't take, and likes that count in the shared counter (the same one the
+desktop app uses, keyed by your Google account, and only when Supabase is
+configured). It also costs a re-sign-in about once a week — see step 3. If
+that trade isn't worth it to you, stop here; the thumbs-up keeps working.
+
+Counting looks a song up through the Data API the first time it is liked.
+Since 1 June 2026 that lookup has its own budget: Google grants a project
+**100 `search.list` calls a day**, separate from the **10,000 units a day**
+shared by every other endpoint
+([quota details](https://developers.google.com/youtube/v3/getting-started)).
+So counting stops after about 100 *new* songs in a day while the 10,000-unit
+pool is still almost untouched — the two run out independently. Repeats of a
+song already looked up cost nothing. Past the limit, likes still work, they
+just stop counting until the buckets reset at midnight Pacific time.
 
 To sign in, you use your own Google OAuth client. Nothing goes in
 `.env`: you enter the client in the app. It takes about 5 minutes, once.
@@ -118,14 +155,30 @@ To sign in, you use your own Google OAuth client. Nothing goes in
 2. Go to **APIs & Services → Library**, find **YouTube Data API v3** and
    click **Enable**.
 3. Go to **APIs & Services → OAuth consent screen** and choose **External**.
-   Fill in the app name and your email.
-   - Add yourself under *Test users* if you are asked to.
-   - Then click **Publish app** so it is *In production*. While the app is in
-     *Testing*, Google expires the refresh token after **7 days** and you
-     would have to sign in again every week.
+   Fill in the app name and your email. Leave the app in **Testing** and add
+   your own Google account under *Test users*.
+   - **Don't click Publish app.** Google requires a home page, a privacy
+     policy link and a terms-of-service link for every external production
+     app, each on a domain you have verified in Search Console: "These links
+     are required for all external production apps. You will not be able to
+     submit your app for verification if it is missing these links"
+     ([source](https://support.google.com/cloud/answer/10311615)). Without
+     them, Publish only gets you *"To publish your app, you must complete
+     your configuration on the Branding page"*.
+   - **The cost of staying in Testing**: Google expires the refresh token
+     after **7 days**, so you have to repeat the sign-in (steps 6–7) roughly
+     once a week. There is no way around it for the `youtube` scope — the
+     7-day limit is waived only for the name/email/profile scopes.
+   - A Google account that is *not* on the *Test users* list gets "Access
+     blocked: … has not completed the Google verification process" instead of
+     a consent screen. Add the account there first.
 4. Go to **APIs & Services → Credentials → Create credentials → OAuth client
    ID**, and pick application type **TVs and Limited Input devices**. Other
    types (Android, Desktop app, Web) are rejected by the sign-in the app uses.
+   **Copy the client secret straight away** — it is shown only once, when the
+   client is created, and cannot be downloaded again. If you lose it, open
+   **Google Auth Platform → Clients →** your client **→ Add Secret** and use
+   the new secret instead.
 5. In the app, open **Connected services**, pick **YouTube Music**, paste the
    client ID and secret, and tap **Save credentials**.
 6. Tap **Connect YouTube Music**. The app shows a code and a link
@@ -143,10 +196,12 @@ of YouTube Music only and keeps the client ID and secret.
 
 The opt-in **Extra actions** work under YouTube Music too: archive clean-up,
 promote-to-best-of and follow-artist act on your ordinary YouTube playlists and
-channel subscriptions. Each one spends about 50 units of the 10,000 YouTube API
-units Google grants per day, so a like with all three enabled costs a few
-hundred; a plain like costs none. The `youtube` scope above already covers
-them, so there is nothing more to authorise.
+channel subscriptions. Each one spends about 50 units of the 10,000-unit daily
+pool — the pool the song lookup above does *not* draw on — so a like with all
+three enabled costs a couple of hundred units out of 10,000, and you would need
+hundreds of likes in a day to exhaust it. A plain like costs none. The
+`youtube` scope above already covers them, so there is nothing more to
+authorise.
 
 ### 3. Desktop
 

@@ -152,6 +152,23 @@ void main() {
     );
   });
 
+  testWidgets('the sign-in card says it is optional and what it costs',
+      (tester) async {
+    await pumpScreen(
+      tester,
+      AppControllerHarness(selected: MusicProvider.ytmusic),
+    );
+
+    // Sign-in buys the fallback and the counter; the thumbs-up needs neither.
+    expect(find.textContaining('Optional'), findsOneWidget);
+    // Staying in Testing is the only reachable status, and it expires weekly.
+    expect(find.textContaining('Testing'), findsOneWidget);
+    expect(find.textContaining('7 days'), findsOneWidget);
+    // The secret cannot be downloaded again; the card says where a new one
+    // comes from.
+    expect(find.textContaining('Google Auth Platform'), findsOneWidget);
+  });
+
   testWidgets('a disabled Connect says why, until the credentials are saved',
       (tester) async {
     const reason = 'Connect turns on once the client ID and secret are saved.';

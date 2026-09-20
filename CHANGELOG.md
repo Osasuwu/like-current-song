@@ -165,6 +165,31 @@ Spotify/Supabase credentials (see [README](README.md)).
   secret are saved, and says the sign-in code `google.com/device` asks for
   appears only after Connect.
 
+### Documentation
+
+- **Setup docs corrected for the 2026 platform limits**
+  ([#120](https://github.com/Osasuwu/like-current-song/issues/120),
+  [#122](https://github.com/Osasuwu/like-current-song/issues/122),
+  [#123](https://github.com/Osasuwu/like-current-song/issues/123)). The
+  YouTube Music steps told users to **Publish app**, which no individual can
+  do — Google requires a home page, privacy policy and terms on a
+  Search-Console-verified domain for every external production app. Both
+  READMEs now describe the Testing + *Test users* path instead, say plainly
+  that the refresh token then expires after 7 days, lead with the fact that
+  YT Music sign-in is optional (the thumbs-up needs no Google account), and
+  warn that the client secret is shown only at creation and otherwise has to
+  be rotated under **Google Auth Platform → Clients → Add Secret**. The
+  Spotify section now lists the development-mode limits in force since
+  February 2026: Premium required for the app owner, 5 allowlisted users, one
+  Development Mode Client ID per developer, extended quota mode unavailable to
+  individuals — plus the 403-after-a-successful-login symptom that follows
+  from the allowlist. `CONTRIBUTING.md` repeats the one-client-ID limit for
+  contributors. Finally, the YouTube quota figures were stale: since
+  2026-06-01 `search.list` has its own 100-calls-a-day bucket, separate from
+  the 10,000 units a day shared by the other endpoints, so the counted-like
+  cost and the Extra actions note (in the README and in the app) are
+  rewritten around the two buckets.
+
 ## [1.0.3] - 2026-09-01
 
 ### Fixed

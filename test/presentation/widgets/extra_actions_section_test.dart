@@ -167,6 +167,10 @@ void main() {
     );
     expect(text.data, contains('50'));
     expect(text.data, contains('10,000'));
+    // The song lookup's 100-a-day cap is a separate bucket since 2026-06-01;
+    // the note must not imply these actions eat into it.
+    expect(text.data, contains('100'));
+    expect(text.data, contains('separate'));
   });
 
   testWidgets('says nothing about quota on Spotify, which has none',
