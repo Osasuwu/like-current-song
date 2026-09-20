@@ -1,5 +1,6 @@
 import 'package:mocktail/mocktail.dart';
 import 'package:like_spotify_mobile_app/domain/repositories/settings_repository.dart';
+import 'package:like_spotify_mobile_app/domain/repositories/music_routing_repository.dart';
 import 'package:like_spotify_mobile_app/domain/repositories/music_service_repository.dart';
 import 'package:like_spotify_mobile_app/domain/repositories/platform_service_repository.dart';
 import 'package:like_spotify_mobile_app/domain/repositories/like_count_repository.dart';
@@ -12,6 +13,9 @@ class MockSettingsRepository extends Mock implements SettingsRepository {}
 
 class MockMusicServiceRepository extends Mock
     implements MusicServiceRepository {}
+
+class MockMusicRoutingRepository extends Mock
+    implements MusicRoutingRepository {}
 
 class MockPlatformServiceRepository extends Mock
     implements PlatformServiceRepository {}

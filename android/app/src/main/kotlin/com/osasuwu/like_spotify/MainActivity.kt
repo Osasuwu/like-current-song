@@ -183,6 +183,27 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 					result.success(true)
 				}
 
+				"setMusicRoutingMode" -> {
+					// Stored separately from the picked provider: an install
+					// upgraded from a build without this key stays on "picker".
+					val mode = MusicRoutingMode.fromId(call.argument<String>("mode"))
+					prefs().edit()
+						.putString(AppConstants.KEY_MUSIC_ROUTING_MODE, mode.id)
+						.apply()
+					result.success(true)
+				}
+
+				"getMusicSessions" -> {
+					// Both lists are empty without notification access, which
+					// is the honest answer, not an error.
+					result.success(
+						mapOf(
+							"playing" to MusicProvider.playing(this).map { it.id },
+							"lastPlaying" to MusicProvider.lastPlaying(this)?.id
+						)
+					)
+				}
+
 				"isMusicAppInstalled" -> {
 					val provider = MusicProvider.fromId(call.argument<String>("provider"))
 					val installed = try {

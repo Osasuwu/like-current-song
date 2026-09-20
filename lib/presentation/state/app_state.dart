@@ -1,6 +1,7 @@
 import '../../domain/entities/app_log.dart';
 import '../../domain/entities/like_result.dart';
 import '../../domain/entities/music_provider.dart';
+import '../../domain/entities/music_routing.dart';
 import '../../domain/entities/rule_config.dart';
 import '../../domain/entities/spotify_auth_state.dart';
 import '../../domain/entities/trigger_config.dart';
@@ -12,6 +13,13 @@ class AppState {
   final bool batteryOptimized;
   final bool notificationListenerEnabled;
   final MusicProvider musicProvider;
+
+  /// Whether likes follow [musicProvider] or whichever service is playing.
+  final MusicRoutingMode musicRoutingMode;
+
+  /// The services that are signed in. Automatic routing needs at least two,
+  /// since with one there is nothing to choose between.
+  final Set<MusicProvider> connectedProviders;
 
   /// Whether [musicProvider]'s Android app is installed.
   final bool musicAppInstalled;
@@ -26,6 +34,23 @@ class AppState {
   final bool liking;
   final int pendingLikesCount;
 
+  /// Whether automatic routing can be offered: it needs notification access
+  /// to see media sessions, and two connected services to choose between.
+  bool get canRouteAutomatically =>
+      notificationListenerEnabled && connectedProviders.length >= 2;
+
+  /// Why automatic routing is not on offer, or null when it is. One line, for
+  /// the Connected services screen.
+  String? get automaticRoutingBlockedReason {
+    if (!notificationListenerEnabled) {
+      return 'Automatic needs notification access to see what is playing.';
+    }
+    if (connectedProviders.length < 2) {
+      return 'Automatic needs two connected services to choose between.';
+    }
+    return null;
+  }
+
   const AppState({
     required this.serviceEnabled,
     required this.loading,
@@ -33,6 +58,8 @@ class AppState {
     required this.batteryOptimized,
     required this.notificationListenerEnabled,
     this.musicProvider = MusicProvider.defaultProvider,
+    this.musicRoutingMode = MusicRoutingMode.defaultMode,
+    this.connectedProviders = const <MusicProvider>{},
     required this.musicAppInstalled,
     required this.authState,
     required this.triggerConfig,
@@ -67,6 +94,8 @@ class AppState {
     bool? batteryOptimized,
     bool? notificationListenerEnabled,
     MusicProvider? musicProvider,
+    MusicRoutingMode? musicRoutingMode,
+    Set<MusicProvider>? connectedProviders,
     bool? musicAppInstalled,
     SpotifyAuthState? authState,
     TriggerConfig? triggerConfig,
@@ -87,6 +116,8 @@ class AppState {
       notificationListenerEnabled:
           notificationListenerEnabled ?? this.notificationListenerEnabled,
       musicProvider: musicProvider ?? this.musicProvider,
+      musicRoutingMode: musicRoutingMode ?? this.musicRoutingMode,
+      connectedProviders: connectedProviders ?? this.connectedProviders,
       musicAppInstalled: musicAppInstalled ?? this.musicAppInstalled,
       authState: authState ?? this.authState,
       triggerConfig: triggerConfig ?? this.triggerConfig,

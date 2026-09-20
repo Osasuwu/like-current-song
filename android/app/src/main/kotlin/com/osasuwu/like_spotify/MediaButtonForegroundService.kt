@@ -137,12 +137,22 @@ class MediaButtonForegroundService : Service() {
         }
     }
 
-    /** Likes without Flutter: Spotify via WorkManager, YouTube Music in-process. */
+    /**
+     * Likes without Flutter: Spotify via WorkManager, YouTube Music in-process.
+     *
+     * The service is resolved here rather than in Dart because this is the
+     * path the trigger normally takes — the engine is usually detached when
+     * the pattern fires. [MusicProvider.resolve] is the same rule Dart runs.
+     */
     private fun likeInBackground() {
-        when (MusicProvider.current(this)) {
+        val routing = MusicProvider.resolve(this)
+        if (routing.automatic) {
+            log(routing.logLine(), actionType = "music_routing")
+        }
+        when (routing.provider) {
             MusicProvider.SPOTIFY -> {
                 log("Flutter not attached — using WorkManager fallback")
-                SpotifyLikeWorker.enqueue(this)
+                SpotifyLikeWorker.enqueue(this, routing.provider)
             }
             MusicProvider.YTMUSIC -> likeYouTubeMusicInBackground()
         }

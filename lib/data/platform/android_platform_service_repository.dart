@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 
 import '../../core/app_constants.dart';
 import '../../domain/entities/music_provider.dart';
+import '../../domain/entities/music_routing.dart';
 import '../../domain/entities/rule_config.dart';
 import '../../domain/entities/trigger_config.dart';
 import '../../domain/repositories/platform_service_repository.dart';
@@ -110,6 +111,22 @@ class AndroidPlatformServiceRepository implements PlatformServiceRepository {
       'setMusicProvider',
       <String, dynamic>{'provider': provider.id},
     );
+  }
+
+  @override
+  Future<void> updateMusicRoutingMode(MusicRoutingMode mode) async {
+    await _methodChannel.invokeMethod<void>(
+      'setMusicRoutingMode',
+      <String, dynamic>{'mode': mode.id},
+    );
+  }
+
+  @override
+  Future<MusicSessionSnapshot> readMusicSessions() async {
+    final result =
+        await _methodChannel.invokeMapMethod<String, dynamic>('getMusicSessions');
+    if (result == null) return const MusicSessionSnapshot();
+    return MusicSessionSnapshot.fromChannel(result);
   }
 
   @override

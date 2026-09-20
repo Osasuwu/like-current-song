@@ -35,11 +35,11 @@ class MusicServiceConfig {
 }
 
 /// Wires one repository per [MusicProvider] behind an
-/// [ActiveMusicServiceRepository] that follows the Settings selection.
+/// [ActiveMusicServiceRepository], which owns the routing rule.
 ///
 /// This is the only place that knows the concrete music-service classes; a
 /// new service is added by registering its repository here.
-MusicServiceRepository createMusicServiceRepository({
+ActiveMusicServiceRepository createMusicServiceRepository({
   required MusicServiceConfig config,
   required SettingsRepository settingsRepository,
   required PlatformServiceRepository platformServiceRepository,
@@ -74,6 +74,7 @@ MusicServiceRepository createMusicServiceRepository({
 
   return ActiveMusicServiceRepository(
     settingsRepository: settingsRepository,
+    platformServiceRepository: platformServiceRepository,
     repositories: <MusicProvider, MusicServiceRepository>{
       MusicProvider.spotify: spotify,
       MusicProvider.ytmusic: youTubeMusic,

@@ -40,6 +40,20 @@ Spotify/Supabase credentials (see [README](README.md)).
   YT Music too. Each write costs about 50 units of the daily YouTube API quota.
   The `youtube` scope already granted covers the writes, so no re-login is
   needed.
+- **Android: Automatic music service routing**
+  ([#125](https://github.com/Osasuwu/like-current-song/issues/125)). Connected
+  services has a new **Automatic** option that sends the like to whichever
+  connected service is playing, instead of to one service you picked up front.
+  It resolves in order: the one connected service with a playing media session;
+  otherwise the last service that was playing; otherwise the service still shown
+  in the picker. The same rule runs in the background listener, so it holds with
+  the screen off and the app closed. Automatic is opt-in — upgrading leaves your
+  current pick exactly as it was — and is only offered while notification access
+  is granted and at least two services are connected; when it isn't, the picker
+  is the only option and says which of the two is missing. If a service signs out
+  or notification access is revoked, the app falls back to the picker on its own.
+  Each automatic like logs the service it went to and why, on the Logs screen.
+  Spotify-only setups are unaffected and still need no notification access.
 - **Android: Music service picker.** Connected services now lets you choose
   Spotify (the default) or YouTube Music; the ids match desktop's
   `music.provider`. The choice also decides which app's playback the listener
