@@ -141,6 +141,13 @@ in the app). Tokens stay on the phone in encrypted storage, apart from
 Spotify's, so switching services keeps both signed in. **Disconnect** signs out
 of YouTube Music only and keeps the client ID and secret.
 
+The opt-in **Extra actions** work under YouTube Music too: archive clean-up,
+promote-to-best-of and follow-artist act on your ordinary YouTube playlists and
+channel subscriptions. Each one spends about 50 units of the 10,000 YouTube API
+units Google grants per day, so a like with all three enabled costs a few
+hundred; a plain like costs none. The `youtube` scope above already covers
+them, so there is nothing more to authorise.
+
 ### 3. Desktop
 
 The desktop side ships as a pluggable Python package (`like_spotify/`) —
