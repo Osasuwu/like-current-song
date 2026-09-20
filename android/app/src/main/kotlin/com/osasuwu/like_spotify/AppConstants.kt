@@ -1,5 +1,7 @@
 package com.osasuwu.like_spotify
 
+import android.content.SharedPreferences
+
 object AppConstants {
     const val PREFS = "like_spotify_prefs"
     const val KEY_SERVICE_ENABLED = "service_enabled"
@@ -45,15 +47,22 @@ object AppConstants {
 
     const val KEY_RULE_ARCHIVE_REMOVE_ENABLED = "rule_archive_remove_enabled"
     const val KEY_RULE_ARCHIVE_PLAYLIST_NAME = "rule_archive_playlist_name"
-    const val KEY_RULE_BEST_OF_ENABLED = "rule_best_of_enabled"
-    const val KEY_RULE_BEST_OF_PLAYLIST_NAME = "rule_best_of_playlist_name"
-    const val KEY_RULE_BEST_OF_THRESHOLD = "rule_best_of_threshold"
+    const val KEY_RULE_BEST_ENABLED = "rule_best_enabled"
+    const val KEY_RULE_BEST_PLAYLIST_NAME = "rule_best_playlist_name"
+    const val KEY_RULE_BEST_THRESHOLD = "rule_best_threshold"
+
+    // Spellings used up to v1.1.0, when the rule was called "best-of". Read as a
+    // fallback so an upgrade keeps the saved rule; never written again.
+    const val LEGACY_KEY_RULE_BEST_ENABLED = "rule_best_of_enabled"
+    const val LEGACY_KEY_RULE_BEST_PLAYLIST_NAME = "rule_best_of_playlist_name"
+    const val LEGACY_KEY_RULE_BEST_THRESHOLD = "rule_best_of_threshold"
+
     const val KEY_RULE_FOLLOW_ARTIST_ENABLED = "rule_follow_artist_enabled"
     const val KEY_RULE_FOLLOW_ARTIST_THRESHOLD = "rule_follow_artist_threshold"
     const val KEY_RULE_LIKE_COOLDOWN_ENABLED = "rule_like_cooldown_enabled"
     const val KEY_RULE_LIKE_COOLDOWN_MINUTES = "rule_like_cooldown_minutes"
 
-    const val DEFAULT_BEST_OF_THRESHOLD = 3
+    const val DEFAULT_BEST_THRESHOLD = 3
     const val DEFAULT_FOLLOW_ARTIST_THRESHOLD = 5
     const val DEFAULT_LIKE_COOLDOWN_MINUTES = 10
 
@@ -95,4 +104,24 @@ object AppConstants {
     const val ACCOUNT_NOTIFICATION_CHANNEL_ID = "like_spotify_account"
     const val ACCOUNT_NOTIFICATION_CHANNEL_NAME = "Account sign-in"
     const val YTM_REAUTH_NOTIFICATION_ID = 11002
+
+    /**
+     * Reads the "promote to best playlist" rule, falling back to the pre-v1.1.1
+     * `rule_best_of_*` keys so an upgraded install keeps the rule it saved.
+     * Only the current keys are ever written back (see MainActivity).
+     */
+    fun bestRuleEnabled(prefs: SharedPreferences): Boolean = when {
+        prefs.contains(KEY_RULE_BEST_ENABLED) -> prefs.getBoolean(KEY_RULE_BEST_ENABLED, false)
+        else -> prefs.getBoolean(LEGACY_KEY_RULE_BEST_ENABLED, false)
+    }
+
+    fun bestRulePlaylistName(prefs: SharedPreferences): String = when {
+        prefs.contains(KEY_RULE_BEST_PLAYLIST_NAME) -> prefs.getString(KEY_RULE_BEST_PLAYLIST_NAME, null)
+        else -> prefs.getString(LEGACY_KEY_RULE_BEST_PLAYLIST_NAME, null)
+    }?.trim().orEmpty()
+
+    fun bestRuleThreshold(prefs: SharedPreferences): Int = when {
+        prefs.contains(KEY_RULE_BEST_THRESHOLD) -> prefs.getInt(KEY_RULE_BEST_THRESHOLD, DEFAULT_BEST_THRESHOLD)
+        else -> prefs.getInt(LEGACY_KEY_RULE_BEST_THRESHOLD, DEFAULT_BEST_THRESHOLD)
+    }.takeIf { it >= 1 } ?: DEFAULT_BEST_THRESHOLD
 }

@@ -38,7 +38,7 @@ class PostLikeAction(ABC):
     later actions still run. Failures are independent: an action's
     contract is its own to keep.
 
-    Default impls in this repo: `ArchiveRemoveAction`. Promote-to-best-of
+    Default impls in this repo: `ArchiveRemoveAction`. Promote-to-best
     and Follow-artist land in #26.
     """
 

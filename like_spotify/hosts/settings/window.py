@@ -64,9 +64,9 @@ class SettingsWindow:
 
         self.v_archive_on = tk.BooleanVar(value=s.archive_enabled)
         self.v_archive_name = tk.StringVar(value=s.archive_playlist)
-        self.v_best_on = tk.BooleanVar(value=s.best_of_enabled)
-        self.v_best_name = tk.StringVar(value=s.best_of_playlist)
-        self.v_best_n = tk.StringVar(value=str(s.best_of_threshold))
+        self.v_best_on = tk.BooleanVar(value=s.best_enabled)
+        self.v_best_name = tk.StringVar(value=s.best_playlist)
+        self.v_best_n = tk.StringVar(value=str(s.best_threshold))
         self.v_follow_on = tk.BooleanVar(value=s.follow_enabled)
         self.v_follow_n = tk.StringVar(value=str(s.follow_threshold))
         self.v_cool_on = tk.BooleanVar(value=s.cooldown_enabled)
@@ -294,7 +294,7 @@ class SettingsWindow:
         combo.bind("<<ComboboxSelected>>", lambda _e: self._on_backend_change())
         self._hint(
             box,
-            "Counts likes across your devices. Likes work without it; best-of "
+            "Counts likes across your devices. Likes work without it; best "
             "and follow-artist need it.",
             1,
         )
@@ -355,7 +355,7 @@ class SettingsWindow:
         self._entry(body, "Playlist", self.v_archive_name, r)
         r += 1
 
-        action("Promote to best-of", self.v_best_on, "promote_to_best_of")
+        action("Promote to best", self.v_best_on, "promote_to_best")
         self._entry(body, "Playlist", self.v_best_name, r)
         r += 1
         self._spin(body, "After N likes", self.v_best_n, r)
@@ -515,9 +515,9 @@ class SettingsWindow:
             feedback_volume=int(float(self.v_volume.get())) / 100,
             archive_enabled=self.v_archive_on.get(),
             archive_playlist=self.v_archive_name.get().strip(),
-            best_of_enabled=self.v_best_on.get(),
-            best_of_playlist=self.v_best_name.get().strip(),
-            best_of_threshold=number(self.v_best_n, "Best-of N", self.v_best_on.get()),
+            best_enabled=self.v_best_on.get(),
+            best_playlist=self.v_best_name.get().strip(),
+            best_threshold=number(self.v_best_n, "Best N", self.v_best_on.get()),
             follow_enabled=self.v_follow_on.get(),
             follow_threshold=number(self.v_follow_n, "Follow-artist N", self.v_follow_on.get()),
             cooldown_enabled=self.v_cool_on.get(),

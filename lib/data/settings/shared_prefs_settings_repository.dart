@@ -18,7 +18,7 @@ class SharedPrefsSettingsRepository implements SettingsRepository {
   static const _keyFeedbackVolume = 'trigger_feedback_volume';
   // Legacy keys — read once for migration into _keyRuleConfig, never written again.
   static const _legacyKeyArchivePlaylistName = 'archive_playlist_name';
-  static const _legacyKeyBestOfPlaylistName = 'best_of_playlist_name';
+  static const _legacyKeyBestPlaylistName = 'best_of_playlist_name';
   static const _keyRuleConfig = 'rule_config';
   static const _keyServiceEnabled = 'service_enabled';
   static const _keyMusicProvider = 'music_provider';
@@ -62,11 +62,11 @@ class SharedPrefsSettingsRepository implements SettingsRepository {
     }
 
     final legacyArchive = prefs.getString(_legacyKeyArchivePlaylistName);
-    final legacyBestOf = prefs.getString(_legacyKeyBestOfPlaylistName);
-    if (legacyArchive != null || legacyBestOf != null) {
+    final legacyBest = prefs.getString(_legacyKeyBestPlaylistName);
+    if (legacyArchive != null || legacyBest != null) {
       final migrated = RuleConfig.legacyDefaults().copyWith(
         archivePlaylistName: legacyArchive ?? AppConstants.legacyArchivePlaylistName,
-        bestOfPlaylistName: legacyBestOf ?? AppConstants.legacyBestOfPlaylistName,
+        bestPlaylistName: legacyBest ?? AppConstants.legacyBestPlaylistName,
       );
       await saveRuleConfig(migrated);
       return migrated;

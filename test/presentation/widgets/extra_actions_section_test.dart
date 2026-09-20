@@ -21,20 +21,20 @@ class _Host extends StatefulWidget {
 
 class _HostState extends State<_Host> {
   late bool archive = widget.config.archiveRemoveEnabled;
-  late bool bestOf = widget.config.bestOfEnabled;
+  late bool best = widget.config.bestEnabled;
   late bool follow = widget.config.followArtistEnabled;
   late final archiveName =
       TextEditingController(text: widget.config.archivePlaylistName);
-  late final bestOfName =
-      TextEditingController(text: widget.config.bestOfPlaylistName);
-  final bestOfThreshold = TextEditingController();
+  late final bestName =
+      TextEditingController(text: widget.config.bestPlaylistName);
+  final bestThreshold = TextEditingController();
   final followThreshold = TextEditingController();
 
   @override
   void dispose() {
     archiveName.dispose();
-    bestOfName.dispose();
-    bestOfThreshold.dispose();
+    bestName.dispose();
+    bestThreshold.dispose();
     followThreshold.dispose();
     super.dispose();
   }
@@ -50,10 +50,10 @@ class _HostState extends State<_Host> {
               archiveRemoveEnabled: archive,
               onArchiveRemoveChanged: (v) => setState(() => archive = v),
               archivePlaylistName: archiveName,
-              bestOfEnabled: bestOf,
-              onBestOfChanged: (v) => setState(() => bestOf = v),
-              bestOfPlaylistName: bestOfName,
-              bestOfThreshold: bestOfThreshold,
+              bestEnabled: best,
+              onBestChanged: (v) => setState(() => best = v),
+              bestPlaylistName: bestName,
+              bestThreshold: bestThreshold,
               followArtistEnabled: follow,
               onFollowArtistChanged: (v) => setState(() => follow = v),
               followArtistThreshold: followThreshold,
@@ -74,7 +74,7 @@ TextField _field(WidgetTester tester, String key) =>
 void main() {
   const actionTitles = <String>[
     'Remove from archive playlist',
-    'Promote to best-of playlist',
+    'Promote to best playlist',
     'Auto-follow artist',
   ];
 
@@ -98,13 +98,13 @@ void main() {
       expect(find.text(title), findsOneWidget);
     }
     expect(_switchValue(tester, 'extra_action_archive_remove'), isFalse);
-    expect(_switchValue(tester, 'extra_action_best_of'), isFalse);
+    expect(_switchValue(tester, 'extra_action_best'), isFalse);
     expect(_switchValue(tester, 'extra_action_follow_artist'), isFalse);
 
     for (final key in <String>[
       'extra_action_archive_playlist_name',
-      'extra_action_best_of_playlist_name',
-      'extra_action_best_of_threshold',
+      'extra_action_best_playlist_name',
+      'extra_action_best_threshold',
       'extra_action_follow_artist_threshold',
     ]) {
       final field = _field(tester, key);
@@ -115,7 +115,7 @@ void main() {
     // Every action explains itself in its subtitle.
     for (final key in <String>[
       'extra_action_archive_remove',
-      'extra_action_best_of',
+      'extra_action_best',
       'extra_action_follow_artist',
     ]) {
       final tile = tester.widget<SwitchListTile>(find.byKey(Key(key)));
@@ -130,12 +130,12 @@ void main() {
     await tester.tap(find.text('Extra actions'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('extra_action_best_of')));
+    await tester.tap(find.byKey(const Key('extra_action_best')));
     await tester.pumpAndSettle();
 
-    expect(_switchValue(tester, 'extra_action_best_of'), isTrue);
-    expect(_field(tester, 'extra_action_best_of_playlist_name').enabled, isTrue);
-    expect(_field(tester, 'extra_action_best_of_threshold').enabled, isTrue);
+    expect(_switchValue(tester, 'extra_action_best'), isTrue);
+    expect(_field(tester, 'extra_action_best_playlist_name').enabled, isTrue);
+    expect(_field(tester, 'extra_action_best_threshold').enabled, isTrue);
     expect(_field(tester, 'extra_action_archive_playlist_name').enabled, isFalse);
     expect(find.text('1 of 3 on'), findsOneWidget);
   });

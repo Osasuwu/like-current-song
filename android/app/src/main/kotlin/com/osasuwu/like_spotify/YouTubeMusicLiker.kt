@@ -122,9 +122,9 @@ class YouTubeMusicLiker(context: Context) {
     fun count(outcome: Outcome): Outcome = synchronized(LOCK) { countLocked(outcome) }
 
     /**
-     * Runs the user's extra like actions — archive removal, best-of promotion,
+     * Runs the user's extra like actions — archive removal, best promotion,
      * artist auto-follow — for a like that went through. Pass the outcome
-     * [count] returned, so the best-of threshold reads the shared count
+     * [count] returned, so the best threshold reads the shared count
      * instead of a second one.
      *
      * All three are off by default and each costs Data API quota, so nothing

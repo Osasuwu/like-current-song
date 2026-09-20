@@ -60,13 +60,13 @@ the cross-device counter.
 
 ## Playlist actions
 
-The archive-remove, promote-to-best-of and follow-artist actions work under
+The archive-remove, promote-to-best and follow-artist actions work under
 this provider too. Turn them on the same way as for Spotify (the "Playlist
 clean-up" step in `--setup`, or `actions.*` in `config.json`).
 
 - **Playlists** are ordinary YouTube playlists on your account, the same
   ones YT Music lists under *Library → Playlists*. The playlist name is
-  matched case-insensitively. Best-of creates its playlist as **private**
+  matched case-insensitively. Best creates its playlist as **private**
   if it doesn't exist yet.
 - **Archive remove** takes the liked song out of the named playlist. The
   remove-without-like hotkey works as well.
@@ -97,7 +97,7 @@ pip install "like-current-song[ytmusic]"
   reset at midnight Pacific time.
 - **Playlist actions spend quota too**, but only from the 10,000-unit pool,
   never from the search bucket. Each write costs about **50 units**: adding to
-  best-of, removing from the archive, creating the best-of playlist once, and
+  best, removing from the archive, creating the best playlist once, and
   subscribing. Reading a playlist costs 1 unit per 50 songs. The archive is
   read once per session, and then only when the liked song is in it. A like
   that also triggers a write costs about 100 units instead of 50 — still far

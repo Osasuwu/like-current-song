@@ -51,8 +51,8 @@ def test_fresh_config_defaults() -> None:
 
 def test_fresh_config_extra_actions_off_and_empty() -> None:
     s = model.settings_from_config({})
-    assert not (s.archive_enabled or s.best_of_enabled or s.follow_enabled or s.cooldown_enabled)
-    assert s.archive_playlist == "" and s.best_of_playlist == ""
+    assert not (s.archive_enabled or s.best_enabled or s.follow_enabled or s.cooldown_enabled)
+    assert s.archive_playlist == "" and s.best_playlist == ""
 
 
 def test_fresh_save_writes_actions_explicitly_off(tmp_paths) -> None:
@@ -64,7 +64,7 @@ def test_fresh_save_writes_actions_explicitly_off(tmp_paths) -> None:
 
     cfg = _read(_common.CONFIG_FILE)
     actions = cfg["actions"]
-    for name in ("archive_remove", "promote_to_best_of", "follow_artist", "like_cooldown"):
+    for name in ("archive_remove", "promote_to_best", "follow_artist", "like_cooldown"):
         assert actions[name]["enabled"] is False
     assert "playlist_name" not in actions["archive_remove"]
     assert cfg["spotify"]["client_id"] == "abc"
@@ -115,7 +115,7 @@ def test_existing_config_reflects_runtime_defaults() -> None:
     assert s.archive_enabled and s.archive_playlist == "Weekly"
     assert s.cooldown_enabled and s.cooldown_minutes == 7  # missing enabled = on
     assert s.follow_enabled  # missing block = on at runtime
-    assert not s.best_of_enabled  # no playlist name = off at runtime
+    assert not s.best_enabled  # no playlist name = off at runtime
     assert s.feedback_volume == 0.5
 
 
@@ -127,6 +127,27 @@ def test_legacy_archive_key_read_and_rewritten_nested() -> None:
     out = model.apply_settings(cfg, replace(s, archive_playlist="New"), baseline=s)
     assert out["actions"]["archive_remove"] == {"enabled": True, "playlist_name": "New"}
     assert _common.resolve_archive_playlist_name(out) == "New"
+
+
+def test_legacy_promote_to_best_of_block_read_and_rewritten_under_new_name() -> None:
+    """A v1.1.0 config keeps its best-playlist rule across the rename."""
+    cfg = {
+        "spotify": {"client_id": "x"},
+        "actions": {
+            "promote_to_best_of": {"enabled": True, "playlist_name": "Old", "threshold": 4}
+        },
+    }
+    s = model.settings_from_config(cfg)
+    assert s.best_enabled and s.best_playlist == "Old" and s.best_threshold == 4
+
+    out = model.apply_settings(cfg, replace(s, best_playlist="New"), baseline=s)
+    assert out["actions"]["promote_to_best"] == {
+        "enabled": True,
+        "playlist_name": "New",
+        "threshold": 4,
+    }
+    # The superseded block is dropped so the two cannot disagree.
+    assert "promote_to_best_of" not in out["actions"]
 
 
 def test_disabling_an_action_keeps_its_playlist_name() -> None:
@@ -153,7 +174,7 @@ def test_provider_and_storage_round_trip() -> None:
     assert model.settings_from_config(out) == replace(
         s,
         archive_enabled=False,
-        best_of_enabled=False,
+        best_enabled=False,
         follow_enabled=False,
         cooldown_enabled=False,
     )
@@ -204,7 +225,7 @@ def test_spotify_needs_client_id_but_ytmusic_does_not() -> None:
             {"archive_enabled": True, "archive_playlist": "A", "remove_hotkey": "CTRL+shift+alt+W"},
             "remove_hotkey",
         ),
-        ({"best_of_enabled": True, "best_of_playlist": "B", "best_of_threshold": 0}, "best_of_threshold"),
+        ({"best_enabled": True, "best_playlist": "B", "best_threshold": 0}, "best_threshold"),
         ({"follow_enabled": True, "follow_threshold": 0}, "follow_threshold"),
         ({"cooldown_enabled": True, "cooldown_minutes": 0}, "cooldown_minutes"),
     ],
@@ -220,17 +241,17 @@ def test_remove_hotkey_only_checked_when_archive_on() -> None:
 
 def test_storage_dependent_actions_warn_without_storage() -> None:
     s = replace(
-        Settings(), spotify_client_id="x", best_of_enabled=True, best_of_playlist="B", follow_enabled=True
+        Settings(), spotify_client_id="x", best_enabled=True, best_playlist="B", follow_enabled=True
     )
     result = model.validate(s)
     assert result.ok
-    assert {i.field for i in result.warnings} == {"best_of_enabled", "follow_enabled"}
+    assert {i.field for i in result.warnings} == {"best_enabled", "follow_enabled"}
 
 
 def test_every_action_has_a_hint() -> None:
     assert set(model.ACTION_HINTS) == {
         "archive_remove",
-        "promote_to_best_of",
+        "promote_to_best",
         "follow_artist",
         "like_cooldown",
     }

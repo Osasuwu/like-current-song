@@ -317,29 +317,29 @@ class SpotifyMusicServiceRepository implements MusicServiceRepository {
       }
     }
 
-    // 4. Increment like count (always, regardless of best-of rule state)
+    // 4. Increment like count (always, regardless of best rule state)
     final trackLikeCount = await _likeCountRepository.incrementTrackLikeCount(trackInfo.trackId);
 
-    // 5. Add to best-of playlist at configured threshold
-    var addedToBestOf = false;
-    if (ruleConfig.bestOfEnabled &&
-        trackLikeCount == ruleConfig.bestOfThreshold &&
-        ruleConfig.bestOfPlaylistName.isNotEmpty) {
+    // 5. Add to best playlist at configured threshold
+    var addedToBest = false;
+    if (ruleConfig.bestEnabled &&
+        trackLikeCount == ruleConfig.bestThreshold &&
+        ruleConfig.bestPlaylistName.isNotEmpty) {
       try {
-        final bestOfId = await _playlistService.ensurePlaylist(accessToken, ruleConfig.bestOfPlaylistName);
-        if (bestOfId != null) {
-          await _playlistService.addTrack(accessToken, bestOfId, trackInfo.trackUri);
-          addedToBestOf = true;
+        final bestId = await _playlistService.ensurePlaylist(accessToken, ruleConfig.bestPlaylistName);
+        if (bestId != null) {
+          await _playlistService.addTrack(accessToken, bestId, trackInfo.trackUri);
+          addedToBest = true;
         }
       } catch (e) {
-        debugPrint('Best-of add failed: $e');
+        debugPrint('Best add failed: $e');
         await _settingsRepository.appendLog(AppLog(
           at: DateTime.now().toUtc(),
-          actionType: 'best_of_add',
+          actionType: 'best_add',
           targetId: trackInfo.trackId,
           result: LogResult.failure,
           httpCode: e is SpotifyApiException ? e.statusCode : null,
-          message: 'Best-of add failed: $e',
+          message: 'Best add failed: $e',
         ));
       }
     }
@@ -373,7 +373,7 @@ class SpotifyMusicServiceRepository implements MusicServiceRepository {
       trackName: trackInfo.trackName,
       trackLiked: true,
       removedFromArchive: removedFromArchive,
-      addedToBestOf: addedToBestOf,
+      addedToBest: addedToBest,
       followedArtistNames: followedArtistNames,
       trackLikeCount: trackLikeCount,
     );

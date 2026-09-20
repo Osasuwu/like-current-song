@@ -3,9 +3,9 @@ import '../../core/app_constants.dart';
 class RuleConfig {
   final bool archiveRemoveEnabled;
   final String archivePlaylistName;
-  final bool bestOfEnabled;
-  final String bestOfPlaylistName;
-  final int bestOfThreshold;
+  final bool bestEnabled;
+  final String bestPlaylistName;
+  final int bestThreshold;
   final bool followArtistEnabled;
   final int followArtistThreshold;
   final bool likeCooldownEnabled;
@@ -14,9 +14,9 @@ class RuleConfig {
   const RuleConfig({
     required this.archiveRemoveEnabled,
     required this.archivePlaylistName,
-    required this.bestOfEnabled,
-    required this.bestOfPlaylistName,
-    required this.bestOfThreshold,
+    required this.bestEnabled,
+    required this.bestPlaylistName,
+    required this.bestThreshold,
     required this.followArtistEnabled,
     required this.followArtistThreshold,
     this.likeCooldownEnabled = true,
@@ -25,16 +25,16 @@ class RuleConfig {
 
   /// Defaults for a fresh install.
   ///
-  /// The extra actions (archive-remove, best-of promotion, artist auto-follow)
+  /// The extra actions (archive-remove, best promotion, artist auto-follow)
   /// are opt-in: off, with empty playlist names. Thresholds keep a sensible
   /// suggested value so switching an action on needs only a playlist name.
   factory RuleConfig.defaults() {
     return const RuleConfig(
       archiveRemoveEnabled: false,
       archivePlaylistName: '',
-      bestOfEnabled: false,
-      bestOfPlaylistName: '',
-      bestOfThreshold: AppConstants.defaultBestOfThreshold,
+      bestEnabled: false,
+      bestPlaylistName: '',
+      bestThreshold: AppConstants.defaultBestThreshold,
       followArtistEnabled: false,
       followArtistThreshold: AppConstants.defaultFollowArtistThreshold,
       likeCooldownEnabled: true,
@@ -53,9 +53,9 @@ class RuleConfig {
     return const RuleConfig(
       archiveRemoveEnabled: true,
       archivePlaylistName: AppConstants.legacyArchivePlaylistName,
-      bestOfEnabled: true,
-      bestOfPlaylistName: AppConstants.legacyBestOfPlaylistName,
-      bestOfThreshold: AppConstants.defaultBestOfThreshold,
+      bestEnabled: true,
+      bestPlaylistName: AppConstants.legacyBestPlaylistName,
+      bestThreshold: AppConstants.defaultBestThreshold,
       followArtistEnabled: true,
       followArtistThreshold: AppConstants.defaultFollowArtistThreshold,
       likeCooldownEnabled: true,
@@ -66,9 +66,9 @@ class RuleConfig {
   RuleConfig copyWith({
     bool? archiveRemoveEnabled,
     String? archivePlaylistName,
-    bool? bestOfEnabled,
-    String? bestOfPlaylistName,
-    int? bestOfThreshold,
+    bool? bestEnabled,
+    String? bestPlaylistName,
+    int? bestThreshold,
     bool? followArtistEnabled,
     int? followArtistThreshold,
     bool? likeCooldownEnabled,
@@ -77,9 +77,9 @@ class RuleConfig {
     return RuleConfig(
       archiveRemoveEnabled: archiveRemoveEnabled ?? this.archiveRemoveEnabled,
       archivePlaylistName: archivePlaylistName ?? this.archivePlaylistName,
-      bestOfEnabled: bestOfEnabled ?? this.bestOfEnabled,
-      bestOfPlaylistName: bestOfPlaylistName ?? this.bestOfPlaylistName,
-      bestOfThreshold: bestOfThreshold ?? this.bestOfThreshold,
+      bestEnabled: bestEnabled ?? this.bestEnabled,
+      bestPlaylistName: bestPlaylistName ?? this.bestPlaylistName,
+      bestThreshold: bestThreshold ?? this.bestThreshold,
       followArtistEnabled: followArtistEnabled ?? this.followArtistEnabled,
       followArtistThreshold: followArtistThreshold ?? this.followArtistThreshold,
       likeCooldownEnabled: likeCooldownEnabled ?? this.likeCooldownEnabled,
@@ -93,11 +93,11 @@ class RuleConfig {
     if (archiveRemoveEnabled && archivePlaylistName.trim().isEmpty) {
       errors.add('Archive playlist name is required when archive removal is enabled.');
     }
-    if (bestOfEnabled && bestOfPlaylistName.trim().isEmpty) {
-      errors.add('Best-of playlist name is required when best-of promotion is enabled.');
+    if (bestEnabled && bestPlaylistName.trim().isEmpty) {
+      errors.add('Best playlist name is required when best promotion is enabled.');
     }
-    if (bestOfEnabled && bestOfThreshold < 1) {
-      errors.add('Best-of threshold must be at least 1.');
+    if (bestEnabled && bestThreshold < 1) {
+      errors.add('Best threshold must be at least 1.');
     }
     if (followArtistEnabled && followArtistThreshold < 1) {
       errors.add('Follow-artist threshold must be at least 1.');
@@ -112,9 +112,9 @@ class RuleConfig {
     return <String, dynamic>{
       'archiveRemoveEnabled': archiveRemoveEnabled,
       'archivePlaylistName': archivePlaylistName,
-      'bestOfEnabled': bestOfEnabled,
-      'bestOfPlaylistName': bestOfPlaylistName,
-      'bestOfThreshold': bestOfThreshold,
+      'bestEnabled': bestEnabled,
+      'bestPlaylistName': bestPlaylistName,
+      'bestThreshold': bestThreshold,
       'followArtistEnabled': followArtistEnabled,
       'followArtistThreshold': followArtistThreshold,
       'likeCooldownEnabled': likeCooldownEnabled,
@@ -128,14 +128,24 @@ class RuleConfig {
   /// so a missing field falls back to [RuleConfig.legacyDefaults] — the value
   /// that install was actually running with — never to the fresh-install
   /// [RuleConfig.defaults].
+  ///
+  /// Up to v1.1.0 the best-playlist fields were written as `bestOfEnabled`,
+  /// `bestOfPlaylistName` and `bestOfThreshold`. Those spellings are still read
+  /// when the current ones are absent, so upgrading keeps the saved rule; only
+  /// the new spellings are ever written back.
   factory RuleConfig.fromJson(Map<String, dynamic> json) {
     final defaults = RuleConfig.legacyDefaults();
     return RuleConfig(
       archiveRemoveEnabled: json['archiveRemoveEnabled'] as bool? ?? defaults.archiveRemoveEnabled,
       archivePlaylistName: json['archivePlaylistName'] as String? ?? defaults.archivePlaylistName,
-      bestOfEnabled: json['bestOfEnabled'] as bool? ?? defaults.bestOfEnabled,
-      bestOfPlaylistName: json['bestOfPlaylistName'] as String? ?? defaults.bestOfPlaylistName,
-      bestOfThreshold: json['bestOfThreshold'] as int? ?? defaults.bestOfThreshold,
+      bestEnabled:
+          json['bestEnabled'] as bool? ?? json['bestOfEnabled'] as bool? ?? defaults.bestEnabled,
+      bestPlaylistName: json['bestPlaylistName'] as String? ??
+          json['bestOfPlaylistName'] as String? ??
+          defaults.bestPlaylistName,
+      bestThreshold: json['bestThreshold'] as int? ??
+          json['bestOfThreshold'] as int? ??
+          defaults.bestThreshold,
       followArtistEnabled: json['followArtistEnabled'] as bool? ?? defaults.followArtistEnabled,
       followArtistThreshold: json['followArtistThreshold'] as int? ?? defaults.followArtistThreshold,
       likeCooldownEnabled: json['likeCooldownEnabled'] as bool? ?? defaults.likeCooldownEnabled,

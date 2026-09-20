@@ -17,7 +17,7 @@ per process so a repeat press on the same song does not search again.
 
 **Playlist capability** (`PlaylistCapableProvider`): YT Music playlists
 are ordinary YouTube playlists on the user's channel, so archive-remove,
-promote-to-best-of and follow-artist run unchanged. Reads (playlists.list,
+promote-to-best and follow-artist run unchanged. Reads (playlists.list,
 playlistItems.list) cost 1 unit per page; each write (playlistItems.insert
 / delete, playlists.insert, subscriptions.insert) costs 50.
 

@@ -24,7 +24,7 @@ class YouTubeMusicExtraActionsTest {
     @Test
     fun `later likes do not fire it again`() {
         // A re-like of an old favourite must not add a second copy to the
-        // best-of playlist, however high its count has climbed.
+        // best playlist, however high its count has climbed.
         assertFalse(YouTubeMusicExtraActions.reachedThreshold(count = 4, threshold = 3))
         assertFalse(YouTubeMusicExtraActions.reachedThreshold(count = 99, threshold = 3))
     }

@@ -25,7 +25,7 @@ import java.net.URL
  * Mirrors the canonical rule pipeline in the Dart layer
  * ([SpotifyMusicServiceRepository.likeTrack]): like -> remove from archive playlist
  * (non-blocking) -> increment track like count (Supabase-first, local fallback) ->
- * promote to best-of playlist at threshold -> increment artist like count (local only) ->
+ * promote to best playlist at threshold -> increment artist like count (local only) ->
  * auto-follow artist at threshold.
  */
 class SpotifyLikeWorker(
@@ -175,26 +175,26 @@ class SpotifyLikeWorker(
 
         val trackCount = runCatching { incrementTrackLikeCount(prefs, track.id) }
             .getOrElse { incrementLocalCount(prefs, AppConstants.KEY_TRACK_LIKE_COUNTS, track.id) }
-        if (ruleConfig.bestOfEnabled &&
-            ruleConfig.bestOfPlaylistName.isNotBlank() &&
-            trackCount == ruleConfig.bestOfThreshold
+        if (ruleConfig.bestEnabled &&
+            ruleConfig.bestPlaylistName.isNotBlank() &&
+            trackCount == ruleConfig.bestThreshold
         ) {
             runCatching {
-                val bestOfId = ensurePlaylist(prefs, ruleConfig.bestOfPlaylistName, token)
-                if (bestOfId != null) {
-                    val result = addTrackToPlaylist(bestOfId, track.uri, token)
+                val bestId = ensurePlaylist(prefs, ruleConfig.bestPlaylistName, token)
+                if (bestId != null) {
+                    val result = addTrackToPlaylist(bestId, track.uri, token)
                     if (result.success) {
                         log(
-                            "Added to best-of playlist: ${ruleConfig.bestOfPlaylistName}",
-                            actionType = "best_of_add",
+                            "Added to best playlist: ${ruleConfig.bestPlaylistName}",
+                            actionType = "best_add",
                             targetId = track.id,
                             result = "success",
                             httpCode = result.statusCode
                         )
                     } else {
                         log(
-                            "Best-of promotion failed",
-                            actionType = "best_of_add",
+                            "Best promotion failed",
+                            actionType = "best_add",
                             targetId = track.id,
                             result = "failure",
                             httpCode = result.statusCode
@@ -203,8 +203,8 @@ class SpotifyLikeWorker(
                 }
             }.onFailure {
                 log(
-                    "Best-of promotion failed: ${it.message}",
-                    actionType = "best_of_add",
+                    "Best promotion failed: ${it.message}",
+                    actionType = "best_add",
                     targetId = track.id,
                     result = "failure"
                 )
@@ -255,11 +255,9 @@ class SpotifyLikeWorker(
             archiveRemoveEnabled = prefs.getBoolean(AppConstants.KEY_RULE_ARCHIVE_REMOVE_ENABLED, false),
             archivePlaylistName = prefs.getString(AppConstants.KEY_RULE_ARCHIVE_PLAYLIST_NAME, null)
                 ?.trim().orEmpty(),
-            bestOfEnabled = prefs.getBoolean(AppConstants.KEY_RULE_BEST_OF_ENABLED, false),
-            bestOfPlaylistName = prefs.getString(AppConstants.KEY_RULE_BEST_OF_PLAYLIST_NAME, null)
-                ?.trim().orEmpty(),
-            bestOfThreshold = prefs.getInt(AppConstants.KEY_RULE_BEST_OF_THRESHOLD, AppConstants.DEFAULT_BEST_OF_THRESHOLD)
-                .takeIf { it >= 1 } ?: AppConstants.DEFAULT_BEST_OF_THRESHOLD,
+            bestEnabled = AppConstants.bestRuleEnabled(prefs),
+            bestPlaylistName = AppConstants.bestRulePlaylistName(prefs),
+            bestThreshold = AppConstants.bestRuleThreshold(prefs),
             followArtistEnabled = prefs.getBoolean(AppConstants.KEY_RULE_FOLLOW_ARTIST_ENABLED, false),
             followArtistThreshold = prefs.getInt(
                 AppConstants.KEY_RULE_FOLLOW_ARTIST_THRESHOLD,
@@ -565,9 +563,9 @@ class SpotifyLikeWorker(
     private data class RuleConfig(
         val archiveRemoveEnabled: Boolean,
         val archivePlaylistName: String,
-        val bestOfEnabled: Boolean,
-        val bestOfPlaylistName: String,
-        val bestOfThreshold: Int,
+        val bestEnabled: Boolean,
+        val bestPlaylistName: String,
+        val bestThreshold: Int,
         val followArtistEnabled: Boolean,
         val followArtistThreshold: Int,
         val likeCooldownEnabled: Boolean,

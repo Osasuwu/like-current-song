@@ -29,13 +29,13 @@ class _TriggerConfigScreenState extends ConsumerState<TriggerConfigScreen> {
   late TextEditingController _window;
   late TextEditingController _debounce;
   late TextEditingController _archivePlaylistName;
-  late TextEditingController _bestOfPlaylistName;
-  late TextEditingController _bestOfThreshold;
+  late TextEditingController _bestPlaylistName;
+  late TextEditingController _bestThreshold;
   late TextEditingController _followArtistThreshold;
   late TextEditingController _likeCooldownMinutes;
 
   late bool _archiveRemoveEnabled;
-  late bool _bestOfEnabled;
+  late bool _bestEnabled;
   late bool _followArtistEnabled;
   late bool _likeCooldownEnabled;
   late int _feedbackVolume;
@@ -51,9 +51,9 @@ class _TriggerConfigScreenState extends ConsumerState<TriggerConfigScreen> {
     _debounce = TextEditingController(text: config.debounceMs.toString());
     _feedbackVolume = config.feedbackVolume;
     _archivePlaylistName = TextEditingController(text: ruleConfig.archivePlaylistName);
-    _bestOfPlaylistName = TextEditingController(text: ruleConfig.bestOfPlaylistName);
-    _bestOfThreshold = TextEditingController(
-      text: _thresholdText(ruleConfig.bestOfThreshold, AppConstants.defaultBestOfThreshold),
+    _bestPlaylistName = TextEditingController(text: ruleConfig.bestPlaylistName);
+    _bestThreshold = TextEditingController(
+      text: _thresholdText(ruleConfig.bestThreshold, AppConstants.defaultBestThreshold),
     );
     _followArtistThreshold = TextEditingController(
       text: _thresholdText(
@@ -63,7 +63,7 @@ class _TriggerConfigScreenState extends ConsumerState<TriggerConfigScreen> {
     );
     _likeCooldownMinutes = TextEditingController(text: ruleConfig.likeCooldownMinutes.toString());
     _archiveRemoveEnabled = ruleConfig.archiveRemoveEnabled;
-    _bestOfEnabled = ruleConfig.bestOfEnabled;
+    _bestEnabled = ruleConfig.bestEnabled;
     _followArtistEnabled = ruleConfig.followArtistEnabled;
     _likeCooldownEnabled = ruleConfig.likeCooldownEnabled;
   }
@@ -74,8 +74,8 @@ class _TriggerConfigScreenState extends ConsumerState<TriggerConfigScreen> {
     _window.dispose();
     _debounce.dispose();
     _archivePlaylistName.dispose();
-    _bestOfPlaylistName.dispose();
-    _bestOfThreshold.dispose();
+    _bestPlaylistName.dispose();
+    _bestThreshold.dispose();
     _followArtistThreshold.dispose();
     _likeCooldownMinutes.dispose();
     super.dispose();
@@ -144,10 +144,10 @@ class _TriggerConfigScreenState extends ConsumerState<TriggerConfigScreen> {
             onArchiveRemoveChanged: (value) =>
                 setState(() => _archiveRemoveEnabled = value),
             archivePlaylistName: _archivePlaylistName,
-            bestOfEnabled: _bestOfEnabled,
-            onBestOfChanged: (value) => setState(() => _bestOfEnabled = value),
-            bestOfPlaylistName: _bestOfPlaylistName,
-            bestOfThreshold: _bestOfThreshold,
+            bestEnabled: _bestEnabled,
+            onBestChanged: (value) => setState(() => _bestEnabled = value),
+            bestPlaylistName: _bestPlaylistName,
+            bestThreshold: _bestThreshold,
             followArtistEnabled: _followArtistEnabled,
             onFollowArtistChanged: (value) =>
                 setState(() => _followArtistEnabled = value),
@@ -165,11 +165,11 @@ class _TriggerConfigScreenState extends ConsumerState<TriggerConfigScreen> {
               final ruleConfig = RuleConfig(
                 archiveRemoveEnabled: _archiveRemoveEnabled,
                 archivePlaylistName: _archivePlaylistName.text.trim(),
-                bestOfEnabled: _bestOfEnabled,
-                bestOfPlaylistName: _bestOfPlaylistName.text.trim(),
-                bestOfThreshold: _parseThreshold(
-                  _bestOfThreshold.text,
-                  AppConstants.defaultBestOfThreshold,
+                bestEnabled: _bestEnabled,
+                bestPlaylistName: _bestPlaylistName.text.trim(),
+                bestThreshold: _parseThreshold(
+                  _bestThreshold.text,
+                  AppConstants.defaultBestThreshold,
                 ),
                 followArtistEnabled: _followArtistEnabled,
                 followArtistThreshold: _parseThreshold(

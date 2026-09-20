@@ -1,5 +1,5 @@
 name: like_spotify_mobile_app
-description: "Like the currently playing track with headset button patterns, on Spotify or YouTube Music. Cross-device like counters, archive playlist management, best-of promotion."
+description: "Like the currently playing track with headset button patterns, on Spotify or YouTube Music. Cross-device like counters, archive playlist management, best promotion."
 publish_to: 'none'
 version: 1.1.0
 

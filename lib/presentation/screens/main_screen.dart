@@ -119,14 +119,14 @@ class _LikeResultCard extends StatelessWidget {
                   ),
                 ],
               ),
-              if (result.addedToBestOf || result.removedFromArchive || result.followedArtistNames.isNotEmpty) ...<Widget>[
+              if (result.addedToBest || result.removedFromArchive || result.followedArtistNames.isNotEmpty) ...<Widget>[
                 const SizedBox(height: 8),
                 Wrap(
                   spacing: 6,
                   runSpacing: 4,
                   children: <Widget>[
-                    if (result.addedToBestOf)
-                      _badge(context, 'Best-of', Icons.star),
+                    if (result.addedToBest)
+                      _badge(context, 'Best', Icons.star),
                     if (result.removedFromArchive)
                       _badge(context, 'Archive cleaned', Icons.cleaning_services),
                     for (final name in result.followedArtistNames)

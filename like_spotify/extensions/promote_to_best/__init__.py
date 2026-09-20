@@ -1,7 +1,7 @@
-"""PromoteToBestOfAction — default flavor PostLikeAction (#26).
+"""PromoteToBestAction — default flavor PostLikeAction (#26).
 
 When a track's like count crosses a configured threshold (default 3),
-add the track to a "best of" playlist (create the playlist on first
+add the track to a "best" playlist (create the playlist on first
 trigger if it doesn't exist yet). Idempotent — we only add when the
 count EQUALS the threshold, so the 4th, 5th… likes do not re-add.
 
@@ -22,14 +22,14 @@ from like_spotify.core.errors import AuthError
 from like_spotify.core.music_provider import PlaylistCapableProvider
 from like_spotify.core.types import LikeContext
 
-DOMAIN = "promote_to_best_of"
+DOMAIN = "promote_to_best"
 DEFAULT_THRESHOLD = 3
 DEFAULT_PLAYLIST_NAME = "Best of the best of the best"
 
 logger = logging.getLogger(__name__)
 
 
-class PromoteToBestOfAction(PostLikeAction):
+class PromoteToBestAction(PostLikeAction):
     def __init__(
         self,
         playlist_name: str = DEFAULT_PLAYLIST_NAME,
@@ -61,16 +61,16 @@ class PromoteToBestOfAction(PostLikeAction):
             )
         except AuthError as e:
             logger.warning(
-                "promote-to-best-of unauthorized (%s) — re-run "
+                "promote-to-best unauthorized (%s) — re-run "
                 "`like-current-song --setup` to grant playlist scopes",
                 e,
             )
         except Exception as e:
-            logger.warning("promote-to-best-of failed: %s", e)
+            logger.warning("promote-to-best failed: %s", e)
 
 
 def POST_LIKE_ACTION(
     playlist_name: str = DEFAULT_PLAYLIST_NAME,
     threshold: int = DEFAULT_THRESHOLD,
-) -> PromoteToBestOfAction:
-    return PromoteToBestOfAction(playlist_name=playlist_name, threshold=threshold)
+) -> PromoteToBestAction:
+    return PromoteToBestAction(playlist_name=playlist_name, threshold=threshold)

@@ -6,7 +6,7 @@ import '../../domain/entities/music_provider.dart';
 /// Collapsed "Extra actions" block of the trigger settings.
 ///
 /// Groups the optional things that can happen after a like: removing the song
-/// from an archive playlist, promoting it to a best-of playlist, and following
+/// from an archive playlist, promoting it to a best playlist, and following
 /// the artist. None of them is needed for liking itself, so the section starts
 /// collapsed and every action is opt-in. The wording is deliberately
 /// service-neutral so the section looks the same whichever music service is
@@ -22,10 +22,10 @@ class ExtraActionsSection extends StatelessWidget {
     required this.archiveRemoveEnabled,
     required this.onArchiveRemoveChanged,
     required this.archivePlaylistName,
-    required this.bestOfEnabled,
-    required this.onBestOfChanged,
-    required this.bestOfPlaylistName,
-    required this.bestOfThreshold,
+    required this.bestEnabled,
+    required this.onBestChanged,
+    required this.bestPlaylistName,
+    required this.bestThreshold,
     required this.followArtistEnabled,
     required this.onFollowArtistChanged,
     required this.followArtistThreshold,
@@ -38,17 +38,17 @@ class ExtraActionsSection extends StatelessWidget {
   final ValueChanged<bool> onArchiveRemoveChanged;
   final TextEditingController archivePlaylistName;
 
-  final bool bestOfEnabled;
-  final ValueChanged<bool> onBestOfChanged;
-  final TextEditingController bestOfPlaylistName;
-  final TextEditingController bestOfThreshold;
+  final bool bestEnabled;
+  final ValueChanged<bool> onBestChanged;
+  final TextEditingController bestPlaylistName;
+  final TextEditingController bestThreshold;
 
   final bool followArtistEnabled;
   final ValueChanged<bool> onFollowArtistChanged;
   final TextEditingController followArtistThreshold;
 
   int get _enabledCount =>
-      <bool>[archiveRemoveEnabled, bestOfEnabled, followArtistEnabled]
+      <bool>[archiveRemoveEnabled, bestEnabled, followArtistEnabled]
           .where((enabled) => enabled)
           .length;
 
@@ -98,32 +98,32 @@ class ExtraActionsSection extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         SwitchListTile(
-          key: const Key('extra_action_best_of'),
+          key: const Key('extra_action_best'),
           contentPadding: EdgeInsets.zero,
-          title: const Text('Promote to best-of playlist'),
+          title: const Text('Promote to best playlist'),
           subtitle: const Text(
             'Adds a song you keep liking to this playlist. Enter the name and '
             'how many likes it takes.',
           ),
-          value: bestOfEnabled,
-          onChanged: onBestOfChanged,
+          value: bestEnabled,
+          onChanged: onBestChanged,
         ),
         TextField(
-          key: const Key('extra_action_best_of_playlist_name'),
-          controller: bestOfPlaylistName,
-          enabled: bestOfEnabled,
+          key: const Key('extra_action_best_playlist_name'),
+          controller: bestPlaylistName,
+          enabled: bestEnabled,
           decoration: const InputDecoration(
-            labelText: 'Best-of playlist name',
+            labelText: 'Best playlist name',
             hintText: 'e.g. Best of the best',
           ),
         ),
         TextField(
-          key: const Key('extra_action_best_of_threshold'),
-          controller: bestOfThreshold,
-          enabled: bestOfEnabled,
+          key: const Key('extra_action_best_threshold'),
+          controller: bestThreshold,
+          enabled: bestEnabled,
           decoration: const InputDecoration(
             labelText: 'Likes needed',
-            hintText: '${AppConstants.defaultBestOfThreshold}',
+            hintText: '${AppConstants.defaultBestThreshold}',
           ),
           keyboardType: TextInputType.number,
         ),

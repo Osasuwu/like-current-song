@@ -70,3 +70,50 @@ def test_cooldown_minutes_respected(cooldown_file) -> None:
 
     gate = next(a for a in pre_actions if type(a).__name__ == "LikeCooldownGate")
     assert gate._window_seconds == 30 * 60
+
+# ── Back-compat: the "best-of" → "best" rename (v1.1.1) ────────────────
+
+
+def _best_action(cfg: dict):
+    _pre, post = _common.build_action_chains(cfg, storage=None)
+    return next((a for a in post if type(a).__name__ == "PromoteToBestAction"), None)
+
+
+def test_legacy_promote_to_best_of_block_still_builds_the_action(cooldown_file) -> None:
+    """A config written by v1.1.0 or earlier keeps its best-playlist rule."""
+    action = _best_action(
+        {"actions": {"promote_to_best_of": {"playlist_name": "My Best", "threshold": 4}}}
+    )
+
+    assert action is not None
+    assert action._playlist_name == "My Best"
+    assert action._threshold == 4
+
+
+def test_legacy_promote_to_best_of_block_honours_disabled(cooldown_file) -> None:
+    assert (
+        _best_action(
+            {
+                "actions": {
+                    "promote_to_best_of": {"playlist_name": "My Best", "enabled": False}
+                }
+            }
+        )
+        is None
+    )
+
+
+def test_current_promote_to_best_block_wins_over_the_legacy_one(cooldown_file) -> None:
+    """Once the settings window rewrites the block, the new name decides."""
+    action = _best_action(
+        {
+            "actions": {
+                "promote_to_best": {"playlist_name": "New", "threshold": 2},
+                "promote_to_best_of": {"playlist_name": "Old", "threshold": 9},
+            }
+        }
+    )
+
+    assert action is not None
+    assert action._playlist_name == "New"
+    assert action._threshold == 2
