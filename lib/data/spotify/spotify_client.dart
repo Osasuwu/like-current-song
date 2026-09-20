@@ -38,6 +38,30 @@ class SpotifyClient {
   static bool _libraryEndpointUnavailable(int statusCode) =>
       statusCode == 403 || statusCode == 404;
 
+  /// Spotify's documented maximum for `PUT /me/library`: 40 URIs per request.
+  static const int _libraryUriChunkSize = 40;
+
+  /// Builds `PUT /v1/me/library?uris=<comma-separated list>`.
+  ///
+  /// `uris` is a **query parameter**, not a request body: the reference page
+  /// for `PUT /me/library` lists it with Location `Query` and the example
+  /// `uris=spotify%3Atrack%3A…,spotify%3Aalbum%3A…`. Sending
+  /// `{"uris": [...]}` as a JSON body instead is rejected as malformed with
+  /// 400 every single time (#150), so this deliberately percent-encodes each
+  /// URI and joins them with a literal comma — do not "simplify" it back into
+  /// a body.
+  static Uri _libraryUri(List<String> uris) =>
+      Uri.parse('${AppConstants.spotifyApiBase}/me/library').replace(
+        query: 'uris=${uris.map(Uri.encodeComponent).join(',')}',
+      );
+
+  /// Splits [values] into consecutive lists of at most [size] entries.
+  static Iterable<List<String>> _chunked(List<String> values, int size) sync* {
+    for (var start = 0; start < values.length; start += size) {
+      yield values.sublist(start, min(start + size, values.length));
+    }
+  }
+
   SpotifyClient(this._http);
 
   /// Forgets the cached `/me/library` availability decision.
@@ -172,7 +196,7 @@ class SpotifyClient {
     return item?['id'] as String?;
   }
 
-  /// PUT /me/library with `spotify:track:<id>` — saves the track to the user's
+  /// PUT /me/library?uris=`spotify:track:<id>` — saves the track to the user's
   /// library, falling back to the legacy `PUT /me/tracks?ids=` for client IDs
   /// that are still on the entity-specific endpoints.
   Future<void> likeTrack({
@@ -194,6 +218,10 @@ class SpotifyClient {
   /// replaced `PUT /me/tracks`, `PUT /me/following` and friends in Spotify's
   /// February 2026 API migration.
   ///
+  /// The URIs travel in the query string ([_libraryUri]) and are split into
+  /// requests of at most [_libraryUriChunkSize] — the documented maximum. A
+  /// chunk that fails fails the whole call; the remaining chunks are not sent.
+  ///
   /// Client IDs registered before 2026-02-11 were grandfathered onto the
   /// entity-specific endpoints, so when `/me/library` is not available to this
   /// client ([_libraryEndpointUnavailable]) the [legacyRequest] runs once
@@ -206,26 +234,40 @@ class SpotifyClient {
     required String failureMessage,
   }) async {
     if (!_useLegacyLibraryEndpoints) {
-      final response = await _http.put(
-        Uri.parse('${AppConstants.spotifyApiBase}/me/library'),
-        headers: <String, String>{
-          'Authorization': 'Bearer $accessToken',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode(<String, dynamic>{'uris': uris}),
-      ).timeout(_timeout);
+      var fallBackToLegacy = false;
+      for (final chunk in _chunked(uris, _libraryUriChunkSize)) {
+        // No body and no Content-Type: `uris` is a query parameter. See
+        // [_libraryUri].
+        final response = await _http.put(
+          _libraryUri(chunk),
+          headers: <String, String>{'Authorization': 'Bearer $accessToken'},
+        ).timeout(_timeout);
 
-      if (response.statusCode >= 200 && response.statusCode <= 299) {
-        return;
+        if (response.statusCode >= 200 && response.statusCode <= 299) {
+          continue;
+        }
+        if (!_libraryEndpointUnavailable(response.statusCode)) {
+          throw SpotifyApiException(
+            response.statusCode,
+            '$failureMessage: ${response.body}',
+          );
+        }
+        // This client ID has no access to `/me/library` at all, so stop
+        // chunking and let the endpoint it replaced take the whole call.
+        fallBackToLegacy = true;
+        break;
       }
-      if (!_libraryEndpointUnavailable(response.statusCode)) {
-        throw SpotifyApiException(response.statusCode, failureMessage);
+      if (!fallBackToLegacy) {
+        return;
       }
     }
 
     final legacy = await legacyRequest().timeout(_timeout);
     if (legacy.statusCode < 200 || legacy.statusCode > 299) {
-      throw SpotifyApiException(legacy.statusCode, failureMessage);
+      throw SpotifyApiException(
+        legacy.statusCode,
+        '$failureMessage: ${legacy.body}',
+      );
     }
     _useLegacyLibraryEndpoints = true;
   }
@@ -383,9 +425,10 @@ class SpotifyClient {
     }
   }
 
-  /// PUT /me/library with `spotify:artist:<id>` — follows artists, falling back
-  /// to the legacy `PUT /me/following?type=artist` for client IDs that are
-  /// still on the entity-specific endpoints.
+  /// PUT /me/library?uris=`spotify:artist:<id>` — follows artists, in requests
+  /// of at most 40 URIs, falling back to the legacy
+  /// `PUT /me/following?type=artist` for client IDs that are still on the
+  /// entity-specific endpoints.
   Future<void> followArtists(
     String accessToken, {
     required List<String> artistIds,

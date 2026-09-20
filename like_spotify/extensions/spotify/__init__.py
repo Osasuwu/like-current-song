@@ -253,6 +253,13 @@ class SpotifyMusicProvider(MusicProvider):
         replaced `PUT /me/tracks`, `PUT /me/following` and friends in Spotify's
         February 2026 API migration.
 
+        `uris` is a *query* parameter — a comma-separated list, maximum 40 —
+        not a request body, which is why this passes `params=` and sends no
+        body and no `Content-Type` at all. The JSON-body form is rejected as
+        malformed with 400 every time (#150); don't "simplify" it back. Only
+        one URI is ever written per call here, so the 40 maximum is out of
+        reach and nothing needs chunking.
+
         Client IDs registered before 2026-02-11 were grandfathered onto the
         entity-specific endpoints, so when `/me/library` is unavailable to this
         client (see `LIBRARY_FALLBACK_STATUSES`) `legacy_call(token)` runs once
@@ -264,7 +271,7 @@ class SpotifyMusicProvider(MusicProvider):
             r = requests.put(
                 f"{API_BASE}/me/library",
                 headers={"Authorization": f"Bearer {token}"},
-                json={"uris": [uri]},
+                params={"uris": uri},
                 timeout=5,
             )
             if 200 <= r.status_code < 300:

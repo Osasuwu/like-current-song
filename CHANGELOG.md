@@ -12,6 +12,17 @@ still the only option for the desktop half.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Liking a track works again for newly registered Spotify Client IDs.**
+  Every write to Spotify's library — liking the current track and following an
+  artist — failed with an API error (HTTP 400) unless your Client ID was old
+  enough to still be served by the endpoints Spotify replaced in February 2026.
+  The list of things to save was being sent in the request body when Spotify
+  expects it in the query string, so the request never carried it. Affects the
+  Android app and the desktop half alike. Failed library writes now also quote
+  Spotify's own explanation in the log instead of only a status code.
+
 ### Changed
 
 - **The "best-of" playlist rule is now just "best".** "Best of" reads like it

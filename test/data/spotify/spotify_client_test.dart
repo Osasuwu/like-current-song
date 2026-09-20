@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:like_spotify_mobile_app/data/spotify/spotify_client.dart';
@@ -496,17 +494,15 @@ void main() {
           accessToken: 'my_token',
         );
 
+        // No Content-Type: the request carries no body at all.
         verify(() => mockHttpClient.put(
               any(),
-              headers: {
-                'Authorization': 'Bearer my_token',
-                'Content-Type': 'application/json',
-              },
+              headers: {'Authorization': 'Bearer my_token'},
               body: any(named: 'body'),
             )).called(1);
       });
 
-      test('sends the track URI to the generic /me/library endpoint', () async {
+      test('sends the track URI in the /me/library query string', () async {
         final requests = _recordPuts(mockHttpClient, (_) => http.Response('', 200));
 
         await client.likeTrack(
@@ -515,18 +511,24 @@ void main() {
         );
 
         expect(requests, hasLength(1));
-        expect(requests.single.uri.toString(), endsWith('/me/library'));
+        expect(requests.single.uri.path, endsWith('/me/library'));
+        // `uris` is a query parameter. A JSON body gets a 400 (#150).
         expect(
-          jsonDecode(requests.single.body as String),
-          equals({
-            'uris': ['spotify:track:my_track_123'],
-          }),
+          requests.single.uri.queryParameters['uris'],
+          equals('spotify:track:my_track_123'),
+        );
+        expect(requests.single.body, isNull);
+        // The URI's colons are percent-encoded on the wire, as the reference
+        // page's own example shows.
+        expect(
+          requests.single.uri.query,
+          equals('uris=spotify%3Atrack%3Amy_track_123'),
         );
       });
     });
 
     group('followArtists', () {
-      test('sends artist URIs to the generic /me/library endpoint', () async {
+      test('sends artist URIs in the /me/library query string', () async {
         final requests = _recordPuts(mockHttpClient, (_) => http.Response('', 200));
 
         await client.followArtists(
@@ -535,13 +537,53 @@ void main() {
         );
 
         expect(requests, hasLength(1));
-        expect(requests.single.uri.toString(), endsWith('/me/library'));
+        expect(requests.single.uri.path, endsWith('/me/library'));
+        // A comma-separated list in the query string, never a JSON body.
         expect(
-          jsonDecode(requests.single.body as String),
-          equals({
-            'uris': ['spotify:artist:artist_a', 'spotify:artist:artist_b'],
-          }),
+          requests.single.uri.queryParameters['uris'],
+          equals('spotify:artist:artist_a,spotify:artist:artist_b'),
         );
+        expect(requests.single.body, isNull);
+      });
+
+      test('splits more than 40 URIs across requests', () async {
+        final requests = _recordPuts(mockHttpClient, (_) => http.Response('', 200));
+
+        final artistIds = List<String>.generate(41, (i) => 'artist_$i');
+        await client.followArtists('token', artistIds: artistIds);
+
+        // 40 is the documented maximum per request.
+        expect(requests, hasLength(2));
+        expect(
+          requests.first.uri.queryParameters['uris']!.split(','),
+          equals(artistIds.take(40).map((id) => 'spotify:artist:$id').toList()),
+        );
+        expect(
+          requests.last.uri.queryParameters['uris'],
+          equals('spotify:artist:artist_40'),
+        );
+        expect(requests.every((r) => r.body == null), isTrue);
+      });
+
+      test('a failing chunk fails the whole call and stops the rest', () async {
+        final requests = _recordPuts(
+          mockHttpClient,
+          (uri) => uri.queryParameters['uris']!.contains('artist_40')
+              ? http.Response('{"error":{"message":"nope"}}', 400)
+              : http.Response('', 200),
+        );
+
+        await expectLater(
+          () => client.followArtists(
+            'token',
+            artistIds: List<String>.generate(81, (i) => 'artist_$i'),
+          ),
+          throwsA(isA<SpotifyApiException>()
+              .having((e) => e.statusCode, 'statusCode', 400)),
+        );
+
+        // The third chunk is never sent, and no legacy retry happens.
+        expect(requests, hasLength(2));
       });
 
       test('falls back to PUT /me/following when /me/library is unavailable',
@@ -574,7 +616,7 @@ void main() {
           throwsA(isA<SpotifyApiException>()
               .having((e) => e.statusCode, 'statusCode', 404)
               .having((e) => e.message, 'message',
-                  'Spotify follow artists failed')),
+                  'Spotify follow artists failed: Gone')),
         );
       });
     });
@@ -591,7 +633,7 @@ void main() {
         await client.likeTrack(trackId: 'trk', accessToken: 'token');
 
         expect(requests, hasLength(2));
-        expect(requests.first.uri.toString(), endsWith('/me/library'));
+        expect(requests.first.uri.path, endsWith('/me/library'));
         expect(requests.last.uri.toString(), endsWith('/me/tracks?ids=trk'));
         // The legacy endpoint takes IDs in the query string, not a JSON body.
         expect(requests.last.body, isNull);
@@ -658,7 +700,34 @@ void main() {
           () => client.likeTrack(trackId: 'trk2', accessToken: 'token'),
           throwsA(isA<SpotifyApiException>()),
         );
-        expect(requests.first.uri.toString(), endsWith('/me/library'));
+        expect(requests.first.uri.path, endsWith('/me/library'));
+      });
+
+      test('never retries on 400 Bad Request, and carries the body', () async {
+        final requests = _recordPuts(
+          mockHttpClient,
+          (_) => http.Response(
+            '{"error":{"status":400,"message":"Invalid uris"}}',
+            400,
+          ),
+        );
+
+        await expectLater(
+          () => client.likeTrack(trackId: 'trk', accessToken: 'token'),
+          throwsA(isA<SpotifyApiException>()
+              .having((e) => e.statusCode, 'statusCode', 400)
+              .having(
+                (e) => e.message,
+                'message',
+                'Spotify like track failed: '
+                    '{"error":{"status":400,"message":"Invalid uris"}}',
+              )),
+        );
+
+        // 400 means our own payload is wrong; the legacy endpoint cannot fix
+        // that, so it must not be tried.
+        expect(requests, hasLength(1));
+        expect(requests.single.uri.path, endsWith('/me/library'));
       });
 
       test('never retries on 429 Too Many Requests', () async {
@@ -672,7 +741,7 @@ void main() {
         );
 
         expect(requests, hasLength(1));
-        expect(requests.single.uri.toString(), endsWith('/me/library'));
+        expect(requests.single.uri.path, endsWith('/me/library'));
       });
 
       test('never retries on 500 Server Error', () async {
