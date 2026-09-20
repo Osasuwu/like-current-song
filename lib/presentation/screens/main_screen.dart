@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/entities/like_result.dart';
+import '../../domain/entities/music_provider.dart';
 import '../state/app_providers.dart';
 import '../widgets/app_drawer.dart';
 
@@ -46,7 +47,11 @@ class MainScreen extends ConsumerWidget {
             if (state.pendingLikesCount > 0) ...<Widget>[
               const SizedBox(height: 8),
               Text(
-                '${state.pendingLikesCount} like(s) queued — will retry when online',
+                // The queue is Spotify-only — YouTube Music likes are never
+                // queued — so under YouTube Music it waits for the switch back.
+                state.musicProvider == MusicProvider.spotify
+                    ? '${state.pendingLikesCount} like(s) queued — will retry when online'
+                    : '${state.pendingLikesCount} Spotify like(s) queued — will retry when Spotify is selected',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Theme.of(context).colorScheme.outline,
                     ),
