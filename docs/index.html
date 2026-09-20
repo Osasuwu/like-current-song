@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Like Current Song</title>
+<meta name="description" content="Like the song you are hearing without unlocking the phone — an open-source Android app and desktop tool for Spotify and YouTube Music.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <h1>Like Current Song</h1>
+  <p class="tagline">Like the song you are hearing without unlocking your phone.</p>
+</header>
+
+<nav>
+  <a href="index.html">Home</a>
+  <a href="privacy.html">Privacy</a>
+  <a href="terms.html">Terms</a>
+  <a href="https://github.com/Osasuwu/like-current-song">Source</a>
+</nav>
+
+<main>
+
+<p>
+  Like Current Song is a free and open-source project in two halves. On Android it
+  watches for a media-button pattern — a quick pause-play on your headphones, for
+  example — and saves whatever is playing to your library. On Windows a small desktop
+  tool does the same from a tray icon and a global hotkey; on macOS and Linux it
+  currently ships as a one-shot command you run yourself, <code>like-current-song
+  like-once</code>.
+</p>
+
+<p>
+  It works with <strong>Spotify</strong> and <strong>YouTube Music</strong>. Optional
+  extras can also remove the song from an archive playlist, add it to a best-of
+  playlist, and follow the artist.
+</p>
+
+<h2>Get it</h2>
+
+<p>
+  There is no app-store listing. Everything lives on GitHub, and you build or install it
+  yourself:
+</p>
+
+<ul>
+  <li><a href="https://github.com/Osasuwu/like-current-song">Source code and build instructions</a></li>
+  <li><a href="https://github.com/Osasuwu/like-current-song/blob/main/README.md#quick-start">Setup guide</a> — connecting Spotify or YouTube Music</li>
+  <li><a href="https://github.com/Osasuwu/like-current-song/issues">Issue tracker</a> — bugs and feature requests</li>
+</ul>
+
+<h2>Bring your own credentials</h2>
+
+<p>
+  The project does not ship shared API keys. Both Spotify and Google require each
+  person to register their own application, so the setup guide walks you through
+  creating one and pasting the client ID into the app. Those credentials stay on your
+  device.
+</p>
+
+<h2>Licence and contact</h2>
+
+<p>
+  Released under the MIT licence. The project is maintained by Osasuwu; questions,
+  bug reports and contributions go through the
+  <a href="https://github.com/Osasuwu/like-current-song/issues">issue tracker</a>.
+  Security problems should be reported privately, as described in
+  <a href="https://github.com/Osasuwu/like-current-song/blob/main/SECURITY.md">SECURITY.md</a>.
+</p>
+
+</main>
+
+<footer>
+  <p>Like Current Song · MIT licence · not affiliated with Spotify AB or Google LLC.</p>
+</footer>
+
+</body>
+</html>
