@@ -36,6 +36,15 @@ still the only option for the desktop half.
 
 ### Fixed
 
+- **Android: the trigger configuration screen no longer takes an empty
+  pattern.** Clearing the *Pattern* field — or leaving only commas and spaces
+  in it — saved a trigger with no events in it, and the background listener
+  then matched nothing: pause-play quietly stopped liking anything, with
+  nothing on screen to say why. Saving one is now refused with a message
+  naming what is missing, and the in-app matcher, which read the same empty
+  pattern as "match every play and pause", now agrees with the listener that
+  it means "no trigger configured".
+
 - **Liking a track works again for newly registered Spotify Client IDs.**
   Every write to Spotify's library — liking the current track and following an
   artist — failed with an API error (HTTP 400) unless your Client ID was old
