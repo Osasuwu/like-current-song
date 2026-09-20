@@ -18,6 +18,7 @@ import '../../domain/entities/music_service_exceptions.dart';
 import '../../domain/entities/pending_like.dart';
 import '../../domain/entities/rule_config.dart';
 import '../../domain/entities/spotify_auth_state.dart';
+import '../../domain/entities/supabase_config.dart';
 import '../../domain/entities/track_info.dart';
 import '../../domain/entities/trigger_config.dart';
 import '../../domain/repositories/music_routing_repository.dart';
@@ -33,13 +34,13 @@ class AppController extends StateNotifier<AppState> {
     required MusicServiceRepository musicServiceRepository,
     required MusicRoutingRepository musicRoutingRepository,
     required AppLinks appLinks,
-    this.supabaseUrl = '',
-    this.supabaseAnonKey = '',
+    required Future<SupabaseConfig> Function() readSupabaseConfig,
   })  : _settingsRepository = settingsRepository,
         _platformServiceRepository = platformServiceRepository,
         _musicServiceRepository = musicServiceRepository,
         _musicRoutingRepository = musicRoutingRepository,
         _appLinks = appLinks,
+        _readSupabaseConfig = readSupabaseConfig,
         super(
           AppState.initial(
             const TriggerConfig(
@@ -61,8 +62,10 @@ class AppController extends StateNotifier<AppState> {
   final MusicServiceRepository _musicServiceRepository;
   final MusicRoutingRepository _musicRoutingRepository;
   final AppLinks _appLinks;
-  final String supabaseUrl;
-  final String supabaseAnonKey;
+
+  /// The shared counter's project, read at startup rather than held: it is
+  /// entered in *Connected services*, so there is nothing to pass in.
+  final Future<SupabaseConfig> Function() _readSupabaseConfig;
 
   StreamSubscription<Map<String, dynamic>>? _nativeEventsSub;
   StreamSubscription<Uri>? _linkSub;
@@ -91,9 +94,10 @@ class AppController extends StateNotifier<AppState> {
       await _platformServiceRepository.updateMusicRoutingMode(routingMode);
       await _platformServiceRepository.updateTriggerConfig(config);
       await _platformServiceRepository.updateRuleConfig(ruleConfig);
+      final supabase = await _readSupabaseConfig();
       await _platformServiceRepository.syncSupabaseConfig(
-        supabaseUrl: supabaseUrl,
-        supabaseAnonKey: supabaseAnonKey,
+        supabaseUrl: supabase.url,
+        supabaseAnonKey: supabase.anonKey,
       );
 
       state = state.copyWith(

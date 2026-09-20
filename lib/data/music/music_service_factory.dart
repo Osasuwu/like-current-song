@@ -7,7 +7,7 @@ import '../../domain/repositories/music_service_repository.dart';
 import '../../domain/repositories/platform_service_repository.dart';
 import '../../domain/repositories/settings_repository.dart';
 import '../../domain/services/like_counter_user_id.dart';
-import '../likes/shared_prefs_like_count_repository.dart';
+import '../likes/supabase_config_store.dart';
 import '../likes/supabase_like_count_repository.dart';
 import '../spotify/spotify_client.dart';
 import '../spotify/spotify_music_service_repository.dart';
@@ -17,59 +17,43 @@ import '../ytmusic/ytmusic_music_service_repository.dart';
 import '../ytmusic/ytmusic_token_store.dart';
 import 'active_music_service_repository.dart';
 
-/// Build-time credentials for the music services and the shared counter.
-class MusicServiceConfig {
-  const MusicServiceConfig({
-    required this.spotifyClientId,
-    required this.spotifyRedirectUri,
-    this.supabaseUrl = '',
-    this.supabaseAnonKey = '',
-  });
-
-  final String spotifyClientId;
-  final String spotifyRedirectUri;
-  final String supabaseUrl;
-  final String supabaseAnonKey;
-
-  bool get hasSupabase => supabaseUrl.isNotEmpty && supabaseAnonKey.isNotEmpty;
-}
-
 /// Wires one repository per [MusicProvider] behind an
 /// [ActiveMusicServiceRepository], which owns the routing rule.
 ///
 /// This is the only place that knows the concrete music-service classes; a
 /// new service is added by registering its repository here.
+///
+/// The stores come in rather than being built here, because *Connected
+/// services* writes to the same two instances the repositories read from.
 ActiveMusicServiceRepository createMusicServiceRepository({
-  required MusicServiceConfig config,
   required SettingsRepository settingsRepository,
   required PlatformServiceRepository platformServiceRepository,
   required MusicServiceRepository youTubeMusic,
+  required SpotifyTokenStore spotifyTokenStore,
+  required SupabaseConfigStore supabaseConfigStore,
 }) {
   // SupabaseLikeCountRepository reads cachedUserId lazily at increment time,
   // so null on first call just falls back to local.
   late final SpotifyMusicServiceRepository spotify;
 
-  final LikeCountRepository likeCountRepository = config.hasSupabase
-      ? SupabaseLikeCountRepository(
-          supabaseUrl: config.supabaseUrl,
-          supabaseAnonKey: config.supabaseAnonKey,
-          // Only Spotify likes go through this repository; YouTube Music
-          // likes are counted natively (YouTubeMusicLiker.kt) under the `sub`.
-          userIdGetter: () => likeCounterUserId(
-            MusicProvider.spotify,
-            spotifyUserId: spotify.cachedUserId,
-          ),
-        )
-      : SharedPrefsLikeCountRepository();
+  // Always the Supabase-backed repository: the project can be configured
+  // while the app runs, and with none configured it counts locally anyway.
+  final LikeCountRepository likeCountRepository = SupabaseLikeCountRepository(
+    readConfig: supabaseConfigStore.read,
+    // Only Spotify likes go through this repository; YouTube Music likes are
+    // counted natively (YouTubeMusicLiker.kt) under the `sub`.
+    userIdGetter: () => likeCounterUserId(
+      MusicProvider.spotify,
+      spotifyUserId: spotify.cachedUserId,
+    ),
+  );
 
   spotify = SpotifyMusicServiceRepository(
     spotifyClient: SpotifyClient(http.Client()),
-    tokenStore: SpotifyTokenStore(const FlutterSecureStorage()),
+    tokenStore: spotifyTokenStore,
     platformServiceRepository: platformServiceRepository,
     likeCountRepository: likeCountRepository,
     settingsRepository: settingsRepository,
-    clientId: config.spotifyClientId,
-    redirectUri: config.spotifyRedirectUri,
   );
 
   return ActiveMusicServiceRepository(

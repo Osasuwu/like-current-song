@@ -108,20 +108,33 @@ on the API calls afterwards. Add the account, then reconnect in the app.
 ### 2. Android
 
 ```bash
-# Clone and setup
 git clone https://github.com/Osasuwu/like-current-song.git
 cd like-current-song
+flutter pub get
+flutter build apk --release
+```
 
-# Configure
+Install the APK, then open *Connected services* and paste the Client ID from
+step 1 into **Spotify credentials** → *Save client ID*. The redirect URI to add
+in the dashboard is shown right there, with a copy button. **Connect Spotify**
+turns on once the ID is saved. Then enable the listener service.
+
+The client ID lives in the app's encrypted storage, so it survives updates and
+a disconnect — you type it once, not once per build.
+
+**Building with your credentials baked in (optional).** If you flash the app
+often, or hand builds to the four other people on your allowlist, you can seed
+the credentials at build time instead:
+
+```bash
 cp .env.example .env
 # Edit .env — set SPOTIFY_CLIENT_ID (and optionally SUPABASE_URL/KEY)
-
-# Build
-flutter pub get
 flutter build apk --release --dart-define-from-file=.env
 ```
 
-Install the APK, connect Spotify in the app, enable the listener service.
+Those values only ever fill a field the app has never been told about. Anything
+saved in *Connected services* wins from then on, and clearing a field keeps it
+clear — a rebuild will not put the old value back.
 
 #### YouTube Music (Android)
 
@@ -352,7 +365,11 @@ Counters live in Supabase Postgres (free tier).
    ALTER TABLE public.track_likes ENABLE ROW LEVEL SECURITY;
    CREATE POLICY "anon_full_access" ON public.track_likes FOR ALL USING (true) WITH CHECK (true);
    ```
-3. Android: add `SUPABASE_URL` and `SUPABASE_ANON_KEY` to `.env`. Desktop: paste both into the wizard when prompted for the `supabase` backend.
+3. Android: open *Connected services* → **Shared like counter (optional)** and
+   paste the project URL and anon key there (or put `SUPABASE_URL` and
+   `SUPABASE_ANON_KEY` in `.env` if you build your own APK). Leave both blank
+   to keep counts on the device. Desktop: paste both into the wizard when
+   prompted for the `supabase` backend.
 
 #### Option B — Google Sheets
 
@@ -402,9 +419,10 @@ settings window (`like-current-song --settings`, or **Settings…** in the tray 
 | Archive playlist name | In-app UI | `~/.like_spotify/config.json` → `actions.archive_remove.playlist_name` (blank = archive-remove disabled) |
 | Music service | In-app UI (Spotify / YouTube Music / Automatic) | `~/.like_spotify/config.json` → `music.provider` (`spotify` / `ytmusic`, default `spotify`) |
 | YouTube Music tokens | n/a (planned) | `~/.like_spotify/youtube_token.json` (refreshed automatically) |
-| Spotify client_id | `.env` (`SPOTIFY_CLIENT_ID`) | `like-current-song --setup` → `~/.like_spotify/config.json` |
+| Spotify client_id | In-app UI (*Connected services*), stored in `FlutterSecureStorage`; `.env` (`SPOTIFY_CLIENT_ID`) seeds a build | `like-current-song --setup` → `~/.like_spotify/config.json` |
 | Spotify tokens | `FlutterSecureStorage` | `~/.like_spotify/spotify_token.json` |
-| Storage backend | (Supabase only) | `~/.like_spotify/config.json` → `storage.backend` (`supabase` / `sheets` / `none`) |
+| Supabase URL / anon key | In-app UI (*Connected services*), stored in `FlutterSecureStorage`; `.env` (`SUPABASE_URL`, `SUPABASE_ANON_KEY`) seeds a build | `like-current-song --setup` → `~/.like_spotify/config.json` |
+| Storage backend | (Supabase only; blank = counts stay on the device) | `~/.like_spotify/config.json` → `storage.backend` (`supabase` / `sheets` / `none`) |
 | Google Sheets tokens | n/a | `~/.like_spotify/google_token.json` (refreshed automatically) |
 | Best-of / follow | In-app UI | `~/.like_spotify/config.json` → `actions.{promote_to_best_of,follow_artist}` |
 
