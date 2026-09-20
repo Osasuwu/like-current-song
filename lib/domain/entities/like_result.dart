@@ -9,6 +9,10 @@ class LikeResult {
   final String? errorMessage;
   final bool skippedCooldown;
 
+  /// The service already had the track liked, so nothing changed. Counts as
+  /// a success: the song is liked, which is what the user asked for.
+  final bool alreadyLiked;
+
   const LikeResult({
     required this.trackId,
     required this.trackName,
@@ -19,6 +23,7 @@ class LikeResult {
     this.trackLikeCount = 0,
     this.errorMessage,
     this.skippedCooldown = false,
+    this.alreadyLiked = false,
   });
 
   bool get success => trackLiked && errorMessage == null;

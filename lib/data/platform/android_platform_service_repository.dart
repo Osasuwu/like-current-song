@@ -141,6 +141,31 @@ class AndroidPlatformServiceRepository implements PlatformServiceRepository {
   }
 
   @override
+  Future<void> syncYouTubeMusicTokens({
+    required String accessToken,
+    required String refreshToken,
+    required int expiresAtEpochMs,
+    required String clientId,
+    required String clientSecret,
+    String? userSub,
+  }) async {
+    await _methodChannel
+        .invokeMethod<void>('syncYouTubeMusicTokens', <String, dynamic>{
+      'accessToken': accessToken,
+      'refreshToken': refreshToken,
+      'expiresAtEpochMs': expiresAtEpochMs,
+      'clientId': clientId,
+      'clientSecret': clientSecret,
+      'userSub': userSub,
+    });
+  }
+
+  @override
+  Future<void> clearYouTubeMusicTokens() async {
+    await _methodChannel.invokeMethod<void>('clearYouTubeMusicTokens');
+  }
+
+  @override
   Future<void> syncSupabaseConfig({
     required String supabaseUrl,
     required String supabaseAnonKey,
@@ -156,5 +181,12 @@ class AndroidPlatformServiceRepository implements PlatformServiceRepository {
     await _methodChannel.invokeMethod<void>('playFeedbackTone', <String, dynamic>{
       'success': success,
     });
+  }
+
+  @override
+  Future<Map<String, dynamic>> likeYouTubeMusicCurrentTrack() async {
+    final result =
+        await _methodChannel.invokeMapMethod<String, dynamic>('likeYouTubeMusic');
+    return result ?? const <String, dynamic>{'outcome': 'failed'};
   }
 }

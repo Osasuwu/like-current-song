@@ -31,9 +31,31 @@ abstract class PlatformServiceRepository {
     required int expiresAtEpochSec,
     required String clientId,
   });
+
+  /// Hands YouTube Music's Google tokens to the native side, which uses and
+  /// refreshes them in the background (writing refreshed tokens back itself).
+  Future<void> syncYouTubeMusicTokens({
+    required String accessToken,
+    required String refreshToken,
+    required int expiresAtEpochMs,
+    required String clientId,
+    required String clientSecret,
+    String? userSub,
+  });
+
+  /// Removes YouTube Music's tokens from the native side (sign-out).
+  Future<void> clearYouTubeMusicTokens();
+
   Future<void> syncSupabaseConfig({
     required String supabaseUrl,
     required String supabaseAnonKey,
   });
   Future<void> playFeedbackTone({required bool success});
+
+  /// Likes the song playing in the YouTube Music app, natively: the media
+  /// session's thumbs-up first, the YouTube Data API as fallback.
+  ///
+  /// Returns `outcome` (`liked` | `already_liked` | `cooldown` | `failed`),
+  /// `trackName`, and on failure `message` and optionally `httpCode`.
+  Future<Map<String, dynamic>> likeYouTubeMusicCurrentTrack();
 }

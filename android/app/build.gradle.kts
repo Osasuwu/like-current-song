@@ -40,6 +40,10 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.10.1")
     implementation("androidx.media:media:1.7.0")
     implementation("androidx.localbroadcastmanager:localbroadcastmanager:1.1.0")
+
+    testImplementation("junit:junit:4.13.2")
+    // android.jar's org.json is a stub under local unit tests; use the real one.
+    testImplementation("org.json:json:20240303")
 }
 
 flutter {

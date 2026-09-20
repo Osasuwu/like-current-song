@@ -4,12 +4,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/music/music_service_factory.dart';
 import '../../data/platform/android_platform_service_repository.dart';
 import '../../data/settings/shared_prefs_settings_repository.dart';
+import '../../data/ytmusic/ytmusic_music_service_repository.dart';
+import '../../domain/repositories/device_sign_in_repository.dart';
 import '../../domain/repositories/music_service_repository.dart';
 import '../../domain/repositories/platform_service_repository.dart';
 import '../../domain/repositories/settings_repository.dart';
 import '../../domain/services/signal_pattern_matcher.dart';
 import 'app_controller.dart';
 import 'app_state.dart';
+import 'ytmusic_sign_in_controller.dart';
 
 const _redirectUri = String.fromEnvironment(
   'SPOTIFY_REDIRECT_URI',
@@ -27,6 +30,17 @@ final platformServiceRepositoryProvider = Provider<PlatformServiceRepository>(
   (ref) => AndroidPlatformServiceRepository(),
 );
 
+final youTubeMusicRepositoryProvider = Provider<YouTubeMusicServiceRepository>(
+  (ref) => createYouTubeMusicRepository(
+    platformServiceRepository: ref.read(platformServiceRepositoryProvider),
+  ),
+);
+
+/// YouTube Music's device-code sign-in, driven by Connected services.
+final deviceSignInRepositoryProvider = Provider<DeviceSignInRepository>(
+  (ref) => ref.read(youTubeMusicRepositoryProvider),
+);
+
 final musicServiceRepositoryProvider = Provider<MusicServiceRepository>(
   (ref) => createMusicServiceRepository(
     config: const MusicServiceConfig(
@@ -37,6 +51,7 @@ final musicServiceRepositoryProvider = Provider<MusicServiceRepository>(
     ),
     settingsRepository: ref.read(settingsRepositoryProvider),
     platformServiceRepository: ref.read(platformServiceRepositoryProvider),
+    youTubeMusic: ref.read(youTubeMusicRepositoryProvider),
   ),
 );
 
@@ -56,4 +71,15 @@ final appControllerProvider =
     supabaseUrl: _supabaseUrl,
     supabaseAnonKey: _supabaseAnonKey,
   );
+});
+
+final youTubeMusicSignInControllerProvider = StateNotifierProvider.autoDispose<
+    YouTubeMusicSignInController, YouTubeMusicSignInState>((ref) {
+  final controller = YouTubeMusicSignInController(
+    signInRepository: ref.read(deviceSignInRepositoryProvider),
+    onSignedIn: () =>
+        ref.read(appControllerProvider.notifier).onMusicServiceSignedIn(),
+  );
+  controller.load();
+  return controller;
 });
