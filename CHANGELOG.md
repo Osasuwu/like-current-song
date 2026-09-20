@@ -55,8 +55,6 @@ still the only option for the desktop half.
   before its first press is seeded at 2 and flagged `backfilled`, the same rule
   the desktop half uses.
 
-### Removed
-
 - **Desktop: the Supabase counter backend.** Google Sheets is now the only
   way to count likes across devices, and `like-current-song --setup` offers
   `sheets` or `none`. Supabase was a database to stand up and maintain for a
