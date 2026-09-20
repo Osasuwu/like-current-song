@@ -384,7 +384,8 @@ class AppController extends StateNotifier<AppState> {
   }
 
   /// Log line for a like that went through. The "(xN)" counter is shown only
-  /// when the service keeps one (YouTube Music has none yet).
+  /// when the like was counted (YouTube Music counts only while signed in
+  /// with a shared counter configured).
   static String _likedMessage(LikeResult result) {
     if (result.alreadyLiked) return 'Already liked: ${result.trackName}';
     if (result.trackLikeCount > 0) {

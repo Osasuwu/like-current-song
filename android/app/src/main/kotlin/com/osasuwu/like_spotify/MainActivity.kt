@@ -260,7 +260,10 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 					wakeLock.acquire(YTM_LIKE_WAKE_LOCK_MS)
 					ytmLikeExecutor.execute {
 						val reply = try {
-							YouTubeMusicLiker(appContext).like().toChannelMap()
+							val liker = YouTubeMusicLiker(appContext)
+							val liked = liker.like()
+							// A counter failure never turns the like into a failure.
+							runCatching { liker.count(liked) }.getOrDefault(liked).toChannelMap()
 						} catch (e: Exception) {
 							mapOf("outcome" to "failed", "message" to (e.message ?: "unexpected error"))
 						} finally {

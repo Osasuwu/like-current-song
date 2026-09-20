@@ -12,6 +12,7 @@ import '../../domain/entities/track_info.dart';
 import '../../domain/repositories/device_sign_in_repository.dart';
 import '../../domain/repositories/music_service_repository.dart';
 import '../../domain/repositories/platform_service_repository.dart';
+import '../../domain/services/like_counter_user_id.dart';
 import 'google_oauth_client.dart';
 import 'ytmusic_token_store.dart';
 
@@ -331,7 +332,8 @@ class YouTubeMusicServiceRepository
       expiresAtEpochMs: tokens.expiresAt.millisecondsSinceEpoch,
       clientId: credentials.clientId,
       clientSecret: credentials.clientSecret,
-      userSub: tokens.userSub,
+      // The native liker keys the shared like counter with this id (#96).
+      userSub: likeCounterUserId(_provider, youTubeMusicSub: tokens.userSub),
     );
   }
 
@@ -369,15 +371,25 @@ class YouTubeMusicServiceRepository
   Future<LikeResult> likeCurrentTrack() async {
     final reply = await _platform.likeYouTubeMusicCurrentTrack();
     final trackName = reply['trackName'] as String? ?? _provider.displayName;
+    // The shared counter's new value; absent when the like was not counted
+    // (not signed in, no shared counter, or the counter did not answer).
+    final likeCount = reply['likeCount'];
+    final trackLikeCount = likeCount is int ? likeCount : 0;
     switch (reply['outcome']) {
       case 'liked':
-        return LikeResult(trackId: '', trackName: trackName, trackLiked: true);
+        return LikeResult(
+          trackId: '',
+          trackName: trackName,
+          trackLiked: true,
+          trackLikeCount: trackLikeCount,
+        );
       case 'already_liked':
         return LikeResult(
           trackId: '',
           trackName: trackName,
           trackLiked: true,
           alreadyLiked: true,
+          trackLikeCount: trackLikeCount,
         );
       case 'cooldown':
         return LikeResult(
