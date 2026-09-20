@@ -132,7 +132,9 @@ Kotlin:
 - Framework: plain JUnit under `android/app/src/test/kotlin/` — no emulator, no
   Robolectric, so anything covered has to be reachable without an Android API
 - Run: `flutter build apk --debug --config-only` once (it writes the gitignored
-  `android/gradlew`), then `cd android && ./gradlew :app:testDebugUnitTest`
+  `android/gradlew`), then `cd android && ./gradlew :app:testDebugUnitTest`.
+  A direct `gradlew` run needs `JAVA_HOME` on a JDK the AGP accepts (17 in CI);
+  never pin it with `org.gradle.java.home` in the committed `gradle.properties`
 - `MediaEventPatternDetector` is the Kotlin twin of the Dart
   `SignalPatternMatcher`; the two test files mirror each other on purpose
 

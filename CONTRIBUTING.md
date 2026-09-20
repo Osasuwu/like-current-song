@@ -454,7 +454,16 @@ cd android && ./gradlew :app:testDebugUnitTest --tests '*MediaEventPatternDetect
 ```
 
 `android/gradlew` is gitignored — Flutter generates it — so the config step
-comes first on a fresh clone. The HTML report of a failed run is written to
+comes first on a fresh clone. Calling `./gradlew` directly bypasses Flutter's
+JDK resolution, so `JAVA_HOME` has to point at a JDK the Android Gradle Plugin
+accepts (17 is what CI uses; Android Studio's bundled `jbr` works too). If it
+points at something newer, the build fails with just the version number as the
+message. Do not fix that by putting `org.gradle.java.home` in
+`android/gradle.properties` — that file is committed, and a machine-specific
+path there breaks every other checkout, CI included. `~/.gradle/gradle.properties`
+is the place for a local override.
+
+The HTML report of a failed run is written to
 `build/app/reports/tests/testDebugUnitTest/index.html`. `MediaEventPatternDetector`
 is the Kotlin twin of the Dart `SignalPatternMatcher`, and its tests
 deliberately mirror `test/domain/services/signal_pattern_matcher_test.dart`:
