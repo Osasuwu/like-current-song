@@ -13,7 +13,7 @@ Spotify/Supabase credentials (see [README](README.md)).
 ### Added
 
 - **Desktop: settings window** ([#100](https://github.com/Osasuwu/like-current-song/issues/100)).
-  `like-spotify --settings`, or **Settings…** in the Windows tray menu, opens
+  `like-current-song --settings`, or **Settings…** in the Windows tray menu, opens
   a window that covers everything `--setup` does. That includes the music
   service and account sign-in, hotkeys, sound volume, counter storage and
   autostart. A collapsed **Extra actions** section holds archive clean-up,
@@ -25,7 +25,7 @@ Spotify/Supabase credentials (see [README](README.md)).
   open the window instead of only pointing at `--setup`. Built on the
   standard-library tkinter, so there's no new dependency.
 - **Desktop: YouTube Music support (beta, Windows).** Pick "Music service" →
-  `ytmusic` in `like-spotify --setup`. The hotkey likes whatever is playing in
+  `ytmusic` in `like-current-song --setup`. The hotkey likes whatever is playing in
   the YT Music tab or app: now-playing comes from the Windows media session, the
   song is matched through the YouTube Data API, and the like lands in YT Music's
   Liked music. You bring your own Google OAuth client; see
