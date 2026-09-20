@@ -167,6 +167,19 @@ Spotify/Supabase credentials (see [README](README.md)).
 
 ### Documentation
 
+- **Project home page, privacy policy and terms published**
+  ([#126](https://github.com/Osasuwu/like-current-song/issues/126)). Three
+  static pages under `docs/`, served by GitHub Pages at
+  <https://osasuwu.github.io/like-current-song/>. Google requires all three,
+  on a verified domain, before an OAuth app can leave Testing mode — which is
+  what limits YouTube Music sign-in to a 7-day refresh token today. The
+  privacy policy is written from the code rather than from a template: it
+  names every Spotify scope the app asks for, says plainly that the scope set
+  is fixed and requested in full at sign-in (the in-app toggles gate what the
+  app *does*, not what it is allowed to do), names both Google scopes
+  (`youtube` and `openid`) and what each is for, and describes the optional
+  shared counter as the only request that ever leaves the device.
+
 - **Setup docs corrected for the 2026 platform limits**
   ([#120](https://github.com/Osasuwu/like-current-song/issues/120),
   [#122](https://github.com/Osasuwu/like-current-song/issues/122),

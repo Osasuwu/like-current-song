@@ -69,12 +69,16 @@
 <ul>
   <li>The thumbs-up itself uses the media session that YouTube Music publishes on your
       phone. It needs <em>no</em> Google account and no sign-in.</li>
-  <li>If you choose to sign in, the app requests the single
-      <code>https://www.googleapis.com/auth/youtube</code> scope. It is used to look up
-      the playing song through the YouTube Data API and rate it; the same scope also
-      covers editing your own playlists and channel subscriptions, which happens only
-      when you switch on the optional extra actions. Nothing else is read or written,
-      and no other scope is requested.</li>
+  <li>If you choose to sign in, the app requests exactly two scopes, and no others:
+      <ul>
+        <li><code>https://www.googleapis.com/auth/youtube</code> — to look up the playing
+            song through the YouTube Data API and rate it. The same scope also covers
+            editing your own playlists and channel subscriptions, which happens only when
+            you switch on the optional extra actions.</li>
+        <li><code>openid</code> — to obtain the account identifier that the like counter
+            is keyed by, so a count follows you across your own devices. It gives the app
+            no access to your name, email address or profile.</li>
+      </ul></li>
 </ul>
 
 <h2>What is stored, and where</h2>
