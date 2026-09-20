@@ -44,7 +44,7 @@ PROVIDER_LABELS: dict[str, str] = {
     "spotify": "Spotify",
     "ytmusic": "YouTube Music (beta, Windows)",
 }
-STORAGE_BACKENDS: tuple[str, ...] = ("none", "supabase", "sheets")
+STORAGE_BACKENDS: tuple[str, ...] = ("none", "sheets")
 
 # One-line hints shown under each extra action in the window. Kept here so
 # the copy lives next to the defaults it describes.
@@ -76,8 +76,6 @@ class Settings:
     spotify_client_id: str = ""
 
     storage_backend: str = "none"
-    supabase_url: str = ""
-    supabase_anon_key: str = ""
     sheets_spreadsheet_id: str = ""
 
     hotkey: str = DEFAULT_HOTKEY
@@ -125,15 +123,15 @@ def _as_int(raw, default: int) -> int:
 
 
 def _infer_storage_backend(cfg: dict) -> str:
-    """The backend the window shows. Mirrors `_common.build_storage` minus
-    the env-var fallback (the window only edits what's in the file)."""
+    """The backend the window shows.
+
+    Mirrors `_common.build_storage`: anything that isn't a backend we still
+    ship — including a config left on a retired one — reads back as "none",
+    which is what the host does with it too. The user then picks Sheets (or
+    leaves the counter off) and saves.
+    """
     backend = _section(cfg, "storage").get("backend", "")
-    if backend in STORAGE_BACKENDS:
-        return backend
-    sb = _section(cfg, "supabase")
-    if not backend and sb.get("url") and sb.get("anon_key"):
-        return "supabase"
-    return "none"
+    return backend if backend in STORAGE_BACKENDS else "none"
 
 
 def is_fresh(cfg: dict) -> bool:
@@ -175,8 +173,6 @@ def settings_from_config(cfg: dict) -> Settings:
         provider=_common.resolve_provider_name(cfg),
         spotify_client_id=_section(cfg, "spotify").get("client_id", "") or "",
         storage_backend=_infer_storage_backend(cfg),
-        supabase_url=_section(cfg, "supabase").get("url", "") or "",
-        supabase_anon_key=_section(cfg, "supabase").get("anon_key", "") or "",
         sheets_spreadsheet_id=_section(cfg, "sheets").get("spreadsheet_id", "") or "",
         hotkey=trigger.get("hotkey") or DEFAULT_HOTKEY,
         remove_hotkey=trigger.get("remove_hotkey") or _common.DEFAULT_REMOVE_HOTKEY,
@@ -248,12 +244,6 @@ def validate(s: Settings) -> Validation:
 
     if s.storage_backend not in STORAGE_BACKENDS:
         err("storage_backend", f"Unknown storage backend '{s.storage_backend}'.")
-    elif s.storage_backend == "supabase":
-        url = s.supabase_url.strip()
-        if not url or not s.supabase_anon_key.strip():
-            err("supabase_url", "Supabase needs both the project URL and the anon key.")
-        elif not url.startswith(("https://", "http://")):
-            err("supabase_url", "Supabase URL should look like https://<ref>.supabase.co.")
     elif s.storage_backend == "sheets" and not s.sheets_spreadsheet_id.strip():
         err("sheets_spreadsheet_id", "Google Sheets needs the spreadsheet ID.")
 
@@ -313,6 +303,15 @@ def _ensure(cfg: dict, key: str) -> dict:
     return value
 
 
+def _retired_backend(cfg: dict) -> bool:
+    """Does `cfg` name a counter backend this build no longer ships?
+
+    A missing `storage` block, or one with no `backend` key, is not retired —
+    it is simply unset, and `apply_settings` leaves untouched keys untouched.
+    """
+    return _section(cfg, "storage").get("backend", "none") not in STORAGE_BACKENDS
+
+
 def _changed(s: Settings, baseline: Settings | None, *names: str) -> bool:
     if baseline is None:
         return True
@@ -337,14 +336,23 @@ def apply_settings(cfg: dict, s: Settings, baseline: Settings | None = None) -> 
     ):
         _ensure(out, "spotify")["client_id"] = s.spotify_client_id.strip()
 
-    if _changed(s, baseline, "storage_backend"):
+    # Baseline diffing is not enough for the backend: a config left on a
+    # retired backend reads back as "none" (`_infer_storage_backend`), so a
+    # user who opens the window and leaves the counter off changes nothing,
+    # nothing is written, and the stale name survives in `config.json` —
+    # `build_storage` would then print its retirement notice on every startup
+    # with no way out but `--setup`. So a name we no longer ship also forces
+    # the write. Invariant: one save from this window always leaves
+    # `storage.backend` set to a backend we still ship.
+    #
+    # The now-dead `supabase` block is deliberately left alone. `apply_settings`
+    # preserves keys it doesn't own — that is what lets an older or newer
+    # config survive a save — and the block holds a project URL and key the
+    # user pasted in by hand. Making the settings window the one place that
+    # quietly deletes a user's credentials is not worth the tidiness; it is
+    # inert either way, and the user can remove it themselves.
+    if _changed(s, baseline, "storage_backend") or _retired_backend(out):
         _ensure(out, "storage")["backend"] = s.storage_backend
-    if _changed(s, baseline, "supabase_url", "supabase_anon_key") and (
-        s.supabase_url or s.supabase_anon_key or "supabase" in out
-    ):
-        sb = _ensure(out, "supabase")
-        sb["url"] = s.supabase_url.strip()
-        sb["anon_key"] = s.supabase_anon_key.strip()
     if _changed(s, baseline, "sheets_spreadsheet_id") and (
         s.sheets_spreadsheet_id or "sheets" in out
     ):

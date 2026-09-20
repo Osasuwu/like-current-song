@@ -4,8 +4,8 @@
 the real Sheets `values.get / values.update / values.append` semantics
 just enough to drive the storage contract. The simulator is owned by
 this module — the contract-level invariants live in
-`tests/test_storage_contract.py` and run against both Supabase and
-Sheets impls.
+`tests/test_storage_contract.py`, which runs them against every shipped
+`Storage` impl.
 """
 
 from __future__ import annotations

@@ -40,25 +40,26 @@ support and no bug bounty.
 
 ## What is out of scope
 
-- **Extensions you install yourself.** Extension discovery loads and executes
-  Python from any folder placed under `like_spotify/extensions/`. This is by
-  design — it is a plugin framework. Installing an untrusted extension is
-  equivalent to running untrusted code; that is not a vulnerability in this
-  project.
+- **Extensions you install yourself.** An extension is Python that lives under
+  `like_spotify/extensions/` and is wired in by hand in
+  `like_spotify/hosts/_common.py`. This is by design — it is a plugin
+  framework. Installing an untrusted extension is equivalent to running
+  untrusted code; that is not a vulnerability in this project.
 - **Your own credentials in your own config.** `~/.like_spotify/config.json`
-  and `.env` hold your Spotify client ID and (optionally) a Supabase anon key.
-  They are stored in plaintext on your machine by design, protected by your OS
-  file permissions.
-- **The Supabase anon key.** It is a public-by-design key; the security boundary
-  is your Row Level Security policy. The permissive `anon_full_access` policy in
-  the README's quick start is a single-user convenience — tighten it if you
-  expose your project to anyone else.
-- Vulnerabilities in Spotify's own API, the Spotify client, or Supabase.
+  and `.env` hold the client ID of whichever music service you connected, and
+  the Google client ID and secret if you turned the like counter on. They are
+  stored in plaintext on your machine by design, protected by your OS file
+  permissions.
+- **Your Google Sheet.** The counter lives in a spreadsheet you own, reached
+  with your own OAuth credentials. Who else can read or write it is decided by
+  that sheet's sharing settings, which are yours to set.
+- Vulnerabilities in the music services' own APIs and clients (Spotify,
+  YouTube Music) or in Google Sheets.
 - Denial of service against your own machine.
 
 ## Credential hygiene
 
-This project never transmits your credentials anywhere except to Spotify,
-Supabase, or Google Sheets — the services you configured. There is no
+This project never transmits your credentials anywhere except to the music
+service and Google Sheets — the services you configured. There is no
 telemetry, no analytics, and no maintainer-operated backend. If you find
 otherwise, that is a report worth filing.

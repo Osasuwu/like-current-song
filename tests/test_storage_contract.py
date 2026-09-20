@@ -13,8 +13,10 @@ the abstraction promises:
     - get_count for a never-touched key → 0
     - get_count for an existing key → current count
 
-A regression on either impl that breaks the contract surfaces here
-*before* the impl-specific HTTP-shape tests catch it.
+A regression that breaks the contract surfaces here *before* the
+impl-specific HTTP-shape tests catch it. Google Sheets is currently the
+only shipped backend; the parametrization stays so a second impl joins by
+adding one fixture to `storage`.
 """
 
 from __future__ import annotations
@@ -27,7 +29,6 @@ import pytest
 from like_spotify.core.storage import Storage
 from like_spotify.core.types import CurrentTrack
 from like_spotify.extensions.google_sheets_storage import GoogleSheetsStorage
-from like_spotify.extensions.supabase_storage import SupabaseStorage
 
 
 # ── Fake backends ────────────────────────────────────────────────────────
@@ -41,48 +42,6 @@ class FakeResponse:
 
     def json(self) -> Any:
         return self.json_body
-
-
-class SupabaseSim:
-    """In-memory mirror of the Supabase RPCs + tables."""
-
-    def __init__(self) -> None:
-        self.rows: dict[tuple[str, str], dict] = {}
-        self.artist_rows: set[tuple[str, str, str]] = set()
-
-    def handle_post(self, url: str, **kw) -> FakeResponse:
-        body = kw.get("json", {})
-        if url.endswith("/rpc/increment_track_like"):
-            key = (body["p_user_id"], body["p_track_id"])
-            flag = bool(body.get("p_was_already_liked", False))
-            if key not in self.rows:
-                self.rows[key] = {
-                    "count": 2 if flag else 1,
-                    "backfilled": flag,
-                }
-            else:
-                self.rows[key]["count"] += 1
-            return FakeResponse(status_code=200, text=str(self.rows[key]["count"]))
-        if url.endswith("/rpc/record_artist_track"):
-            triple = (body["p_user_id"], body["p_artist_id"], body["p_track_id"])
-            self.artist_rows.add(triple)
-            count = sum(
-                1
-                for u, a, _t in self.artist_rows
-                if u == triple[0] and a == triple[1]
-            )
-            return FakeResponse(status_code=200, text=str(count))
-        return FakeResponse(status_code=404, text="unknown rpc")
-
-    def handle_get(self, url: str, **kw) -> FakeResponse:
-        params = kw.get("params") or {}
-        user = (params.get("user_id") or "").removeprefix("eq.")
-        track = (params.get("track_id") or "").removeprefix("eq.")
-        row = self.rows.get((user, track))
-        return FakeResponse(
-            status_code=200,
-            json_body=[{"count": row["count"]}] if row else [],
-        )
 
 
 class SheetsSim:
@@ -140,18 +99,6 @@ class SheetsSim:
 
 
 @pytest.fixture
-def supabase_storage(monkeypatch) -> Storage:
-    sim = SupabaseSim()
-    monkeypatch.setattr(
-        "like_spotify.extensions.supabase_storage.requests.post", sim.handle_post
-    )
-    monkeypatch.setattr(
-        "like_spotify.extensions.supabase_storage.requests.get", sim.handle_get
-    )
-    return SupabaseStorage(url="https://x.supabase.co", anon_key="k")
-
-
-@pytest.fixture
 def sheets_storage(monkeypatch) -> Storage:
     sim = SheetsSim()
     monkeypatch.setattr(
@@ -168,9 +115,9 @@ def sheets_storage(monkeypatch) -> Storage:
     )
 
 
-# Parametrize every contract test across both fixtures. Using indirect
-# fixture references keeps the test functions readable.
-@pytest.fixture(params=["supabase_storage", "sheets_storage"])
+# Parametrize every contract test across each shipped impl's fixture.
+# Using indirect fixture references keeps the test functions readable.
+@pytest.fixture(params=["sheets_storage"])
 def storage(request) -> Storage:
     return request.getfixturevalue(request.param)
 

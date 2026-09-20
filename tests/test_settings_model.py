@@ -162,14 +162,13 @@ def test_provider_and_storage_round_trip() -> None:
     s = replace(
         Settings(),
         provider="ytmusic",
-        storage_backend="supabase",
-        supabase_url="https://x.supabase.co",
-        supabase_anon_key="k",
+        storage_backend="sheets",
+        sheets_spreadsheet_id="sid",
     )
     out = model.apply_settings({}, s)
     assert out["music"]["provider"] == "ytmusic"
-    assert out["storage"]["backend"] == "supabase"
-    assert out["supabase"] == {"url": "https://x.supabase.co", "anon_key": "k"}
+    assert out["storage"]["backend"] == "sheets"
+    assert out["sheets"] == {"spreadsheet_id": "sid"}
     assert "spotify" not in out  # nothing to write
     assert model.settings_from_config(out) == replace(
         s,
@@ -180,9 +179,51 @@ def test_provider_and_storage_round_trip() -> None:
     )
 
 
-def test_supabase_block_without_backend_is_inferred() -> None:
+def test_retired_backend_reads_back_as_none() -> None:
+    """A config still on the removed Supabase backend opens the window on
+    "none" - matching what the host does with it - rather than showing a
+    backend the window can no longer configure."""
+    cfg = {"storage": {"backend": "supabase"}, "supabase": {"url": "https://x"}}
+    assert model.settings_from_config(cfg).storage_backend == "none"
+
+
+def test_legacy_supabase_block_is_no_longer_inferred() -> None:
     cfg = {"supabase": {"url": "https://x", "anon_key": "k"}}
-    assert model.settings_from_config(cfg).storage_backend == "supabase"
+    assert model.settings_from_config(cfg).storage_backend == "none"
+
+
+@pytest.mark.parametrize("keep_counter_off", [True, False])
+def test_one_save_normalises_a_retired_backend(keep_counter_off: bool) -> None:
+    """After any save from the window, `storage.backend` is a backend we
+    still ship.
+
+    The counter-off case is the one that used to slip through: a retired
+    backend reads back as "none", so leaving the counter alone was not a
+    *change*, nothing was written, and `build_storage` kept printing its
+    retirement notice on every startup.
+    """
+    cfg = {"storage": {"backend": "supabase"}, "supabase": {"url": "https://x"}}
+    baseline = model.settings_from_config(cfg)
+    s = (
+        baseline
+        if keep_counter_off
+        else replace(baseline, storage_backend="sheets", sheets_spreadsheet_id="sid")
+    )
+
+    out = model.apply_settings(cfg, s, baseline=baseline)
+
+    assert out["storage"]["backend"] in model.STORAGE_BACKENDS
+    assert out["storage"]["backend"] == ("none" if keep_counter_off else "sheets")
+    # The dead credentials block is left alone on purpose - see apply_settings.
+    assert out["supabase"] == {"url": "https://x"}
+
+
+def test_save_does_not_invent_a_backend_key() -> None:
+    """Normalising a retired name must not turn into "always write the
+    backend": a config that never set one keeps not having one."""
+    s = model.settings_from_config(_EXISTING)
+    out = model.apply_settings(_EXISTING, s, baseline=s)
+    assert "backend" not in out.get("storage", {})
 
 
 def test_volume_is_clamped_on_read_and_rounded_on_write() -> None:
@@ -211,11 +252,7 @@ def test_spotify_needs_client_id_but_ytmusic_does_not() -> None:
     "changes, field",
     [
         ({"provider": "tidal"}, "provider"),
-        ({"storage_backend": "supabase"}, "supabase_url"),
-        (
-            {"storage_backend": "supabase", "supabase_url": "x.co", "supabase_anon_key": "k"},
-            "supabase_url",
-        ),
+        ({"storage_backend": "supabase"}, "storage_backend"),
         ({"storage_backend": "sheets"}, "sheets_spreadsheet_id"),
         ({"hotkey": ""}, "hotkey"),
         ({"hotkey": "ctrl++w"}, "hotkey"),

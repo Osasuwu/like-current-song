@@ -26,6 +26,23 @@ still the only option for the desktop half.
   Log rows written from now on say `best_add`; older rows keep saying
   `best_of_add`.
 
+### Removed
+
+- **Desktop: the Supabase counter backend.** Google Sheets is now the only
+  way to count likes across devices, and `like-current-song --setup` offers
+  `sheets` or `none`. Supabase was a database to stand up and maintain for a
+  counter that fits in a spreadsheet you already own.
+  **If your `~/.like_spotify/config.json` still says `backend: "supabase"`**
+  nothing breaks and nothing needs deleting: likes keep working exactly as
+  before, but they are counted nowhere, and the desktop app says so once on
+  startup. Run `like-current-song --setup` and pick `sheets` to get your
+  counter back, or open **Settings…** — either one clears the startup notice,
+  whether you switch to Sheets or leave the counter off. Note that counts do
+  not carry over — the Sheet starts empty. Promote-to-best and follow-artist,
+  which read those counts, stay off until a counter is configured. The
+  Supabase schema file (`docs/supabase-setup.sql`) is gone too; existing
+  Supabase projects are untouched and yours to keep or delete.
+
 ## [1.1.0] - 2026-09-20
 
 ### Added

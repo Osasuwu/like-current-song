@@ -1,6 +1,13 @@
 # Interface design — prior art and draft signatures
 
 Issue: #20 (Phase 1 prior-art research, parent #19, blocks #21).
+
+> **Historical record.** This captures the design as it was decided in
+> Phase 1 and is deliberately not rewritten as the code moves on. It still
+> names `SupabaseStorage`, which was the first `Storage` impl and has since
+> been removed; `GoogleSheetsStorage` is now the only shipped one. The
+> interface shapes below are still current.
+
 Sources read at commit time:
 
 - **Pano Scrobbler** — `composeApp/src/commonMain/kotlin/com/arn/scrobble/api/Scrobblable.kt` @ `009b4886`. Closest architectural analog: a multi-target write provider abstraction over Last.fm / ListenBrainz / Libre.fm / Pleroma / file.

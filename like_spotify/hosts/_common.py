@@ -51,7 +51,6 @@ from like_spotify.extensions.promote_to_best import (
     POST_LIKE_ACTION as make_promote_to_best_action,
 )
 from like_spotify.extensions.spotify import MUSIC_PROVIDER as make_spotify_provider
-from like_spotify.extensions.supabase_storage import STORAGE as make_supabase_storage
 from like_spotify.extensions.ytmusic import MUSIC_PROVIDER as make_ytmusic_provider
 
 # Second hotkey: remove the current track from the archive playlist WITHOUT
@@ -96,18 +95,6 @@ def save_config(cfg: dict) -> None:
 # ── Storage / provider builders ────────────────────────────────────────
 
 
-def _build_supabase_storage(cfg: dict) -> Storage | None:
-    sb = cfg.get("supabase", {}) if isinstance(cfg.get("supabase"), dict) else {}
-    url = sb.get("url") or os.environ.get("SUPABASE_URL", "")
-    key = sb.get("anon_key") or os.environ.get("SUPABASE_ANON_KEY", "")
-    if not url or not key:
-        return None
-    try:
-        return make_supabase_storage(url=url, anon_key=key)
-    except Exception:
-        return None
-
-
 def _build_sheets_storage(cfg: dict) -> Storage | None:
     sheets = cfg.get("sheets", {}) if isinstance(cfg.get("sheets"), dict) else {}
     sid = sheets.get("spreadsheet_id") or os.environ.get(
@@ -128,8 +115,19 @@ def _build_sheets_storage(cfg: dict) -> Storage | None:
 # Backend name → builder. Adding a backend is one function + one entry here,
 # not another `elif` in `build_storage`.
 _STORAGE_BUILDERS: dict[str, Callable[[dict], Storage | None]] = {
-    "supabase": _build_supabase_storage,
     "sheets": _build_sheets_storage,
+}
+
+# Backends this desktop half used to ship and no longer does. They resolve
+# like any other unknown backend (None — likes keep working, nothing is
+# counted), but we name them on stderr so a user upgrading into the removal
+# is told what happened instead of quietly losing their counter.
+_RETIRED_BACKENDS: dict[str, str] = {
+    "supabase": (
+        "The Supabase counter backend was removed. Likes still work, but "
+        "nothing is being counted — re-run `like-current-song --setup` and "
+        "pick the Google Sheets backend to get your counter back."
+    ),
 }
 
 
@@ -138,26 +136,22 @@ def build_storage(cfg: dict) -> Storage | None:
 
     Selection (set in `cfg["storage"]["backend"]`) dispatches through
     `_STORAGE_BUILDERS`:
-        - "supabase" → SupabaseStorage (default; back-compat: also picked
-          when `cfg["supabase"]` is populated and no explicit backend).
         - "sheets"   → GoogleSheetsStorage, backed by tokens persisted
           in `GOOGLE_TOKEN_FILE` (refreshed automatically).
         - "none" / missing / unknown → None. Pipeline treats `None` as
           "counter silently unavailable" — AC #22 says like still succeeds.
+
+    A config still naming a retired backend (`supabase`) is *not* an error:
+    it takes the `None` path like any unknown name, with a one-line note on
+    stderr pointing at `--setup`. Crashing here would take the like flow
+    down with the counter, which is exactly what AC #22 forbids.
     """
     backend = (cfg.get("storage", {}) or {}).get("backend", "")
 
-    # Back-compat for configs written before #28:
-    #   - a populated `supabase` block implies Supabase
-    #   - OR SUPABASE_URL + SUPABASE_ANON_KEY env vars alone (the pre-#28
-    #     Android / CI path) — keep this working so existing deployments
-    #     don't regress when they upgrade.
-    if not backend:
-        sb = cfg.get("supabase", {}) if isinstance(cfg.get("supabase"), dict) else {}
-        if sb.get("url") and sb.get("anon_key"):
-            backend = "supabase"
-        elif os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_ANON_KEY"):
-            backend = "supabase"
+    retired = _RETIRED_BACKENDS.get(backend)
+    if retired:
+        print(f"Like Current Song: {retired}", file=sys.stderr)
+        return None
 
     builder = _STORAGE_BUILDERS.get(backend)
     return builder(cfg) if builder else None

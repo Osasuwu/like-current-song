@@ -73,9 +73,9 @@ def do_setup(reauth: bool = False) -> int:
     → storage choice → archive playlist → autostart.
 
     Re-runnable. Existing OAuth tokens (Spotify, YouTube, Google) are kept unless
-    `reauth=True` is passed — switching storage backend does NOT
-    invalidate the other backend's tokens, so a user can flip
-    supabase ↔ sheets without redoing OAuth.
+    `reauth=True` is passed — turning the counter off and back on does NOT
+    invalidate the Google tokens, so a user can flip sheets ↔ none without
+    redoing OAuth.
     """
     print("Like Current Song — interactive setup")
     print("--------------------------------")
@@ -176,26 +176,24 @@ def _setup_spotify(cfg: dict, *, reauth: bool) -> None:
     print(f"  ✓ Tokens saved: {_common.SPOTIFY_TOKEN_FILE}")
 
 
+STORAGE_CHOICES = ["sheets", "none"]
+
+
 def _setup_storage(cfg: dict, *, reauth: bool) -> None:
     print("\n[2/4] Storage (counts likes across devices)")
-    current_backend = (cfg.get("storage", {}) or {}).get("backend", "")
-    default = current_backend or "none"
-    backend = _prompt_choice(
-        "  Backend", choices=["supabase", "sheets", "none"], default=default
+    print(
+        "  Optional. 'none' keeps every like working and just doesn't count\n"
+        "  them; 'sheets' counts them into a Google Sheet you own, which is\n"
+        "  what best and follow-artist read."
     )
+    current_backend = (cfg.get("storage", {}) or {}).get("backend", "")
+    # A retired backend must not become the default — `_prompt_choice`
+    # would reject it on every blank Enter and loop forever.
+    default = current_backend if current_backend in STORAGE_CHOICES else "none"
+    backend = _prompt_choice("  Backend", choices=STORAGE_CHOICES, default=default)
     cfg.setdefault("storage", {})["backend"] = backend
 
-    if backend == "supabase":
-        sb = cfg.setdefault("supabase", {})
-        print("    (project URL, e.g. https://<ref>.supabase.co — not the /rest/v1 endpoint)")
-        sb["url"] = _prompt_secret("  Supabase URL", current=sb.get("url", ""))
-        sb["anon_key"] = _prompt_secret(
-            "  Supabase anon key", current=sb.get("anon_key", "")
-        )
-        if not sb["url"] or not sb["anon_key"]:
-            raise _SetupAbort("supabase URL + anon key are both required")
-        print("  ✓ Supabase configured")
-    elif backend == "sheets":
+    if backend == "sheets":
         sheets = cfg.setdefault("sheets", {})
         sheets["spreadsheet_id"] = _prompt_secret(
             "  Spreadsheet ID (from the sheet URL)",
