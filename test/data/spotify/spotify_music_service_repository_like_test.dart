@@ -51,11 +51,11 @@ void main() {
       platformServiceRepository: mockPlatform,
       likeCountRepository: mockLikeCount,
       settingsRepository: mockSettings,
-      clientId: 'test-client-id',
-      redirectUri: 'test://callback',
     );
 
     // Default token store stubs
+    when(() => mockTokenStore.readClientId())
+        .thenAnswer((_) async => 'test-client-id');
     when(() => mockTokenStore.readAccessToken())
         .thenAnswer((_) async => 'valid-token');
     when(() => mockTokenStore.readRefreshToken())

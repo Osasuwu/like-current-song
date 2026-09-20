@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:like_spotify_mobile_app/domain/entities/device_sign_in.dart';
 import 'package:like_spotify_mobile_app/domain/entities/music_provider.dart';
@@ -23,10 +24,17 @@ void main() {
 
   /// Shows the screen on [harness]'s mocks. The surface is made tall enough
   /// for the whole list, so nothing under test is skipped by the [ListView].
+  ///
+  /// [spotifyClientId] is what the credentials store already holds: the
+  /// default stands for an app that has been set up, `''` for a fresh one.
   Future<void> pumpScreen(
     WidgetTester tester,
-    AppControllerHarness harness,
-  ) async {
+    AppControllerHarness harness, {
+    String spotifyClientId = 'test-client-id',
+  }) async {
+    FlutterSecureStorage.setMockInitialValues(<String, String>{
+      if (spotifyClientId.isNotEmpty) 'spotify_client_id': spotifyClientId,
+    });
     tester.view.physicalSize = const Size(1000, 2400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -202,16 +210,44 @@ void main() {
         .called(1);
   });
 
-  testWidgets('Spotify gets its OAuth connect button and the client-id note',
+  testWidgets('Spotify gets its OAuth connect button and a client-id field',
       (tester) async {
     await pumpScreen(tester, AppControllerHarness());
 
+    final connect = find.widgetWithText(FilledButton, 'Connect Spotify');
+    expect(connect, findsOneWidget);
+    expect(tester.widget<FilledButton>(connect).onPressed, isNotNull);
+    expect(find.text('Spotify credentials'), findsOneWidget);
+    expect(find.widgetWithText(TextField, 'Client ID'), findsOneWidget);
+    // The dashboard needs this pasted in, so the screen has to show it.
+    expect(find.text('likespotify://auth-callback'), findsOneWidget);
+    expect(find.text('Google sign-in'), findsNothing);
+  });
+
+  testWidgets('Connect stays off until a Spotify client ID is saved',
+      (tester) async {
+    await pumpScreen(tester, AppControllerHarness(), spotifyClientId: '');
+
+    final connect = find.widgetWithText(FilledButton, 'Connect Spotify');
+    expect(tester.widget<FilledButton>(connect).onPressed, isNull);
     expect(
-      find.widgetWithText(FilledButton, 'Connect Spotify'),
+      find.text('Connect turns on once the client ID is saved.'),
       findsOneWidget,
     );
-    expect(find.textContaining('SPOTIFY_CLIENT_ID'), findsOneWidget);
-    expect(find.text('Google sign-in'), findsNothing);
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Client ID'),
+      'typed-client-id',
+    );
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Save client ID'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Credentials saved.'), findsOneWidget);
+    expect(
+      tester.widget<FilledButton>(connect).onPressed,
+      isNotNull,
+      reason: 'saving the client ID should arm Connect without a restart',
+    );
   });
 
   testWidgets('YouTube Music replaces both with the device-code block',
@@ -231,7 +267,8 @@ void main() {
     await pumpScreen(tester, harness);
 
     // Spotify's OAuth pieces are gone...
-    expect(find.textContaining('SPOTIFY_CLIENT_ID'), findsNothing);
+    expect(find.text('Spotify credentials'), findsNothing);
+    expect(find.text('likespotify://auth-callback'), findsNothing);
     // ...and the device flow is in their place.
     expect(find.text('Google sign-in'), findsOneWidget);
     expect(find.widgetWithText(TextField, 'Client ID'), findsOneWidget);

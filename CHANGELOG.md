@@ -10,6 +10,39 @@ Spotify/Supabase credentials (see [README](README.md)).
 
 ## [Unreleased]
 
+### Added
+
+- **Android: Spotify credentials are typed into the app, not baked into the
+  build** ([#131](https://github.com/Osasuwu/like-current-song/issues/131)).
+  *Connected services* now has a **Spotify credentials** section: a link to the
+  dashboard, one Client ID field (the PKCE flow needs no secret), and the
+  redirect URI to paste into the dashboard, selectable and with a copy button.
+  **Connect Spotify** stays off until a client ID is saved, and says so. The ID
+  lives in `FlutterSecureStorage` and survives a disconnect, so reconnecting
+  does not mean retyping it. This is what makes an APK you did not build
+  yourself usable.
+- **Android: the shared like counter is configurable in the app.** A secondary
+  **Shared like counter (optional)** section takes a Supabase project URL and
+  anon key. Leaving both blank keeps counts on the device; saving pushes the
+  new config to the native listener straight away, with no restart.
+
+### Changed
+
+- **Android: `.env` is now a convenience, not a requirement.** `flutter build
+  apk --release` with no `--dart-define` produces a working APK.
+  `SPOTIFY_CLIENT_ID`, `SUPABASE_URL` and `SUPABASE_ANON_KEY` still work: on
+  first launch they *seed* a store that has never been written, so existing
+  builds stay configured across the upgrade. From then on whatever
+  *Connected services* saved wins, and a field you cleared stays cleared
+  through a rebuild.
+
+### Removed
+
+- **Android: the `SPOTIFY_REDIRECT_URI` build variable.** It was never really
+  configurable — the value has to match the `likespotify://auth-callback`
+  intent filter in the manifest — so it is now a constant the credentials
+  screen shows you. Drop it from your `.env`; it is ignored.
+
 ## [1.1.0] - 2026-09-20
 
 ### Added
