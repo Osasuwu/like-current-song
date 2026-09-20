@@ -59,9 +59,19 @@ abstract class PlatformServiceRepository {
   /// Removes YouTube Music's tokens from the native side (sign-out).
   Future<void> clearYouTubeMusicTokens();
 
-  Future<void> syncSupabaseConfig({
-    required String supabaseUrl,
-    required String supabaseAnonKey,
+  /// Hands the shared like counter's spreadsheet and Google sign-in to the
+  /// native side, which counts the likes that happen with no Flutter UI
+  /// running and refreshes the access token itself.
+  ///
+  /// An empty spreadsheet id or an empty refresh token turns the shared
+  /// counter off: likes are then counted on this device only.
+  Future<void> syncLikeCounterConfig({
+    required String spreadsheetId,
+    required String clientId,
+    required String clientSecret,
+    required String accessToken,
+    required String refreshToken,
+    required int expiresAtEpochMs,
   });
   Future<void> playFeedbackTone({required bool success});
 

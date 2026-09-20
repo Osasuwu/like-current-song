@@ -183,13 +183,22 @@ class AndroidPlatformServiceRepository implements PlatformServiceRepository {
   }
 
   @override
-  Future<void> syncSupabaseConfig({
-    required String supabaseUrl,
-    required String supabaseAnonKey,
+  Future<void> syncLikeCounterConfig({
+    required String spreadsheetId,
+    required String clientId,
+    required String clientSecret,
+    required String accessToken,
+    required String refreshToken,
+    required int expiresAtEpochMs,
   }) async {
-    await _methodChannel.invokeMethod<void>('setSupabaseConfig', <String, dynamic>{
-      'supabaseUrl': supabaseUrl,
-      'supabaseAnonKey': supabaseAnonKey,
+    await _methodChannel
+        .invokeMethod<void>('setLikeCounterConfig', <String, dynamic>{
+      'spreadsheetId': spreadsheetId,
+      'clientId': clientId,
+      'clientSecret': clientSecret,
+      'accessToken': accessToken,
+      'refreshToken': refreshToken,
+      'expiresAtEpochMs': expiresAtEpochMs,
     });
   }
 

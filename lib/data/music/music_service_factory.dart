@@ -7,12 +7,13 @@ import '../../domain/repositories/music_service_repository.dart';
 import '../../domain/repositories/platform_service_repository.dart';
 import '../../domain/repositories/settings_repository.dart';
 import '../../domain/services/like_counter_user_id.dart';
-import '../likes/supabase_config_store.dart';
-import '../likes/supabase_like_count_repository.dart';
+import '../google/google_oauth_client.dart';
+import '../likes/google_sheets_like_count_repository.dart';
+import '../likes/like_counter_account.dart';
+import '../likes/like_counter_store.dart';
 import '../spotify/spotify_client.dart';
 import '../spotify/spotify_music_service_repository.dart';
 import '../spotify/spotify_token_store.dart';
-import '../ytmusic/google_oauth_client.dart';
 import '../ytmusic/ytmusic_music_service_repository.dart';
 import '../ytmusic/ytmusic_token_store.dart';
 import 'active_music_service_repository.dart';
@@ -30,16 +31,19 @@ ActiveMusicServiceRepository createMusicServiceRepository({
   required PlatformServiceRepository platformServiceRepository,
   required MusicServiceRepository youTubeMusic,
   required SpotifyTokenStore spotifyTokenStore,
-  required SupabaseConfigStore supabaseConfigStore,
+  required LikeCounterStore likeCounterStore,
+  required LikeCounterAccount likeCounterAccount,
 }) {
-  // SupabaseLikeCountRepository reads cachedUserId lazily at increment time,
-  // so null on first call just falls back to local.
+  // GoogleSheetsLikeCountRepository reads cachedUserId lazily at increment
+  // time, so null on first call just falls back to local.
   late final SpotifyMusicServiceRepository spotify;
 
-  // Always the Supabase-backed repository: the project can be configured
-  // while the app runs, and with none configured it counts locally anyway.
-  final LikeCountRepository likeCountRepository = SupabaseLikeCountRepository(
-    readConfig: supabaseConfigStore.read,
+  // Always the sheet-backed repository: the counter can be set up while the
+  // app runs, and with nothing set up it counts locally anyway.
+  final LikeCountRepository likeCountRepository =
+      GoogleSheetsLikeCountRepository(
+    readSpreadsheetId: () async => (await likeCounterStore.read()).spreadsheetId,
+    readAccessToken: likeCounterAccount.freshAccessToken,
     // Only Spotify likes go through this repository; YouTube Music likes are
     // counted natively (YouTubeMusicLiker.kt) under the `sub`.
     userIdGetter: () => likeCounterUserId(
@@ -63,6 +67,20 @@ ActiveMusicServiceRepository createMusicServiceRepository({
       MusicProvider.spotify: spotify,
       MusicProvider.ytmusic: youTubeMusic,
     },
+  );
+}
+
+/// The shared like counter's Google account. Built separately because the
+/// Connected services screen drives its sign-in directly, and the Spotify
+/// like path reads its access token.
+LikeCounterAccount createLikeCounterAccount({
+  required LikeCounterStore store,
+  required PlatformServiceRepository platformServiceRepository,
+}) {
+  return LikeCounterAccount(
+    oauthClient: GoogleOAuthClient(http.Client()),
+    store: store,
+    platformServiceRepository: platformServiceRepository,
   );
 }
 

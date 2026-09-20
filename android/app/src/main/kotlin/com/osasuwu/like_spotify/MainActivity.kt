@@ -257,12 +257,30 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 					result.success(true)
 				}
 
-				"setSupabaseConfig" -> {
-					val url = call.argument<String>("supabaseUrl") ?: ""
-					val key = call.argument<String>("supabaseAnonKey") ?: ""
+				"setLikeCounterConfig" -> {
+					val expiresAt = call.argument<Number>("expiresAtEpochMs")?.toLong() ?: 0L
 					prefs().edit()
-						.putString(AppConstants.KEY_SUPABASE_URL, url)
-						.putString(AppConstants.KEY_SUPABASE_ANON_KEY, key)
+						.putString(
+							AppConstants.KEY_COUNTER_SPREADSHEET_ID,
+							call.argument<String>("spreadsheetId") ?: "",
+						)
+						.putString(
+							AppConstants.KEY_COUNTER_CLIENT_ID,
+							call.argument<String>("clientId") ?: "",
+						)
+						.putString(
+							AppConstants.KEY_COUNTER_CLIENT_SECRET,
+							call.argument<String>("clientSecret") ?: "",
+						)
+						.putString(
+							AppConstants.KEY_COUNTER_ACCESS_TOKEN,
+							call.argument<String>("accessToken") ?: "",
+						)
+						.putString(
+							AppConstants.KEY_COUNTER_REFRESH_TOKEN,
+							call.argument<String>("refreshToken") ?: "",
+						)
+						.putLong(AppConstants.KEY_COUNTER_TOKEN_EXPIRES_AT, expiresAt)
 						.apply()
 					result.success(true)
 				}

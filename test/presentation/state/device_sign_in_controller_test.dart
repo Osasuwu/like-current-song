@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:like_spotify_mobile_app/domain/entities/device_sign_in.dart';
 import 'package:like_spotify_mobile_app/domain/entities/spotify_auth_state.dart';
 import 'package:like_spotify_mobile_app/domain/repositories/device_sign_in_repository.dart';
-import 'package:like_spotify_mobile_app/presentation/state/ytmusic_sign_in_controller.dart';
+import 'package:like_spotify_mobile_app/presentation/state/device_sign_in_controller.dart';
 import 'package:mocktail/mocktail.dart';
 
 class MockDeviceSignInRepository extends Mock
@@ -21,7 +21,7 @@ void main() {
 
   late MockDeviceSignInRepository repo;
   late int signedInCalls;
-  late YouTubeMusicSignInController controller;
+  late DeviceSignInController controller;
 
   setUpAll(() {
     registerFallbackValue(prompt);
@@ -32,7 +32,7 @@ void main() {
   setUp(() {
     repo = MockDeviceSignInRepository();
     signedInCalls = 0;
-    controller = YouTubeMusicSignInController(
+    controller = DeviceSignInController(
       signInRepository: repo,
       onSignedIn: () async => signedInCalls++,
     );

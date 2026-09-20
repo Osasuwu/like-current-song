@@ -3,8 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'app.dart';
-import 'data/likes/supabase_config_store.dart';
+import 'data/likes/like_counter_store.dart';
 import 'data/spotify/spotify_token_store.dart';
+import 'data/ytmusic/ytmusic_token_store.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -21,7 +22,8 @@ Future<void> _seedCompileTimeCredentials() async {
   const storage = FlutterSecureStorage();
   try {
     await SpotifyTokenStore(storage).seedClientId();
-    await SupabaseConfigStore(storage).seed();
+    await YouTubeMusicTokenStore(storage).seedCredentials();
+    await LikeCounterStore(storage).seed();
   } catch (error) {
     // Unreadable secure storage is the credentials screen's problem, not a
     // reason to refuse to start.

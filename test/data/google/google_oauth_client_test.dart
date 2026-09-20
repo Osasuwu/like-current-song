@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:like_spotify_mobile_app/data/ytmusic/google_oauth_client.dart';
+import 'package:like_spotify_mobile_app/data/google/google_oauth_client.dart';
 
 String fakeIdToken(Map<String, dynamic> claims) {
   String part(Map<String, dynamic> json) =>
@@ -38,7 +38,10 @@ void main() {
             'interval': 5,
           }));
 
-      final code = await client.requestDeviceCode(clientId: 'cid');
+      final code = await client.requestDeviceCode(
+        clientId: 'cid',
+        scope: GoogleScopes.youTubeMusic,
+      );
 
       expect(requests.single.url, GoogleOAuthClient.deviceCodeUri);
       expect(requests.single.bodyFields, {
@@ -59,10 +62,29 @@ void main() {
             'verification_uri': 'https://example.test/device',
           }));
 
-      final code = await client.requestDeviceCode(clientId: 'cid');
+      final code = await client.requestDeviceCode(
+        clientId: 'cid',
+        scope: GoogleScopes.youTubeMusic,
+      );
 
       expect(code.verificationUrl, 'https://example.test/device');
       expect(code.intervalSec, 5);
+    });
+
+    test('the counter asks for the spreadsheets scope instead', () async {
+      final client = clientReplying((_) => jsonResponse({
+            'device_code': 'd',
+            'user_code': 'u',
+            'verification_url': 'https://www.google.com/device',
+          }));
+
+      await client.requestDeviceCode(
+        clientId: 'cid',
+        scope: GoogleScopes.spreadsheets,
+      );
+
+      expect(requests.single.bodyFields['scope'],
+          'https://www.googleapis.com/auth/spreadsheets');
     });
 
     test('invalid_client throws GoogleOAuthException', () async {
@@ -71,7 +93,10 @@ void main() {
           401));
 
       await expectLater(
-        client.requestDeviceCode(clientId: 'bad'),
+        client.requestDeviceCode(
+          clientId: 'bad',
+          scope: GoogleScopes.youTubeMusic,
+        ),
         throwsA(isA<GoogleOAuthException>()
             .having((e) => e.error, 'error', 'invalid_client')
             .having((e) => e.statusCode, 'statusCode', 401)),
@@ -82,7 +107,10 @@ void main() {
       final client = clientReplying((_) => http.Response('<html>', 503));
 
       await expectLater(
-        client.requestDeviceCode(clientId: 'cid'),
+        client.requestDeviceCode(
+          clientId: 'cid',
+          scope: GoogleScopes.youTubeMusic,
+        ),
         throwsA(isA<GoogleOAuthException>()
             .having((e) => e.error, 'error', 'http_503')),
       );

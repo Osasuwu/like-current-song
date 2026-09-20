@@ -6,7 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:like_spotify_mobile_app/data/ytmusic/google_oauth_client.dart';
+import 'package:like_spotify_mobile_app/data/google/google_oauth_client.dart';
 import 'package:like_spotify_mobile_app/data/ytmusic/ytmusic_music_service_repository.dart';
 import 'package:like_spotify_mobile_app/data/ytmusic/ytmusic_token_store.dart';
 import 'package:like_spotify_mobile_app/domain/entities/device_sign_in.dart';

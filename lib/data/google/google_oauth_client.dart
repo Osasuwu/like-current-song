@@ -6,6 +6,11 @@ import '../../domain/entities/music_service_exceptions.dart';
 
 /// Google's OAuth 2.0 endpoints for the device flow ("TVs and Limited Input
 /// devices" clients): https://developers.google.com/identity/protocols/oauth2/limited-input-device
+///
+/// Scope-agnostic on purpose: the app signs in to Google twice, once for
+/// YouTube Music and once for the shared like counter's spreadsheet, with a
+/// separate OAuth client and token set each time. The caller passes the scope
+/// it needs — see [GoogleScopes].
 class GoogleOAuthClient {
   GoogleOAuthClient(this._http);
 
@@ -15,16 +20,16 @@ class GoogleOAuthClient {
       Uri.parse('https://oauth2.googleapis.com/device/code');
   static final Uri tokenUri = Uri.parse('https://oauth2.googleapis.com/token');
 
-  /// `youtube` to rate videos, `openid` for the id_token `sub` that keys the
-  /// account.
-  static const String scope = 'https://www.googleapis.com/auth/youtube openid';
   static const String deviceCodeGrantType =
       'urn:ietf:params:oauth:grant-type:device_code';
 
   static const Duration _timeout = Duration(seconds: 10);
 
   /// Step 1: asks Google for a user code to show.
-  Future<GoogleDeviceCode> requestDeviceCode({required String clientId}) async {
+  Future<GoogleDeviceCode> requestDeviceCode({
+    required String clientId,
+    required String scope,
+  }) async {
     final json = await _post(deviceCodeUri, <String, String>{
       'client_id': clientId,
       'scope': scope,
@@ -107,6 +112,18 @@ class GoogleOAuthClient {
       description: json?['error_description'] as String?,
     );
   }
+}
+
+/// The OAuth scopes this app asks Google for, one per sign-in.
+abstract final class GoogleScopes {
+  /// YouTube Music: `youtube` to rate videos, `openid` for the id_token `sub`
+  /// that keys the account.
+  static const String youTubeMusic =
+      'https://www.googleapis.com/auth/youtube openid';
+
+  /// The shared like counter: read and write the user's own spreadsheet.
+  static const String spreadsheets =
+      'https://www.googleapis.com/auth/spreadsheets';
 }
 
 /// Reads the `sub` claim from an id_token without verifying the signature.

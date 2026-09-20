@@ -1,25 +1,25 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../data/likes/supabase_config_store.dart';
+import '../../data/likes/like_counter_store.dart';
 import '../../data/spotify/spotify_token_store.dart';
-import '../../domain/entities/supabase_config.dart';
+import '../../domain/entities/like_counter_config.dart';
 
 class ServiceCredentialsState {
   const ServiceCredentialsState({
     this.spotifyClientId = '',
-    this.supabase = SupabaseConfig.empty,
+    this.counter = LikeCounterConfig.empty,
     this.loaded = false,
     this.spotifySaved = false,
-    this.supabaseSaved = false,
+    this.counterSaved = false,
     this.error,
   });
 
   /// The Spotify app's client ID. PKCE means there is no secret beside it.
   final String spotifyClientId;
 
-  /// The shared like counter's project; [SupabaseConfig.empty] means counts
-  /// stay on this device.
-  final SupabaseConfig supabase;
+  /// The shared like counter's spreadsheet and Google sign-in;
+  /// [LikeCounterConfig.empty] means counts stay on this device.
+  final LikeCounterConfig counter;
 
   /// False until the stores have been read once, so the fields are not
   /// prefilled with a blank that is merely "not read yet".
@@ -27,7 +27,7 @@ class ServiceCredentialsState {
 
   /// True right after a successful save, for a confirmation line.
   final bool spotifySaved;
-  final bool supabaseSaved;
+  final bool counterSaved;
 
   /// Last failure, ready to show as-is.
   final String? error;
@@ -36,54 +36,59 @@ class ServiceCredentialsState {
 
   ServiceCredentialsState copyWith({
     String? spotifyClientId,
-    SupabaseConfig? supabase,
+    LikeCounterConfig? counter,
     bool? loaded,
     bool? spotifySaved,
-    bool? supabaseSaved,
+    bool? counterSaved,
     String? error,
     bool clearError = false,
   }) {
     return ServiceCredentialsState(
       spotifyClientId: spotifyClientId ?? this.spotifyClientId,
-      supabase: supabase ?? this.supabase,
+      counter: counter ?? this.counter,
       loaded: loaded ?? this.loaded,
       spotifySaved: spotifySaved ?? this.spotifySaved,
-      supabaseSaved: supabaseSaved ?? this.supabaseSaved,
+      counterSaved: counterSaved ?? this.counterSaved,
       error: clearError ? null : (error ?? this.error),
     );
   }
 }
 
 /// Holds what the user types on *Connected services* — the Spotify client ID
-/// and the optional shared-counter project — and writes it to the same stores
-/// the repositories read at call time.
+/// and the optional shared counter's spreadsheet — and writes it to the same
+/// stores the repositories read at call time.
+///
+/// The counter's Google sign-in is not here: that is a device flow, driven by
+/// its own sign-in controller. This controller only reads the resulting
+/// config back, so the card can say whether the counter is actually on.
 class ServiceCredentialsController
     extends StateNotifier<ServiceCredentialsState> {
   ServiceCredentialsController({
     required SpotifyTokenStore spotifyTokenStore,
-    required SupabaseConfigStore supabaseConfigStore,
-    required Future<void> Function(SupabaseConfig config)
-        onSupabaseConfigChanged,
+    required LikeCounterStore likeCounterStore,
+    required Future<void> Function(LikeCounterConfig config)
+        onLikeCounterConfigChanged,
   })  : _spotifyTokenStore = spotifyTokenStore,
-        _supabaseConfigStore = supabaseConfigStore,
-        _onSupabaseConfigChanged = onSupabaseConfigChanged,
+        _likeCounterStore = likeCounterStore,
+        _onLikeCounterConfigChanged = onLikeCounterConfigChanged,
         super(const ServiceCredentialsState());
 
   final SpotifyTokenStore _spotifyTokenStore;
-  final SupabaseConfigStore _supabaseConfigStore;
+  final LikeCounterStore _likeCounterStore;
 
   /// The native side keeps its own copy of the counter config (the like
   /// worker runs without Dart), so every change is pushed across.
-  final Future<void> Function(SupabaseConfig config) _onSupabaseConfigChanged;
+  final Future<void> Function(LikeCounterConfig config)
+      _onLikeCounterConfigChanged;
 
   Future<void> load() async {
     try {
       final clientId = await _spotifyTokenStore.readClientId();
-      final supabase = await _supabaseConfigStore.read();
+      final counter = await _likeCounterStore.read();
       if (!mounted) return;
       state = state.copyWith(
         spotifyClientId: clientId?.trim() ?? '',
-        supabase: supabase,
+        counter: counter,
         loaded: true,
       );
     } catch (error) {
@@ -121,36 +126,40 @@ class ServiceCredentialsController
     }
   }
 
-  /// Both blank turns the shared counter off, which is a legitimate choice;
-  /// half a config is not, because it could only ever fail at like time.
-  Future<void> saveSupabaseConfig({
-    required String url,
-    required String anonKey,
-  }) async {
-    final config = SupabaseConfig(url: url.trim(), anonKey: anonKey.trim());
-    final blank = config.url.isEmpty && config.anonKey.isEmpty;
-    if (!blank && !config.isConfigured) {
-      state = state.copyWith(
-        error: 'Enter both the project URL and the anon key, or leave both '
-            'blank to count likes on this device only.',
-        supabaseSaved: false,
-      );
-      return;
-    }
+  /// A blank id turns the shared counter off, which is a legitimate choice;
+  /// the Google sign-in is left alone either way.
+  Future<void> saveCounterSpreadsheetId(String spreadsheetId) async {
+    final trimmed = spreadsheetId.trim();
     try {
-      await _supabaseConfigStore.save(config);
-      await _onSupabaseConfigChanged(config);
+      await _likeCounterStore.saveSpreadsheetId(trimmed);
+      final counter = await _likeCounterStore.read();
+      await _onLikeCounterConfigChanged(counter);
       if (!mounted) return;
       state = state.copyWith(
-        supabase: config,
-        supabaseSaved: true,
+        counter: counter,
+        counterSaved: true,
         clearError: true,
       );
     } catch (error) {
       if (!mounted) return;
       state = state.copyWith(
         error: 'Could not save the counter settings: $error',
-        supabaseSaved: false,
+        counterSaved: false,
+      );
+    }
+  }
+
+  /// Re-reads the counter config, for after a sign-in or a sign-out changed
+  /// it behind this controller's back.
+  Future<void> refreshCounter() async {
+    try {
+      final counter = await _likeCounterStore.read();
+      if (!mounted) return;
+      state = state.copyWith(counter: counter, counterSaved: false);
+    } catch (error) {
+      if (!mounted) return;
+      state = state.copyWith(
+        error: 'Could not read the counter settings: $error',
       );
     }
   }

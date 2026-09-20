@@ -1,8 +1,8 @@
 import '../entities/device_sign_in.dart';
 import '../entities/spotify_auth_state.dart';
 
-/// A music service that signs in with the OAuth 2.0 device flow using a
-/// client the user brings (YouTube Music).
+/// Something that signs in with the OAuth 2.0 device flow using a client the
+/// user brings — YouTube Music, and the shared like counter's spreadsheet.
 ///
 /// The flow has two steps so the UI can show the code in between:
 /// [startSignIn] gets a code to show, [waitForApproval] polls until the user

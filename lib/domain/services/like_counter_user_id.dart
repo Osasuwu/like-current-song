@@ -1,7 +1,7 @@
 import '../entities/music_provider.dart';
 
-/// The account id that keys the shared like counter (Supabase
-/// `increment_track_like`'s `p_user_id`) for a like made through [provider].
+/// The account id that keys the shared like counter (the `user_id` column of
+/// the counter sheet) for a like made through [provider].
 ///
 /// Each service keys its own rows, the same way desktop does, so the phone
 /// and the computer add to one count per account:
