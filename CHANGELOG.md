@@ -48,6 +48,20 @@ still the only option for the desktop half.
   now leaves the listener off instead of crashing the app during boot, and
   opening the app brings it back.
 
+- **On Android, a like the counter could not record now says so on the Logs
+  screen.** The phone failed the way the desktop used to, only more quietly:
+  whatever stopped a like reaching your spreadsheet — a counter not signed in
+  to Google, a music-service account it could not resolve, a Google project
+  with the Sheets API switched off — the app showed a count that had quietly
+  been kept on the device alone, and wrote nothing anywhere you could read it.
+  (Its only trace went to logcat, which nobody has open on an installed
+  build.) Every one of those now appears in **Logs** as a `like_count` line
+  saying the like was counted on this device only and why, and the failures
+  you can actually clear name the fix — the Sheets API one links the page that
+  switches it on instead of quoting Google's JSON at you. The like itself is
+  untouched: it still succeeds, and the local tally still stands in for the
+  shared count. Having no counter set up at all stays silent, as before.
+
 - **A like the counter could not record no longer passes for one that was.**
   With the shared like counter switched on, anything that stopped a like being
   counted looked exactly like having no counter at all: the desktop said
