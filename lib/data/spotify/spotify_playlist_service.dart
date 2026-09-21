@@ -109,4 +109,15 @@ class SpotifyPlaylistService {
     _cache.clear();
     _cacheTimestamp = DateTime.fromMillisecondsSinceEpoch(0);
   }
+
+  /// Forget who is signed in, so the next ask looks the id up again.
+  ///
+  /// Called when the account can have changed under us — a disconnect, or a
+  /// fresh authorization. Both playlists and the shared like counter are keyed
+  /// by this id, so keeping a stale one would file a second account's likes
+  /// under the first account's name.
+  void forgetUserId() {
+    _cachedUserId = null;
+    invalidateCache();
+  }
 }

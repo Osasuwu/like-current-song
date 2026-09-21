@@ -471,6 +471,34 @@ void main() {
 
       expect(await repo.ensureUserId(), isNull);
     });
+
+    test('forgets the id on disconnect, on both sides', () async {
+      // The id is cached forever -- in memory here and in SharedPreferences
+      // natively -- and keys the shared counter's rows. Signing in as someone
+      // else and keeping it would file their likes under the old account.
+      when(() => mockTokenStore.clear()).thenAnswer((_) async {});
+      when(() => mockPlatform.clearSpotifyUserId()).thenAnswer((_) async {});
+      when(() => mockClient.getCurrentUserId(any()))
+          .thenAnswer((_) async => 'first-account');
+
+      expect(await repo.ensureUserId(), 'first-account');
+      await repo.disconnect();
+
+      verify(() => mockPlatform.clearSpotifyUserId()).called(1);
+
+      when(() => mockClient.getCurrentUserId(any()))
+          .thenAnswer((_) async => 'second-account');
+      expect(await repo.ensureUserId(), 'second-account');
+    });
+
+    test('a native side that cannot forget it does not fail the disconnect',
+        () async {
+      when(() => mockTokenStore.clear()).thenAnswer((_) async {});
+      when(() => mockPlatform.clearSpotifyUserId())
+          .thenThrow(Exception('no channel'));
+
+      await expectLater(repo.disconnect(), completes);
+    });
   });
 }
 

@@ -196,6 +196,9 @@ class SpotifyMusicServiceRepository implements MusicServiceRepository {
       expiresAtEpochSec: expiresAt.millisecondsSinceEpoch ~/ 1000,
       clientId: clientId,
     );
+    // Whoever just signed in may not be who signed in last, and the user id
+    // both halves cache keys the shared like counter's rows.
+    await _forgetUserId();
 
     _pendingState = null;
     _pendingVerifier = null;
@@ -218,6 +221,23 @@ class SpotifyMusicServiceRepository implements MusicServiceRepository {
   @override
   Future<void> disconnect() async {
     await _tokenStore.clear();
+    await _forgetUserId();
+  }
+
+  /// Drops the cached Spotify user id on both sides of the method channel.
+  ///
+  /// The native side keeps it in `SharedPreferences` with no expiry, so
+  /// nothing but this ever clears it; leaving it behind after an account
+  /// change would file the new account's likes under the old account's row in
+  /// the shared counter. A native side that cannot do it is not worth failing
+  /// a disconnect over — the in-process copy is still dropped.
+  Future<void> _forgetUserId() async {
+    _playlistService.forgetUserId();
+    try {
+      await _platformServiceRepository.clearSpotifyUserId();
+    } catch (error) {
+      debugPrint('Could not clear the cached Spotify user id: $error');
+    }
   }
 
   @override
