@@ -22,4 +22,38 @@ void main() {
     expect(find.text('• Internet access for YouTube Music'), findsOneWidget);
     expect(find.textContaining('Spotify'), findsNothing);
   });
+
+  testWidgets('calls notification access required, never a fallback',
+      (tester) async {
+    await tester.pumpWidget(hostScreen(const PermissionsScreen()));
+    await tester.pumpAndSettle();
+
+    // It is the only way a headset press reaches the app (#153): calling it a
+    // fallback is what made a user leave it off and get nothing at all.
+    expect(find.textContaining('fallback'), findsNothing);
+    expect(
+      find.text('• Notification access (required): Enabled'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Open notification access (required)'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('says why the grant is what the trigger runs on', (tester) async {
+    await tester.pumpWidget(
+      hostScreen(const PermissionsScreen(), notificationAccess: false),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('• Notification access (required): Disabled'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('goes to the music app, not to us'),
+      findsOneWidget,
+    );
+  });
 }

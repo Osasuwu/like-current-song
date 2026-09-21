@@ -154,7 +154,13 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 				}
 
 				"isNotificationListenerEnabled" -> {
-					result.success(PlaybackNotificationListenerService.isEnabled(this))
+					val enabled = PlaybackNotificationListenerService.isEnabled(this)
+					// The app asks on startup and every time the user rechecks —
+					// the cheapest moment to catch a grant that changed while the
+					// service was running and re-word its notification. Revocation
+					// does not always reach onListenerDisconnected.
+					MediaButtonForegroundService.notifyListenerStateChanged(this)
+					result.success(enabled)
 				}
 
 				"openNotificationListenerSettings" -> {

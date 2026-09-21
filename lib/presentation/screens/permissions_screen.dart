@@ -24,7 +24,21 @@ class PermissionsScreen extends ConsumerWidget {
               const Text('• Foreground service (media playback type)'),
               const Text('• Notification permission (Android 13+)'),
               Text(
-                '• Notification access (playback fallback): ${state.notificationListenerEnabled ? 'Enabled' : 'Disabled'}',
+                '• Notification access (required): ${state.notificationListenerEnabled ? 'Enabled' : 'Disabled'}',
+                style: state.notificationListenerEnabled
+                    ? null
+                    : TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(left: 10, top: 2, bottom: 2),
+                child: Text(
+                  'The headset button goes to the music app, not to us, so the '
+                  "trigger reads the player's pause/play state instead. Without "
+                  'this the trigger never fires.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.outline,
+                      ),
+                ),
               ),
               const Text('• Ignore battery optimization (recommended)'),
               Text('• Internet access for ${state.musicProvider.displayName}'),
@@ -41,7 +55,7 @@ class PermissionsScreen extends ConsumerWidget {
               const SizedBox(height: 8),
               OutlinedButton(
                 onPressed: controller.openNotificationListenerSettings,
-                child: const Text('Open notification access (required for fallback)'),
+                child: const Text('Open notification access (required)'),
               ),
               const SizedBox(height: 8),
               OutlinedButton(

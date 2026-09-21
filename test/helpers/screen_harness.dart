@@ -34,12 +34,18 @@ const _triggerConfig = TriggerConfig(
 ///
 /// [spotifyClientId] is what the credentials store already holds; the default
 /// stands for an app that has been set up, and `''` for one that has not.
+///
+/// [notificationAccess] is the grant the trigger runs on — the default stands
+/// for a phone where it was given, `false` for one where it was not and the
+/// trigger therefore cannot fire at all.
 Widget hostScreen(
   Widget screen, {
   MusicProvider provider = MusicProvider.spotify,
   int pendingLikes = 0,
   String spotifyClientId = 'test-client-id',
   LikeCounterConfig counter = LikeCounterConfig.empty,
+  bool notificationAccess = true,
+  bool serviceEnabled = false,
 }) {
   FlutterSecureStorage.setMockInitialValues(<String, String>{
     if (spotifyClientId.isNotEmpty) 'spotify_client_id': spotifyClientId,
@@ -93,11 +99,13 @@ Widget hostScreen(
       ),
     ),
   );
-  when(() => platform.isServiceEnabled()).thenAnswer((_) async => false);
+  when(() => platform.isServiceEnabled()).thenAnswer((_) async => serviceEnabled);
   when(() => platform.isIgnoringBatteryOptimizations())
       .thenAnswer((_) async => true);
   when(() => platform.isNotificationListenerEnabled())
-      .thenAnswer((_) async => true);
+      .thenAnswer((_) async => notificationAccess);
+  when(() => platform.openNotificationListenerSettings())
+      .thenAnswer((_) async {});
   when(() => platform.isMiuiDevice()).thenAnswer((_) async => false);
   when(() => platform.isMusicAppInstalled(any())).thenAnswer((_) async => true);
   when(() => platform.updateMusicProvider(any())).thenAnswer((_) async {});
