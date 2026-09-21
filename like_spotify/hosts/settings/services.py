@@ -24,6 +24,10 @@ from like_spotify.extensions.google_sheets_storage.create import (
     CreatedSpreadsheet,
     create_counter_spreadsheet,
 )
+from like_spotify.extensions.google_sheets_storage.errors import (
+    SHEETS_API_LIBRARY_URL,
+    SheetsApiDisabledError,
+)
 
 from .. import _common
 
@@ -34,6 +38,9 @@ YTMUSIC_SETUP_URL = (
 SPOTIFY_DASHBOARD_URL = "https://developer.spotify.com/dashboard"
 SPOTIFY_REDIRECT_URI = "http://127.0.0.1:8793/callback"
 GOOGLE_CREDENTIALS_URL = "https://console.cloud.google.com/apis/credentials"
+#: Creating the client and enabling the API are two different pages, and the
+#: credentials one above cannot do the second — hence its own link (#165).
+GOOGLE_SHEETS_API_URL = SHEETS_API_LIBRARY_URL
 
 
 # ── Account status ─────────────────────────────────────────────────────
@@ -111,6 +118,19 @@ def create_counter_sheet() -> CreatedSpreadsheet:
     return create_counter_spreadsheet(
         google_auth.make_token_provider(_common.GOOGLE_TOKEN_FILE)
     )
+
+
+def describe_create_failure(error: Exception) -> str:
+    """The status line for a failed *Create spreadsheet*.
+
+    Lives here rather than in the window so it can be read by a test that
+    does not need a toolkit. A project with the Sheets API switched off
+    already says exactly what to do, so it is shown on its own; anything
+    else keeps the prefix that says which button failed (#165).
+    """
+    if isinstance(error, SheetsApiDisabledError):
+        return str(error)
+    return f"Could not create the spreadsheet: {error}"
 
 
 # ── Autostart (Windows only) ───────────────────────────────────────────

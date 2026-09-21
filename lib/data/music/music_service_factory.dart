@@ -34,8 +34,8 @@ ActiveMusicServiceRepository createMusicServiceRepository({
   required LikeCounterStore likeCounterStore,
   required LikeCounterAccount likeCounterAccount,
 }) {
-  // GoogleSheetsLikeCountRepository reads cachedUserId lazily at increment
-  // time, so null on first call just falls back to local.
+  // GoogleSheetsLikeCountRepository asks for the user id at increment time,
+  // so the repository it asks need not exist yet when it is built.
   late final SpotifyMusicServiceRepository spotify;
 
   // Always the sheet-backed repository: the counter can be set up while the
@@ -46,10 +46,14 @@ ActiveMusicServiceRepository createMusicServiceRepository({
     readAccessToken: likeCounterAccount.freshAccessToken,
     // Only Spotify likes go through this repository; YouTube Music likes are
     // counted natively (YouTubeMusicLiker.kt) under the `sub`.
-    userIdGetter: () => likeCounterUserId(
+    userIdGetter: () async => likeCounterUserId(
       MusicProvider.spotify,
-      spotifyUserId: spotify.cachedUserId,
+      spotifyUserId: await spotify.ensureUserId(),
     ),
+    // A like the sheet could not record still counts locally, so the Logs
+    // screen is the only place it can show up — one method, not the whole
+    // settings repository (#170).
+    appendLog: settingsRepository.appendLog,
   );
 
   spotify = SpotifyMusicServiceRepository(

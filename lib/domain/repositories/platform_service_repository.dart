@@ -45,6 +45,13 @@ abstract class PlatformServiceRepository {
     required String clientId,
   });
 
+  /// Drops the Spotify user id the native side remembers.
+  ///
+  /// That id keys the shared like counter's rows and is cached indefinitely,
+  /// so it has to be dropped whenever the account can have changed — otherwise
+  /// a second account's likes are filed under the first account's name.
+  Future<void> clearSpotifyUserId();
+
   /// Hands YouTube Music's Google tokens to the native side, which uses and
   /// refreshes them in the background (writing refreshed tokens back itself).
   Future<void> syncYouTubeMusicTokens({

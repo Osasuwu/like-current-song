@@ -17,6 +17,9 @@ from pathlib import Path
 import pytest
 
 from like_spotify.extensions.google_sheets_storage.create import CreatedSpreadsheet
+from like_spotify.extensions.google_sheets_storage.errors import (
+    SheetsApiDisabledError,
+)
 from like_spotify.hosts import _common, _setup
 
 
@@ -407,6 +410,38 @@ def test_setup_reports_why_creating_failed(
 
     assert _setup.do_setup(reauth=False) == 2
     assert "sheets create 429: slow down" in capsys.readouterr().err
+
+
+def test_setup_says_to_switch_the_sheets_api_on(
+    tmp_paths, fake_provider, monkeypatch, capsys
+) -> None:
+    """A project with the API off is the one failure the user can act on, so
+    it is printed as its own sentence — no "could not create the
+    spreadsheet:" in front of it burying the instruction (#165)."""
+    _signed_in_google()
+    _fake_create(
+        monkeypatch,
+        error=SheetsApiDisabledError(
+            "The Google Sheets API is not enabled on your Google Cloud "
+            "project 12345. Enable it at https://example.test/enable, give "
+            "Google a minute to catch up, then try again.",
+            activation_url="https://example.test/enable",
+            project="12345",
+        ),
+    )
+    monkeypatch.setattr("builtins.input", _scripted_input([
+        "",  # music service — default spotify
+        "abc123client",
+        "sheets",
+        "create",
+    ]))
+    monkeypatch.setattr(_common.sys, "platform", "linux")
+
+    assert _setup.do_setup(reauth=False) == 2
+    printed = capsys.readouterr().err
+    assert "Google Sheets API is not enabled" in printed
+    assert "https://example.test/enable" in printed
+    assert "Could not create the spreadsheet" not in printed
 
 
 def test_setup_does_not_default_to_a_retired_backend(

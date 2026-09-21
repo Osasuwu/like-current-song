@@ -16,6 +16,7 @@ class ServiceCredentialsState {
     this.createdCounter,
     this.spotifyError,
     this.counterError,
+    this.counterErrorUrl,
   });
 
   /// The Spotify app's client ID. PKCE means there is no secret beside it.
@@ -47,6 +48,12 @@ class ServiceCredentialsState {
   final String? spotifyError;
   final String? counterError;
 
+  /// A page that fixes [counterError], when it has one — the Cloud console
+  /// link Google hands back for a project whose Sheets API is off. The
+  /// message says the URL too; this is what lets the card offer a button
+  /// instead of a URL to be copied out by hand.
+  final String? counterErrorUrl;
+
   bool get hasSpotifyClientId => spotifyClientId.isNotEmpty;
 
   /// A sheet is already named, whether it was pasted or created.
@@ -64,6 +71,7 @@ class ServiceCredentialsState {
     String? spotifyError,
     bool clearSpotifyError = false,
     String? counterError,
+    String? counterErrorUrl,
     bool clearCounterError = false,
   }) {
     return ServiceCredentialsState(
@@ -79,6 +87,12 @@ class ServiceCredentialsState {
           clearSpotifyError ? null : (spotifyError ?? this.spotifyError),
       counterError:
           clearCounterError ? null : (counterError ?? this.counterError),
+      // The link belongs to the error it came with: a new failure that has
+      // no URL must not inherit the last one's, or the card would offer to
+      // fix something that is no longer what went wrong.
+      counterErrorUrl: clearCounterError || counterError != null
+          ? counterErrorUrl
+          : this.counterErrorUrl,
     );
   }
 }
@@ -221,8 +235,11 @@ class ServiceCredentialsController
       // Its message already says what went wrong — Google's own words when
       // Google refused. Anything more general would throw that away.
       if (!mounted) return;
-      state =
-          state.copyWith(counterCreating: false, counterError: error.message);
+      state = state.copyWith(
+        counterCreating: false,
+        counterError: error.message,
+        counterErrorUrl: error.activationUrl,
+      );
       return;
     } catch (error) {
       if (!mounted) return;

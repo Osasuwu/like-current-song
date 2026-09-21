@@ -45,8 +45,9 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 		).setMethodCallHandler { call, result ->
 			when (call.method) {
 				"startService" -> {
-					startListenerService()
-					result.success(true)
+					// false = the system refused the start; the Dart side re-reads
+					// `isServiceEnabled`, which now answers honestly.
+					result.success(startListenerService())
 				}
 
 				"stopService" -> {
@@ -84,6 +85,16 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 						.putString(AppConstants.KEY_SPOTIFY_REFRESH_TOKEN, refreshToken)
 						.putLong(AppConstants.KEY_SPOTIFY_EXPIRES_AT, expiresAt)
 						.putString(AppConstants.KEY_SPOTIFY_CLIENT_ID, clientId)
+						.apply()
+					result.success(true)
+				}
+
+				"clearSpotifyUserId" -> {
+					// The id is cached here with no expiry and keys the shared
+					// like counter's rows, so an account change has to drop it
+					// or the new account's likes land on the old account's row.
+					prefs().edit()
+						.remove(AppConstants.KEY_SPOTIFY_USER_ID)
 						.apply()
 					result.success(true)
 				}
@@ -388,16 +399,27 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 		eventSink = null
 	}
 
-	private fun startListenerService() {
+	/**
+	 * Switches the listener on.
+	 *
+	 * `service_enabled` is not a record of what the user asked for, it is this
+	 * app's answer to "is the listener running": `isServiceEnabled` reports the
+	 * UI from it and [BootCompletedReceiver] restarts from it. So it is written
+	 * only once the system has accepted the start. Writing it unconditionally
+	 * would let a refused start leave the app claiming to listen while nothing
+	 * is running — exactly the state #162 went to some trouble to rule out.
+	 *
+	 * @return true if the listener is now on.
+	 */
+	private fun startListenerService(): Boolean {
 		val intent = Intent(this, MediaButtonForegroundService::class.java).apply {
 			action = MediaButtonForegroundService.ACTION_START
 		}
-		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-			startForegroundService(intent)
-		} else {
-			startService(intent)
+		if (!MediaButtonForegroundService.start(this, intent)) {
+			return false
 		}
 		prefs().edit().putBoolean(AppConstants.KEY_SERVICE_ENABLED, true).apply()
+		return true
 	}
 
 	private fun stopListenerService() {

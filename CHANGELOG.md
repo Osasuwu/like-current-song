@@ -36,6 +36,71 @@ still the only option for the desktop half.
 
 ### Fixed
 
+- **Android: the listener survives a reboot again on Android 15 and newer.**
+  If you had the listener switched on and restarted your phone, it stayed off
+  until you opened the app by hand — the headset pattern simply did nothing,
+  while the app still showed the listener as enabled. Android 15 stopped apps
+  from starting a `mediaPlayback` background service at boot, and that is the
+  kind the listener was declared as. It is now declared `specialUse`, which is
+  both allowed at boot and an honest description: this app never plays
+  anything, it listens for headset buttons and asks Spotify or YouTube Music to
+  do the rest. A start the system still refuses — an OEM battery policy, say —
+  now leaves the listener off instead of crashing the app during boot, and
+  opening the app brings it back.
+
+- **On Android, a like the counter could not record now says so on the Logs
+  screen.** The phone failed the way the desktop used to, only more quietly:
+  whatever stopped a like reaching your spreadsheet — a counter not signed in
+  to Google, a music-service account it could not resolve, a Google project
+  with the Sheets API switched off — the app showed a count that had quietly
+  been kept on the device alone, and wrote nothing anywhere you could read it.
+  (Its only trace went to logcat, which nobody has open on an installed
+  build.) Every one of those now appears in **Logs** as a `like_count` line
+  saying the like was counted on this device only and why, and the failures
+  you can actually clear name the fix — the Sheets API one links the page that
+  switches it on instead of quoting Google's JSON at you. The like itself is
+  untouched: it still succeeds, and the local tally still stands in for the
+  shared count. Having no counter set up at all stays silent, as before.
+
+- **A like the counter could not record no longer passes for one that was.**
+  With the shared like counter switched on, anything that stopped a like being
+  counted looked exactly like having no counter at all: the desktop said
+  "Liked", the count stayed where it was, and nothing was written anywhere.
+  Every such failure now reaches the log, and the ones you can actually do
+  something about say so on the like itself — "Liked — counter not updated",
+  followed by what to fix. Today that is a Google project with the Sheets API
+  switched off, which a counter set up by pasting a spreadsheet id runs into on
+  its very first like and never got told about. A timeout or a server hiccup
+  stays quiet, so a flaky connection does not nag you on every press. The like
+  is untouched either way: it still succeeds, whatever the counter did.
+
+- **A Google project with the Sheets API switched off now says so, and links
+  the page that switches it on.** Setting the shared like counter up on a
+  fresh Cloud project — or on the one you already made for YouTube Music,
+  which the README suggests reusing — failed with a bare `403` and a wall of
+  Google's JSON, on the Android *Create spreadsheet* button, in
+  `like-current-song --setup`, and in the desktop settings window alike. The
+  API has to be enabled once per project, and nothing said so. All four places
+  now report it as "the Google Sheets API is not enabled on your Google Cloud
+  project", name the project Google named, and give the console link that
+  enables it — Google's own one-click URL when the refusal carried one, the
+  API library page otherwise. Android turns that link into a button; the
+  README's counter setup now starts with the same step, and no longer implies
+  the credentials page can enable an API. A 403 for any other reason keeps the
+  message it always had.
+
+- **Likes reach the shared spreadsheet even with every playlist rule off.**
+  Setting the counter up and liking a track left the sheet empty: the count in
+  the app went up, but nothing was ever written, and nothing said why. The
+  counter keys its rows by your Spotify user id, and that id was only ever
+  looked up as a side effect of *creating a playlist* — so with the archive,
+  best-of and follow-artist rules switched off, which is the default, there was
+  never an id to key by and every like quietly stayed on the device. Both
+  halves of the Android app now look the id up on the like itself. A failed
+  lookup still counts locally rather than failing the like. Disconnecting
+  Spotify, or signing in as someone else, now forgets the remembered id, so a
+  second account's likes are no longer filed under the first account's row.
+
 - **Android: the app no longer says it is listening when it cannot hear
   anything.** Notification access was presented as a *fallback*, so it was easy
   to leave off — and with it off a pause-play did nothing at all, while the
