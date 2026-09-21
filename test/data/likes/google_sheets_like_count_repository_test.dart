@@ -45,7 +45,7 @@ void main() {
       GoogleSheetsLikeCountRepository(
         readSpreadsheetId: () async => spreadsheetId,
         readAccessToken: () async => token,
-        userIdGetter: () => userId,
+        userIdGetter: () async => userId,
         httpClient: client,
       );
 
