@@ -48,6 +48,18 @@ still the only option for the desktop half.
   now leaves the listener off instead of crashing the app during boot, and
   opening the app brings it back.
 
+- **A like the counter could not record no longer passes for one that was.**
+  With the shared like counter switched on, anything that stopped a like being
+  counted looked exactly like having no counter at all: the desktop said
+  "Liked", the count stayed where it was, and nothing was written anywhere.
+  Every such failure now reaches the log, and the ones you can actually do
+  something about say so on the like itself — "Liked — counter not updated",
+  followed by what to fix. Today that is a Google project with the Sheets API
+  switched off, which a counter set up by pasting a spreadsheet id runs into on
+  its very first like and never got told about. A timeout or a server hiccup
+  stays quiet, so a flaky connection does not nag you on every press. The like
+  is untouched either way: it still succeeds, whatever the counter did.
+
 - **A Google project with the Sheets API switched off now says so, and links
   the page that switches it on.** Setting the shared like counter up on a
   fresh Cloud project — or on the one you already made for YouTube Music,

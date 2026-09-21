@@ -5,6 +5,7 @@ Slices:
     #22 — Storage wiring + count in feedback title.
     #23 — Pre/PostLikeAction chains.
     #24 — backfill probe (is_liked → was_already_liked → Storage.increment).
+    #168 — a storage failure is logged, and a user-fixable one is shown.
 
 Network / keyboard / tray are not exercised — we mock MusicProvider +
 Storage and verify the core composition flows the way the host depends on.
@@ -12,9 +13,12 @@ Storage and verify the core composition flows the way the host depends on.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from like_spotify.core.actions import PostLikeAction, PreLikeAction
+from like_spotify.core.errors import TransientError, UserActionRequired
 from like_spotify.core.music_provider import MusicProvider
 from like_spotify.core.pipeline import Pipeline, RemoveFromPlaylistPipeline
 from like_spotify.core.storage import Storage
@@ -196,6 +200,66 @@ async def test_storage_not_called_when_like_fails() -> None:
     await Pipeline(provider=provider, feedback=fb, storage=storage).run_once()
 
     assert storage.increment_calls == []
+
+
+# ── #168: a like that could not be counted says so ────────────────────
+
+
+class CounterUnreachable(TransientError):
+    """A blip: the next press may well work, so the user is not told."""
+
+
+class SheetDeleted(UserActionRequired, RuntimeError):
+    """Stands in for `SheetsApiDisabledError` — permanent until acted on."""
+
+
+@pytest.mark.asyncio
+async def test_transient_storage_failure_is_logged_but_not_shown(caplog) -> None:
+    provider = FakeProvider(track=_track())
+    storage = FakeStorage(raises=CounterUnreachable("sheets get 503"))
+    fb = Feedback()
+
+    with caplog.at_level(logging.WARNING, logger="like_spotify.core.pipeline"):
+        await Pipeline(provider=provider, feedback=fb, storage=storage).run_once()
+
+    assert provider.like_calls == [_track()]
+    success, title, message = fb.calls[0]
+    assert success is True
+    assert title == "Liked"
+    assert message == "Song — Artist"
+
+    record = _only_warning(caplog)
+    assert record.exc_info is not None
+    assert "FakeStorage" in record.getMessage()
+    assert "sheets get 503" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_user_fixable_storage_failure_reaches_the_feedback(caplog) -> None:
+    provider = FakeProvider(track=_track())
+    storage = FakeStorage(raises=SheetDeleted("Enable the Sheets API at <url>."))
+    fb = Feedback()
+
+    with caplog.at_level(logging.WARNING, logger="like_spotify.core.pipeline"):
+        await Pipeline(provider=provider, feedback=fb, storage=storage).run_once()
+
+    # The like still happened and the count still degraded to None.
+    assert provider.like_calls == [_track()]
+    success, title, message = fb.calls[0]
+    assert success is True
+    assert title == "Liked — counter not updated"
+    assert "Song — Artist" in message
+    assert "Enable the Sheets API at <url>." in message
+
+    assert _only_warning(caplog).exc_info is not None
+
+
+def _only_warning(caplog) -> logging.LogRecord:
+    warnings = [
+        r for r in caplog.records if r.name == "like_spotify.core.pipeline"
+    ]
+    assert len(warnings) == 1
+    return warnings[0]
 
 
 # ── #24: backfill ─────────────────────────────────────────────────────
