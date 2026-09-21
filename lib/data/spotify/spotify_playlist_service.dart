@@ -58,7 +58,7 @@ class SpotifyPlaylistService {
 
     _cache.clear(); // invalidate before creation
 
-    final userId = await _getUserId(accessToken);
+    final userId = await ensureUserId(accessToken);
     if (userId == null) return null;
 
     try {
@@ -93,17 +93,31 @@ class SpotifyPlaylistService {
     }
   }
 
-  Future<String?> _getUserId(String accessToken) async {
+  /// The signed-in account's Spotify user id, fetched once and kept.
+  ///
+  /// Not private, because the shared like counter keys its rows by this id and
+  /// has to be able to ask for it: while this lived behind playlist creation,
+  /// anyone whose rules were off never had one, and every like they made went
+  /// to the local count with the shared sheet left empty.
+  Future<String?> ensureUserId(String accessToken) async {
     _cachedUserId ??= await _client.getCurrentUserId(accessToken);
     return _cachedUserId;
   }
-
-  /// Expose user ID getter for like count repository.
-  String? get cachedUserId => _cachedUserId;
 
   /// Force-clear the playlist name → ID cache.
   void invalidateCache() {
     _cache.clear();
     _cacheTimestamp = DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
+  /// Forget who is signed in, so the next ask looks the id up again.
+  ///
+  /// Called when the account can have changed under us — a disconnect, or a
+  /// fresh authorization. Both playlists and the shared like counter are keyed
+  /// by this id, so keeping a stale one would file a second account's likes
+  /// under the first account's name.
+  void forgetUserId() {
+    _cachedUserId = null;
+    invalidateCache();
   }
 }

@@ -88,6 +88,16 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 					result.success(true)
 				}
 
+				"clearSpotifyUserId" -> {
+					// The id is cached here with no expiry and keys the shared
+					// like counter's rows, so an account change has to drop it
+					// or the new account's likes land on the old account's row.
+					prefs().edit()
+						.remove(AppConstants.KEY_SPOTIFY_USER_ID)
+						.apply()
+					result.success(true)
+				}
+
 				"syncYouTubeMusicTokens" -> {
 					// Epoch ms exceeds Int range, so the channel delivers a Long;
 					// read it as Number to accept either.
