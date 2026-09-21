@@ -18,6 +18,7 @@ import requests
 
 from like_spotify.core.errors import AuthError, TransientError
 
+from .errors import sheets_api_disabled
 from .schema import create_request_body
 
 API_BASE = "https://sheets.googleapis.com/v4/spreadsheets"
@@ -47,10 +48,11 @@ def create_counter_spreadsheet(
     *session* is anything with a ``requests``-shaped ``post``; it defaults to
     :mod:`requests` itself and exists so this can be tested without network.
 
-    Raises :class:`AuthError` when Google will not accept the token,
-    :class:`TransientError` on a 5xx or a network blip, and
-    :class:`RuntimeError` for anything else — including a 2xx reply that
-    carries no spreadsheet id.
+    Raises :class:`~.errors.SheetsApiDisabledError` when the refusal is a
+    Cloud project without the Sheets API enabled, :class:`AuthError` when
+    Google will not accept the token, :class:`TransientError` on a 5xx or a
+    network blip, and :class:`RuntimeError` for anything else — including a
+    2xx reply that carries no spreadsheet id.
     """
     if token_provider is None:
         raise ValueError("token_provider is required")
@@ -73,6 +75,12 @@ def create_counter_spreadsheet(
     except requests.RequestException as exc:  # pragma: no cover - network only
         raise TransientError(f"sheets create failed: {exc}") from exc
 
+    # Before the token is blamed: a 403 here is more often a project whose
+    # Sheets API was never switched on than a bad token, and re-authorising
+    # — what an AuthError asks a host to do — would not fix it (#165).
+    disabled = sheets_api_disabled(r.status_code, r.text)
+    if disabled is not None:
+        raise disabled
     if r.status_code in (401, 403):
         raise AuthError(f"sheets create {r.status_code}: {r.text}")
     if r.status_code >= 500:

@@ -166,11 +166,66 @@ void main() {
       await expectLater(
         creator.create(),
         throwsA(
-          isA<CounterSpreadsheetException>().having(
-            (error) => error.message,
-            'message',
-            allOf(contains('403'), contains('nope')),
+          isA<CounterSpreadsheetException>()
+              .having(
+                (error) => error.message,
+                'message',
+                allOf(contains('403'), contains('nope')),
+              )
+              // A 403 the body does not explain is not a disabled API, so
+              // there is no page to offer and the card must not draw a button.
+              .having((error) => error.activationUrl, 'activationUrl', isNull),
+        ),
+      );
+    });
+
+    test('a project with the Sheets API off is told so, and where', () async {
+      // The likely first run: an OAuth client exists but the API was never
+      // switched on, and the button used to answer with a 403 and raw JSON
+      // (#165). The URL comes out separately so the card can offer a button.
+      final creator = CounterSpreadsheetCreator(
+        readAccessToken: () async => 'access-token',
+        httpClient: MockClient(
+          (_) async => http.Response(
+            jsonEncode(<String, dynamic>{
+              'error': <String, dynamic>{
+                'code': 403,
+                'message': 'Google Sheets API has not been used in project '
+                    '123456789 before or it is disabled.',
+                'details': <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'reason': 'SERVICE_DISABLED',
+                    'metadata': <String, dynamic>{
+                      'consumer': 'projects/123456789',
+                      'activationUrl': 'https://example.test/enable',
+                    },
+                  },
+                ],
+              },
+            }),
+            403,
           ),
+        ),
+      );
+
+      await expectLater(
+        creator.create(),
+        throwsA(
+          isA<CounterSpreadsheetException>()
+              .having(
+                (error) => error.message,
+                'message',
+                allOf(
+                  contains('Google Sheets API is not enabled'),
+                  contains('123456789'),
+                  isNot(contains('403')),
+                ),
+              )
+              .having(
+                (error) => error.activationUrl,
+                'activationUrl',
+                'https://example.test/enable',
+              ),
         ),
       );
     });
