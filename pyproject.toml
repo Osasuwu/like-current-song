@@ -54,7 +54,7 @@ like-spotify = "like_spotify.hosts:legacy_main"
 [project.gui-scripts]
 # Windowed-subsystem twin of `like-current-song`, for launches that must
 # never show a console: the login autostart target and any external hotkey
-# tool invoking `like-once`/`remove-once`. `--setup`/`--config` still need
+# tool invoking `like-once`/`discard-once`. `--setup`/`--config` still need
 # `like-current-song` (console) since they read from stdin.
 like-current-song-gui = "like_spotify.hosts:main"
 # Deprecated alias (#101). Silent on purpose: a windowed exe has no console
