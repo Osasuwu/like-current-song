@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/likes/counter_spreadsheet_creator.dart';
 import '../../data/likes/like_counter_store.dart';
 import '../../data/spotify/spotify_token_store.dart';
 import '../../domain/entities/like_counter_config.dart';
@@ -11,7 +12,10 @@ class ServiceCredentialsState {
     this.loaded = false,
     this.spotifySaved = false,
     this.counterSaved = false,
-    this.error,
+    this.counterCreating = false,
+    this.createdCounter,
+    this.spotifyError,
+    this.counterError,
   });
 
   /// The Spotify app's client ID. PKCE means there is no secret beside it.
@@ -29,10 +33,24 @@ class ServiceCredentialsState {
   final bool spotifySaved;
   final bool counterSaved;
 
-  /// Last failure, ready to show as-is.
-  final String? error;
+  /// A spreadsheet is being made in the user's Drive right now.
+  final bool counterCreating;
+
+  /// The spreadsheet this app just made, so the card can show what landed in
+  /// the user's Drive. Null until one is created in this session — a counter
+  /// configured by pasting an id never sets it.
+  final CreatedCounterSpreadsheet? createdCounter;
+
+  /// Last failure of each half, ready to show as-is, kept apart so a card
+  /// only ever shows what went wrong under it. One shared field put a counter
+  /// failure under the Spotify client ID box, where it explains nothing.
+  final String? spotifyError;
+  final String? counterError;
 
   bool get hasSpotifyClientId => spotifyClientId.isNotEmpty;
+
+  /// A sheet is already named, whether it was pasted or created.
+  bool get hasCounterSpreadsheet => counter.spreadsheetId.isNotEmpty;
 
   ServiceCredentialsState copyWith({
     String? spotifyClientId,
@@ -40,8 +58,13 @@ class ServiceCredentialsState {
     bool? loaded,
     bool? spotifySaved,
     bool? counterSaved,
-    String? error,
-    bool clearError = false,
+    bool? counterCreating,
+    CreatedCounterSpreadsheet? createdCounter,
+    bool clearCreatedCounter = false,
+    String? spotifyError,
+    bool clearSpotifyError = false,
+    String? counterError,
+    bool clearCounterError = false,
   }) {
     return ServiceCredentialsState(
       spotifyClientId: spotifyClientId ?? this.spotifyClientId,
@@ -49,7 +72,13 @@ class ServiceCredentialsState {
       loaded: loaded ?? this.loaded,
       spotifySaved: spotifySaved ?? this.spotifySaved,
       counterSaved: counterSaved ?? this.counterSaved,
-      error: clearError ? null : (error ?? this.error),
+      counterCreating: counterCreating ?? this.counterCreating,
+      createdCounter:
+          clearCreatedCounter ? null : (createdCounter ?? this.createdCounter),
+      spotifyError:
+          clearSpotifyError ? null : (spotifyError ?? this.spotifyError),
+      counterError:
+          clearCounterError ? null : (counterError ?? this.counterError),
     );
   }
 }
@@ -68,9 +97,11 @@ class ServiceCredentialsController
     required LikeCounterStore likeCounterStore,
     required Future<void> Function(LikeCounterConfig config)
         onLikeCounterConfigChanged,
+    required Future<CreatedCounterSpreadsheet> Function() createCounterSheet,
   })  : _spotifyTokenStore = spotifyTokenStore,
         _likeCounterStore = likeCounterStore,
         _onLikeCounterConfigChanged = onLikeCounterConfigChanged,
+        _createCounterSheet = createCounterSheet,
         super(const ServiceCredentialsState());
 
   final SpotifyTokenStore _spotifyTokenStore;
@@ -80,6 +111,10 @@ class ServiceCredentialsController
   /// worker runs without Dart), so every change is pushed across.
   final Future<void> Function(LikeCounterConfig config)
       _onLikeCounterConfigChanged;
+
+  /// Makes a spreadsheet in the user's Drive — [CounterSpreadsheetCreator],
+  /// injected so this controller can be driven without touching Google.
+  final Future<CreatedCounterSpreadsheet> Function() _createCounterSheet;
 
   Future<void> load() async {
     try {
@@ -95,7 +130,8 @@ class ServiceCredentialsController
       if (!mounted) return;
       state = state.copyWith(
         loaded: true,
-        error: 'Could not read saved credentials: $error',
+        spotifyError: 'Could not read saved credentials: $error',
+        counterError: 'Could not read saved credentials: $error',
       );
     }
   }
@@ -104,7 +140,7 @@ class ServiceCredentialsController
     final trimmed = clientId.trim();
     if (trimmed.isEmpty) {
       state = state.copyWith(
-        error: 'Enter your Spotify client ID.',
+        spotifyError: 'Enter your Spotify client ID.',
         spotifySaved: false,
       );
       return;
@@ -115,12 +151,12 @@ class ServiceCredentialsController
       state = state.copyWith(
         spotifyClientId: trimmed,
         spotifySaved: true,
-        clearError: true,
+        clearSpotifyError: true,
       );
     } catch (error) {
       if (!mounted) return;
       state = state.copyWith(
-        error: 'Could not save the client ID: $error',
+        spotifyError: 'Could not save the client ID: $error',
         spotifySaved: false,
       );
     }
@@ -138,13 +174,87 @@ class ServiceCredentialsController
       state = state.copyWith(
         counter: counter,
         counterSaved: true,
-        clearError: true,
+        clearCounterError: true,
+        // A different sheet means the "here is what we made" panel is about
+        // something the counter no longer writes to.
+        clearCreatedCounter: trimmed != state.createdCounter?.spreadsheetId,
       );
     } catch (error) {
       if (!mounted) return;
       state = state.copyWith(
-        error: 'Could not save the counter settings: $error',
+        counterError: 'Could not save the counter settings: $error',
         counterSaved: false,
+      );
+    }
+  }
+
+  /// Makes the counter spreadsheet in the user's own Drive and stores its id,
+  /// so nobody has to leave the app to build one by hand.
+  ///
+  /// Refuses when a spreadsheet is already configured. A second one would
+  /// split the counts in two with nothing to say which half is live, and the
+  /// first sheet — possibly a household one shared with the desktop — would
+  /// be orphaned by a single stray tap.
+  Future<void> createCounterSpreadsheet() async {
+    if (state.counterCreating) return;
+    final existing = state.counter.spreadsheetId;
+    if (existing.isNotEmpty) {
+      state = state.copyWith(
+        counterError:
+            'A counter spreadsheet is already set up ($existing). Clear '
+            'the spreadsheet ID and save before making another one.',
+        counterSaved: false,
+      );
+      return;
+    }
+
+    state = state.copyWith(
+      counterCreating: true,
+      counterSaved: false,
+      clearCounterError: true,
+      clearCreatedCounter: true,
+    );
+    final CreatedCounterSpreadsheet created;
+    try {
+      created = await _createCounterSheet();
+    } on CounterSpreadsheetException catch (error) {
+      // Its message already says what went wrong — Google's own words when
+      // Google refused. Anything more general would throw that away.
+      if (!mounted) return;
+      state =
+          state.copyWith(counterCreating: false, counterError: error.message);
+      return;
+    } catch (error) {
+      if (!mounted) return;
+      state = state.copyWith(
+        counterCreating: false,
+        counterError: 'Could not create the spreadsheet: $error',
+      );
+      return;
+    }
+
+    try {
+      await _likeCounterStore.saveSpreadsheetId(created.spreadsheetId);
+      final counter = await _likeCounterStore.read();
+      await _onLikeCounterConfigChanged(counter);
+      if (!mounted) return;
+      state = state.copyWith(
+        counter: counter,
+        createdCounter: created,
+        counterCreating: false,
+        counterSaved: true,
+        clearCounterError: true,
+      );
+    } catch (error) {
+      // The sheet is real and in the user's Drive; only remembering it
+      // failed. Say the id, or it is lost to them.
+      if (!mounted) return;
+      state = state.copyWith(
+        counterCreating: false,
+        createdCounter: created,
+        counterError:
+            'The spreadsheet was created (${created.spreadsheetId}) but '
+            'could not be saved: $error',
       );
     }
   }
@@ -159,7 +269,7 @@ class ServiceCredentialsController
     } catch (error) {
       if (!mounted) return;
       state = state.copyWith(
-        error: 'Could not read the counter settings: $error',
+        counterError: 'Could not read the counter settings: $error',
       );
     }
   }

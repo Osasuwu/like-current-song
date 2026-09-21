@@ -127,6 +127,17 @@ like-current-song --setup # Desktop: interactive config wizard
 - Data/state layer tests mock repository interfaces with `mocktail`
 - Run: `flutter test`
 
+Kotlin:
+
+- Framework: plain JUnit under `android/app/src/test/kotlin/` — no emulator, no
+  Robolectric, so anything covered has to be reachable without an Android API
+- Run: `flutter build apk --debug --config-only` once (it writes the gitignored
+  `android/gradlew`), then `cd android && ./gradlew :app:testDebugUnitTest`.
+  A direct `gradlew` run needs `JAVA_HOME` on a JDK the AGP accepts (17 in CI);
+  never pin it with `org.gradle.java.home` in the committed `gradle.properties`
+- `MediaEventPatternDetector` is the Kotlin twin of the Dart
+  `SignalPatternMatcher`; the two test files mirror each other on purpose
+
 Desktop:
 
 - Framework: `pytest` + `pytest-asyncio`, tests under `tests/`
@@ -134,8 +145,9 @@ Desktop:
   `tests/test_storage_contract.py` — seven shared invariants for free
 - Run: `pytest`
 
-CI (`.github/workflows/ci.yml`) runs both: a `test` job (Flutter, ubuntu) and a
-`pytest` job (Windows).
+CI (`.github/workflows/ci.yml`) runs all three: a `test` job (Flutter analyze,
+`flutter test`, then the Kotlin `testDebugUnitTest`, ubuntu) and a `pytest` job
+(Windows).
 
 ## Spotify setup
 

@@ -307,7 +307,7 @@ void main() {
     });
 
     group('edge cases', () {
-      test('empty pattern matches immediately (zero-length pattern)', () {
+      test('an empty pattern never triggers, however many events arrive', () {
         final matcher = SignalPatternMatcher();
         final config = TriggerConfig(
           pattern: '',
@@ -315,9 +315,21 @@ void main() {
           debounceMs: 500,
         );
 
-        final result = matcher.onEvent(event: 'play', config: config);
+        expect(matcher.onEvent(event: 'play', config: config), equals(false));
+        expect(matcher.onEvent(event: 'pause', config: config), equals(false));
+        expect(matcher.onEvent(event: 'play', config: config), equals(false));
+      });
 
-        expect(result, equals(true));
+      test('a comma and whitespace only pattern never triggers', () {
+        final matcher = SignalPatternMatcher();
+        final config = TriggerConfig(
+          pattern: ' , , ',
+          windowMs: 5000,
+          debounceMs: 500,
+        );
+
+        expect(matcher.onEvent(event: 'pause', config: config), equals(false));
+        expect(matcher.onEvent(event: 'play', config: config), equals(false));
       });
 
       test('handles rapid consecutive valid events', () {

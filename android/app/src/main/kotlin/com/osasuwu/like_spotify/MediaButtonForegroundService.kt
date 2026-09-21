@@ -6,14 +6,16 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.Log
-import android.view.KeyEvent
 import android.support.v4.media.session.MediaSessionCompat
 import androidx.core.app.NotificationCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
@@ -29,9 +31,25 @@ class MediaButtonForegroundService : Service() {
     /** Runs YouTube Music likes (binder polling + HTTP) off the main thread. */
     private val likeExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
+    /**
+     * Keeps the notification's words true while the service runs: notification
+     * access can be granted or revoked at any moment, and the text depends on
+     * it. Sent by [PlaybackNotificationListenerService] when it connects or
+     * disconnects, and by [MainActivity] whenever it re-reads the grant.
+     */
+    private val listenerStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            refreshNotification()
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        LocalBroadcastManager.getInstance(this).registerReceiver(
+            listenerStateReceiver,
+            IntentFilter(AppConstants.ACTION_LISTENER_STATE_CHANGED)
+        )
 
         detector = MediaEventPatternDetector(
             windowMsProvider = { prefs().getLong(AppConstants.KEY_WINDOW_MS, 1000L) },
@@ -39,6 +57,13 @@ class MediaButtonForegroundService : Service() {
             patternProvider = { loadPattern() }
         )
 
+        // NOT the path a headset press takes — see MediaButtonReceiver. Android
+        // hands the media button to the session it considers the current
+        // player, which is the music app, never this one; and if we did win it,
+        // the pause-play would never reach the player it is meant to pause.
+        // Kept because a remote with no player of its own (some BT remotes, a
+        // head unit with nothing playing) can still land here. The working
+        // path is PlaybackNotificationListenerService.
         mediaSession = MediaSessionCompat(this, "LikeSpotifySession").apply {
             setFlags(
                 MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or
@@ -68,6 +93,15 @@ class MediaButtonForegroundService : Service() {
 
         startForeground(AppConstants.NOTIFICATION_ID, buildNotification(active = true))
         sendServiceState(true)
+        if (!PlaybackNotificationListenerService.isEnabled(this)) {
+            // Say it once, so the Logs screen is not silent about the reason
+            // nothing ever happens.
+            log(
+                "Notification access is off — the trigger cannot see pause/play",
+                actionType = "notification_listener",
+                result = "failure",
+            )
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -109,6 +143,9 @@ class MediaButtonForegroundService : Service() {
 
     override fun onDestroy() {
         likeExecutor.shutdown()
+        runCatching {
+            LocalBroadcastManager.getInstance(this).unregisterReceiver(listenerStateReceiver)
+        }
         mediaSession.isActive = false
         mediaSession.release()
         if (stoppedByUser) {
@@ -258,15 +295,58 @@ class MediaButtonForegroundService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        return NotificationCompat.Builder(this, AppConstants.NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("Like Current Song is ${if (active) "active" else "inactive"}")
-            .setContentText("Listening for headset pattern")
+        val listenerEnabled = PlaybackNotificationListenerService.isEnabled(this)
+        val text = ServiceNotificationText.body(listenerEnabled)
+
+        val builder = NotificationCompat.Builder(this, AppConstants.NOTIFICATION_CHANNEL_ID)
+            .setContentTitle(ServiceNotificationText.title(active, listenerEnabled))
+            .setContentText(text)
+            // The "off" text is longer than one collapsed line, and the one
+            // person who needs to read it is the one it is addressed to.
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setOngoing(true)
             .setSilent(true)
             .addAction(0, "Stop", stopPendingIntent)
             .setContentIntent(openPendingIntent)
-            .build()
+
+        if (!listenerEnabled) {
+            grantAccessPendingIntent()?.let {
+                builder.addAction(0, ServiceNotificationText.GRANT_ACTION_LABEL, it)
+            }
+        }
+
+        return builder.build()
+    }
+
+    /** Opens the system's notification-access list, where the grant lives. */
+    private fun grantAccessPendingIntent(): PendingIntent? {
+        val settingsIntent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (settingsIntent.resolveActivity(packageManager) == null) {
+            return null
+        }
+        return runCatching {
+            PendingIntent.getActivity(
+                this,
+                GRANT_ACCESS_REQUEST_CODE,
+                settingsIntent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+        }.getOrNull()
+    }
+
+    /**
+     * Re-posts the notification so its text matches the grant as it is *now*.
+     * Called whenever the listener connects or disconnects, and whenever the
+     * app re-reads the grant — the state can change while the service runs, and
+     * a notification written once at startup would keep lying afterwards.
+     */
+    private fun refreshNotification() {
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        runCatching {
+            manager.notify(AppConstants.NOTIFICATION_ID, buildNotification(active = true))
+        }
     }
 
     private fun createNotificationChannel() {
@@ -332,10 +412,22 @@ class MediaButtonForegroundService : Service() {
         const val ACTION_EXTERNAL_MEDIA_EVENT = "ACTION_EXTERNAL_MEDIA_EVENT"
         private const val TAG = "LikeSpotifyService"
         private const val RESTART_REQUEST_CODE = 5
+        private const val GRANT_ACCESS_REQUEST_CODE = 6
         private const val RESTART_DELAY_MS = 1000L
 
         /** Session confirm (~2 s) + worst-case refresh/search/rate/extra-action round trips. */
         private const val YTM_LIKE_WAKE_LOCK_MS = 60_000L
+
+        /**
+         * Tells a running service that notification access was granted or
+         * revoked, so it can re-word its notification. A local broadcast on
+         * purpose: it must not start the service, only reach one that is
+         * already up.
+         */
+        fun notifyListenerStateChanged(context: Context) {
+            LocalBroadcastManager.getInstance(context)
+                .sendBroadcast(Intent(AppConstants.ACTION_LISTENER_STATE_CHANGED))
+        }
 
         fun dispatchExternalMediaEvent(context: Context, event: String) {
             val serviceIntent = Intent(context, MediaButtonForegroundService::class.java).apply {

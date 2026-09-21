@@ -437,14 +437,43 @@ after that provider, so the dependency is visible.
 pip install -e .[dev]
 pytest                  # all tests
 pytest tests/test_pipeline.py -k storage   # one slice
-flutter test            # Android tests
+flutter test            # the Dart half
 ```
 
+The Kotlin half (`android/app/src/main/kotlin/…`) has JVM unit tests of its
+own, under `android/app/src/test/kotlin/…`. They are plain JUnit — no
+emulator, no Robolectric — so anything they cover has to be reachable without
+an Android API; where the shipped code is tangled with one, the decision is
+lifted into a class that is not (`SpotifyLibraryWrite` next to
+`SpotifyLikeWorker` is the pattern to copy).
+
+```bash
+flutter build apk --debug --config-only   # once: writes android/gradlew
+cd android && ./gradlew :app:testDebugUnitTest          # all Kotlin tests
+cd android && ./gradlew :app:testDebugUnitTest --tests '*MediaEventPatternDetectorTest'
+```
+
+`android/gradlew` is gitignored — Flutter generates it — so the config step
+comes first on a fresh clone. Calling `./gradlew` directly bypasses Flutter's
+JDK resolution, so `JAVA_HOME` has to point at a JDK the Android Gradle Plugin
+accepts (17 is what CI uses; Android Studio's bundled `jbr` works too). If it
+points at something newer, the build fails with just the version number as the
+message. Do not fix that by putting `org.gradle.java.home` in
+`android/gradle.properties` — that file is committed, and a machine-specific
+path there breaks every other checkout, CI included. `~/.gradle/gradle.properties`
+is the place for a local override.
+
+The HTML report of a failed run is written to
+`build/app/reports/tests/testDebugUnitTest/index.html`. `MediaEventPatternDetector`
+is the Kotlin twin of the Dart `SignalPatternMatcher`, and its tests
+deliberately mirror `test/domain/services/signal_pattern_matcher_test.dart`:
+change one side's behaviour and change the other's, or the pair silently drifts.
+
 CI (`.github/workflows/ci.yml`) runs on push/PR to `main`: a `test` job
-(Flutter analyze + `flutter test`, ubuntu) and a `pytest` job (windows, since
-the default host is Windows-bound). A PR must also carry a linked issue in its
-body (`Closes #123`) or the `[no-issue]` marker for trivial drive-bys — see
-`.github/workflows/pr-body-check.yml`.
+(Flutter analyze, `flutter test`, and the Kotlin `testDebugUnitTest`, ubuntu)
+and a `pytest` job (windows, since the default host is Windows-bound). A PR
+must also carry a linked issue in its body (`Closes #123`) or the `[no-issue]`
+marker for trivial drive-bys — see `.github/workflows/pr-body-check.yml`.
 
 ## Signing an Android release
 

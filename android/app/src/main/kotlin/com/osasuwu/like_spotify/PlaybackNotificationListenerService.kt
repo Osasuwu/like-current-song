@@ -25,6 +25,7 @@ class PlaybackNotificationListenerService : NotificationListenerService() {
     override fun onListenerConnected() {
         super.onListenerConnected()
         log("Notification listener connected")
+        MediaButtonForegroundService.notifyListenerStateChanged(this)
         mediaSessionManager.addOnActiveSessionsChangedListener(
             activeSessionsChangedListener,
             ComponentName(this, PlaybackNotificationListenerService::class.java)
@@ -34,6 +35,9 @@ class PlaybackNotificationListenerService : NotificationListenerService() {
 
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
+        // Access was revoked (or the binding dropped): the foreground service
+        // is now listening for nothing and must stop saying otherwise.
+        MediaButtonForegroundService.notifyListenerStateChanged(this)
         runCatching {
             mediaSessionManager.removeOnActiveSessionsChangedListener(activeSessionsChangedListener)
         }

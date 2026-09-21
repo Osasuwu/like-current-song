@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from like_spotify.extensions.google_sheets_storage.create import CreatedSpreadsheet
 from like_spotify.hosts import _common, _setup
 
 
@@ -260,13 +261,42 @@ def test_setup_archive_dash_when_nothing_configured_disables_cleanly(
     assert "Already disabled" in capsys.readouterr().out
 
 
-def test_setup_aborts_when_spreadsheet_id_blank(
+def _signed_in_google() -> None:
+    """Pretend Google is already authorised, so the wizard skips its OAuth."""
+    _common.GOOGLE_TOKEN_FILE.write_text(
+        '{"refresh_token": "rt", "access_token": "at",'
+        ' "expires_at": 9999999999, "client_id": "cid", "client_secret": "sec"}'
+    )
+
+
+def _fake_create(
+    monkeypatch, *, spreadsheet_id: str = "made-1", url: str | None = None, error=None
+) -> dict:
+    """Stand in for the real create call — no spreadsheet is ever made."""
+    calls: dict = {"n": 0}
+
+    def _create(token_provider, **_kw):
+        calls["n"] += 1
+        calls["token_provider"] = token_provider
+        if error is not None:
+            raise error
+        return CreatedSpreadsheet(spreadsheet_id=spreadsheet_id, url=url)
+
+    monkeypatch.setattr(_setup, "create_counter_spreadsheet", _create)
+    return calls
+
+
+def test_setup_aborts_when_paste_chosen_without_an_id(
     tmp_paths, fake_provider, monkeypatch, capsys
 ) -> None:
+    """Blank is no longer a dead end for the whole wizard — but if you asked
+    to paste and pasted nothing, there is nothing to count into."""
+    _signed_in_google()
     monkeypatch.setattr("builtins.input", _scripted_input([
         "",  # music service — default spotify
         "abc123client",
         "sheets",
+        "paste",
         "",  # empty spreadsheet id
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
@@ -274,6 +304,109 @@ def test_setup_aborts_when_spreadsheet_id_blank(
     rc = _setup.do_setup(reauth=False)
     assert rc == 2
     assert "spreadsheet" in capsys.readouterr().err.lower()
+
+
+def test_setup_creates_the_spreadsheet_and_stores_its_id(
+    tmp_paths, fake_provider, monkeypatch, capsys
+) -> None:
+    _signed_in_google()
+    calls = _fake_create(
+        monkeypatch, spreadsheet_id="made-1", url="https://example.invalid/made-1"
+    )
+    monkeypatch.setattr("builtins.input", _scripted_input([
+        "",  # music service — default spotify
+        "abc123client",
+        "sheets",
+        "",  # spreadsheet — bare Enter takes 'create'
+        "",  # [3/4] archive — skip
+    ]))
+    monkeypatch.setattr(_common.sys, "platform", "linux")
+
+    assert _setup.do_setup(reauth=False) == 0
+    assert calls["n"] == 1
+    cfg = _common.load_config()
+    assert cfg["storage"]["backend"] == "sheets"
+    assert cfg["sheets"]["spreadsheet_id"] == "made-1"
+    out = capsys.readouterr().out
+    assert "made-1" in out
+    assert "https://example.invalid/made-1" in out
+
+
+def test_setup_keeps_the_configured_spreadsheet_rather_than_making_a_second(
+    tmp_paths, fake_provider, monkeypatch, capsys
+) -> None:
+    """Acceptance criterion: never quietly end up with two counters."""
+    _signed_in_google()
+    _common.save_config({"sheets": {"spreadsheet_id": "household-1"}})
+    calls = _fake_create(monkeypatch)
+    monkeypatch.setattr("builtins.input", _scripted_input([
+        "",  # music service — default spotify
+        "abc123client",
+        "sheets",
+        "",  # spreadsheet — bare Enter keeps what is configured
+        "",  # [3/4] archive — skip
+    ]))
+    monkeypatch.setattr(_common.sys, "platform", "linux")
+
+    assert _setup.do_setup(reauth=False) == 0
+    assert calls["n"] == 0
+    assert _common.load_config()["sheets"]["spreadsheet_id"] == "household-1"
+    assert "already configured" in capsys.readouterr().out
+
+
+def test_setup_second_spreadsheet_needs_a_confirmation(
+    tmp_paths, fake_provider, monkeypatch
+) -> None:
+    _signed_in_google()
+    _common.save_config({"sheets": {"spreadsheet_id": "household-1"}})
+    calls = _fake_create(monkeypatch)
+    monkeypatch.setattr("builtins.input", _scripted_input([
+        "",  # music service — default spotify
+        "abc123client",
+        "sheets",
+        "create",  # asked for a second one…
+        "n",       # …then said no
+        "",        # [3/4] archive — skip
+    ]))
+    monkeypatch.setattr(_common.sys, "platform", "linux")
+
+    assert _setup.do_setup(reauth=False) == 0
+    assert calls["n"] == 0
+    assert _common.load_config()["sheets"]["spreadsheet_id"] == "household-1"
+
+
+def test_setup_skip_turns_the_counter_off_without_aborting(
+    tmp_paths, fake_provider, monkeypatch
+) -> None:
+    _signed_in_google()
+    monkeypatch.setattr("builtins.input", _scripted_input([
+        "",  # music service — default spotify
+        "abc123client",
+        "sheets",
+        "skip",
+        "",  # [3/4] archive — skip
+    ]))
+    monkeypatch.setattr(_common.sys, "platform", "linux")
+
+    assert _setup.do_setup(reauth=False) == 0
+    assert _common.load_config()["storage"]["backend"] == "none"
+
+
+def test_setup_reports_why_creating_failed(
+    tmp_paths, fake_provider, monkeypatch, capsys
+) -> None:
+    _signed_in_google()
+    _fake_create(monkeypatch, error=RuntimeError("sheets create 429: slow down"))
+    monkeypatch.setattr("builtins.input", _scripted_input([
+        "",  # music service — default spotify
+        "abc123client",
+        "sheets",
+        "create",
+    ]))
+    monkeypatch.setattr(_common.sys, "platform", "linux")
+
+    assert _setup.do_setup(reauth=False) == 2
+    assert "sheets create 429: slow down" in capsys.readouterr().err
 
 
 def test_setup_does_not_default_to_a_retired_backend(
@@ -303,9 +436,11 @@ def test_setup_sheets_branch_runs_google_oauth(
         "",  # music service — default spotify
         "abc123client",
         "sheets",
-        "spreadsheet-id-xyz",
+        # Google auth comes first now — making a spreadsheet needs its tokens.
         "google-client.apps.googleusercontent.com",
         "google-secret",
+        "paste",
+        "spreadsheet-id-xyz",
         "",  # [3/4] archive — skip
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
@@ -347,8 +482,9 @@ def test_setup_sheets_skips_google_oauth_when_refresh_token_present(
         "",  # music service — default spotify
         "abc123client",
         "sheets",
-        "spreadsheet-id-xyz",
         # NO client_id/secret prompts because refresh_token is present.
+        "paste",
+        "spreadsheet-id-xyz",
         "",  # [3/4] archive — skip
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")

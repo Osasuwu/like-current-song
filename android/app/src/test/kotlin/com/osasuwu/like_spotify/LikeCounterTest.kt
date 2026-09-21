@@ -48,7 +48,8 @@ class LikeCounterTest {
               ["google-sub","dQw4w9WgXcQ","7","FALSE","2026-01-02T00:00:00Z"]
             ]}
         """.trimIndent()
-        assertEquals(4 to 7, LikeCounter.findRow(body, "google-sub", "dQw4w9WgXcQ"))
+        // Header, then two data rows: the pair sits on sheet row 3.
+        assertEquals(3 to 7, LikeCounter.findRow(body, "google-sub", "dQw4w9WgXcQ"))
     }
 
     @Test
