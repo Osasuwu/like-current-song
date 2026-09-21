@@ -3,7 +3,6 @@ package com.osasuwu.like_spotify
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 
 class BootCompletedReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -18,10 +17,12 @@ class BootCompletedReceiver : BroadcastReceiver() {
         val serviceIntent = Intent(context, MediaButtonForegroundService::class.java).apply {
             action = MediaButtonForegroundService.ACTION_START
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(serviceIntent)
-        } else {
-            context.startService(serviceIntent)
-        }
+        // Deliberately not `context.startForegroundService` directly: a refusal
+        // here would be an uncaught crash while the device is booting. The
+        // service is declared specialUse precisely so this start is permitted
+        // on Android 15+ (mediaPlayback would be refused outright), but OEM
+        // policy can still say no. `service_enabled` stays set either way, so
+        // opening the app restarts the listener.
+        MediaButtonForegroundService.start(context, serviceIntent)
     }
 }
