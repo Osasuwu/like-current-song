@@ -433,9 +433,14 @@ you, tabs and header rows and all, in the Drive of the Google account you sign
 in with. Pasting the ID of a sheet you already have keeps working, and is how
 a second device joins an existing count.
 
-1. At [console.cloud.google.com/apis/credentials](https://console.cloud.google.com/apis/credentials),
-   enable the **Google Sheets API** and create an OAuth client. Which kind
-   depends on the half, because the two sign in differently:
+1. Enable the **Google Sheets API** on
+   [its page in the API library](https://console.cloud.google.com/apis/library/sheets.googleapis.com),
+   then create an OAuth client at
+   [console.cloud.google.com/apis/credentials](https://console.cloud.google.com/apis/credentials).
+   They are two different pages: the credentials one makes clients and cannot
+   switch an API on, and a project with the API off refuses every call with a
+   403. Which kind of client depends on the half, because the two sign in
+   differently:
 
    | Half | Client type | Why |
    |---|---|---|

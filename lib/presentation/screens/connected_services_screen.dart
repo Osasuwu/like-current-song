@@ -911,6 +911,21 @@ class _SharedLikeCounterState extends ConsumerState<_SharedLikeCounter> {
             credentials.counterError!,
             style: TextStyle(color: theme.colorScheme.error),
           ),
+          // A failure that names a page to go and fix it gets a button to
+          // that page: the URL Google hands back for a Cloud project whose
+          // Sheets API is off is far too long to copy off a phone screen.
+          if (credentials.counterErrorUrl != null)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => _openExternalUrl(
+                  context,
+                  credentials.counterErrorUrl!,
+                ),
+                icon: const Icon(Icons.open_in_new, size: 16),
+                label: const Text('Enable the Google Sheets API'),
+              ),
+            ),
         ],
       ],
     );

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'counter_sheet_schema.dart';
+import 'sheets_api_error.dart';
 
 /// A spreadsheet the app just made in the user's Drive.
 class CreatedCounterSpreadsheet {
@@ -17,9 +18,15 @@ class CreatedCounterSpreadsheet {
 
 /// Creation failed in a way worth showing the user.
 class CounterSpreadsheetException implements Exception {
-  const CounterSpreadsheetException(this.message);
+  const CounterSpreadsheetException(this.message, {this.activationUrl});
 
   final String message;
+
+  /// A page in the Google Cloud console that fixes this, when the failure has
+  /// one — today only a project whose Sheets API is off. [message] names it
+  /// too; this carries it separately so the screen can offer a button rather
+  /// than a URL to copy out by hand.
+  final String? activationUrl;
 
   @override
   String toString() => message;
@@ -125,6 +132,18 @@ class CounterSpreadsheetCreator {
     }
 
     if (response.statusCode < 200 || response.statusCode > 299) {
+      // A project that never had the Sheets API switched on refuses every
+      // create with a 403, and Google's body says so and links the page that
+      // turns it on. Quoting the status code and the raw JSON instead left
+      // the user to work that out for themselves (#165).
+      final disabled =
+          SheetsApiDisabled.read(response.statusCode, response.body);
+      if (disabled != null) {
+        throw CounterSpreadsheetException(
+          disabled.message,
+          activationUrl: disabled.activationUrl,
+        );
+      }
       throw CounterSpreadsheetException(
         'Google refused to create the spreadsheet '
         '(${response.statusCode}). ${response.body}'.trim(),

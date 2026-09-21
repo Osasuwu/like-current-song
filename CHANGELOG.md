@@ -36,6 +36,21 @@ still the only option for the desktop half.
 
 ### Fixed
 
+- **A Google project with the Sheets API switched off now says so, and links
+  the page that switches it on.** Setting the shared like counter up on a
+  fresh Cloud project — or on the one you already made for YouTube Music,
+  which the README suggests reusing — failed with a bare `403` and a wall of
+  Google's JSON, on the Android *Create spreadsheet* button, in
+  `like-current-song --setup`, and in the desktop settings window alike. The
+  API has to be enabled once per project, and nothing said so. All four places
+  now report it as "the Google Sheets API is not enabled on your Google Cloud
+  project", name the project Google named, and give the console link that
+  enables it — Google's own one-click URL when the refusal carried one, the
+  API library page otherwise. Android turns that link into a button; the
+  README's counter setup now starts with the same step, and no longer implies
+  the credentials page can enable an API. A 403 for any other reason keeps the
+  message it always had.
+
 - **Likes reach the shared spreadsheet even with every playlist rule off.**
   Setting the counter up and liking a track left the sheet empty: the count in
   the app went up, but nothing was ever written, and nothing said why. The

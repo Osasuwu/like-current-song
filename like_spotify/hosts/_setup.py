@@ -20,6 +20,10 @@ from like_spotify.auth import google as google_auth
 from like_spotify.extensions.google_sheets_storage.create import (
     create_counter_spreadsheet,
 )
+from like_spotify.extensions.google_sheets_storage.errors import (
+    SHEETS_API_LIBRARY_URL,
+    SheetsApiDisabledError,
+)
 from like_spotify.extensions.tray_hotkey_trigger import DEFAULT_HOTKEY
 
 from . import _common
@@ -220,7 +224,8 @@ def _setup_storage(cfg: dict, *, reauth: bool) -> None:
             raise _SetupAbort(
                 "google client id + secret are both required "
                 "(create a Desktop OAuth client at "
-                "https://console.cloud.google.com/apis/credentials)"
+                "https://console.cloud.google.com/apis/credentials, and "
+                f"switch the Sheets API on at {SHEETS_API_LIBRARY_URL})"
             )
         print("  Opening browser for Google authorization…")
         google_auth.authorize(
@@ -299,6 +304,11 @@ def _setup_spreadsheet(cfg: dict) -> None:
         created = create_counter_spreadsheet(
             google_auth.make_token_provider(_common.GOOGLE_TOKEN_FILE)
         )
+    except SheetsApiDisabledError as exc:
+        # No prefix: this message is already a complete sentence about the
+        # one thing to go and do, and "could not create the spreadsheet"
+        # in front of it only buries the instruction (#165).
+        raise _SetupAbort(str(exc)) from exc
     except Exception as exc:  # the wizard's own error channel says why
         raise _SetupAbort(f"could not create the spreadsheet: {exc}") from exc
     sheets["spreadsheet_id"] = created.spreadsheet_id

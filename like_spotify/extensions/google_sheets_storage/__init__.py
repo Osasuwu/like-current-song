@@ -34,6 +34,11 @@ from like_spotify.core.storage import Storage
 from like_spotify.core.types import CurrentTrack
 
 from .create import CreatedSpreadsheet, create_counter_spreadsheet
+from .errors import (
+    SHEETS_API_LIBRARY_URL,
+    SheetsApiDisabledError,
+    sheets_api_disabled,
+)
 from .schema import (
     ARTIST_HEADER_ROW,
     COUNT_COLUMN,
@@ -59,11 +64,14 @@ __all__ = [
     "DOMAIN",
     "GoogleSheetsStorage",
     "HEADER_ROW",
+    "SHEETS_API_LIBRARY_URL",
+    "SheetsApiDisabledError",
     "SPREADSHEET_TITLE",
     "STORAGE",
     "UPDATED_AT_COLUMN",
     "create_counter_spreadsheet",
     "create_request_body",
+    "sheets_api_disabled",
 ]
 
 
@@ -135,6 +143,7 @@ class GoogleSheetsStorage(Storage):
         )
         if r.status_code >= 500:
             raise TransientError(f"sheets get 5xx: {r.status_code}")
+        _raise_if_api_disabled(r)
         if r.status_code >= 400:
             raise RuntimeError(f"sheets get {r.status_code}: {r.text}")
         rows = r.json().get("values", []) or []
@@ -205,6 +214,7 @@ class GoogleSheetsStorage(Storage):
             return
         if r.status_code >= 500:
             raise TransientError(f"sheets get 5xx: {r.status_code}")
+        _raise_if_api_disabled(r)
         if r.status_code >= 400:
             raise RuntimeError(f"sheets get {r.status_code}: {r.text}")
         rows = r.json().get("values", []) or []
@@ -241,6 +251,7 @@ class GoogleSheetsStorage(Storage):
         )
         if r.status_code >= 500:
             raise TransientError(f"sheets update 5xx: {r.status_code}")
+        _raise_if_api_disabled(r)
         if r.status_code >= 400:
             raise RuntimeError(f"sheets update {r.status_code}: {r.text}")
 
@@ -264,12 +275,25 @@ class GoogleSheetsStorage(Storage):
         )
         if r.status_code >= 500:
             raise TransientError(f"sheets append 5xx: {r.status_code}")
+        _raise_if_api_disabled(r)
         if r.status_code >= 400:
             raise RuntimeError(f"sheets append {r.status_code}: {r.text}")
         return r.json()
 
 
 # ── Module-level helpers ─────────────────────────────────────────────────
+
+
+def _raise_if_api_disabled(r) -> None:
+    """Say back what Google said, when the project has Sheets switched off.
+
+    Creation is not the only way to meet that project: a counter configured
+    by pasting an id never calls `create`, so the first thing it hits is a
+    read here, which used to log `sheets get 403:` and a wall of JSON (#165).
+    """
+    disabled = sheets_api_disabled(r.status_code, getattr(r, "text", "") or "")
+    if disabled is not None:
+        raise disabled
 
 
 def _now_iso() -> str:

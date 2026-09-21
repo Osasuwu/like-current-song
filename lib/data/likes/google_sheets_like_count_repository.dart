@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import '../../domain/repositories/like_count_repository.dart';
 import 'counter_sheet_schema.dart';
+import 'sheets_api_error.dart';
 import 'shared_prefs_like_count_repository.dart';
 
 /// Tries the shared Google Sheet first, falls back to local SharedPreferences.
@@ -161,9 +162,7 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
         )
         .timeout(_timeout);
     if (response.statusCode < 200 || response.statusCode > 299) {
-      throw http.ClientException(
-        'sheets get ${response.statusCode}: ${response.body}',
-      );
+      throw http.ClientException(_failureMessage('get', response));
     }
 
     final decoded = jsonDecode(response.body);
@@ -211,9 +210,7 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
         )
         .timeout(_timeout);
     if (response.statusCode < 200 || response.statusCode > 299) {
-      throw http.ClientException(
-        'sheets update ${response.statusCode}: ${response.body}',
-      );
+      throw http.ClientException(_failureMessage('update', response));
     }
   }
 
@@ -236,14 +233,24 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
         )
         .timeout(_timeout);
     if (response.statusCode < 200 || response.statusCode > 299) {
-      throw http.ClientException(
-        'sheets append ${response.statusCode}: ${response.body}',
-      );
+      throw http.ClientException(_failureMessage('append', response));
     }
     final decoded = jsonDecode(response.body);
     final updates = decoded is Map<String, dynamic> ? decoded['updates'] : null;
     final range = updates is Map<String, dynamic> ? updates['updatedRange'] : null;
     return rowFromA1Range(range is String ? range : '');
+  }
+
+  /// What to log when a Sheets call is refused.
+  ///
+  /// A project that never had the Sheets API switched on says so in the body,
+  /// and a counter set up by pasting an id never calls the creator that would
+  /// catch that at setup time — so without this, the only trace is a status
+  /// code and a wall of JSON in the log (#165).
+  static String _failureMessage(String call, http.Response response) {
+    final disabled = SheetsApiDisabled.read(response.statusCode, response.body);
+    if (disabled != null) return disabled.message;
+    return 'sheets $call ${response.statusCode}: ${response.body}';
   }
 
   Map<String, String> _headers(String token) => <String, String>{

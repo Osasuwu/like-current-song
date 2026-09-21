@@ -447,6 +447,36 @@ def test_create_counter_sheet_passes_a_token_provider(tmp_paths, monkeypatch) ->
     assert callable(seen[0])
 
 
+def test_a_disabled_sheets_api_is_shown_as_its_own_sentence() -> None:
+    """The window used to print every failure behind "Could not create the
+    spreadsheet:", which in front of this one hides the only thing the user
+    can go and do about it (#165)."""
+    disabled = services.SheetsApiDisabledError(
+        "The Google Sheets API is not enabled on your Google Cloud project "
+        "12345. Enable it at https://example.test/enable, give Google a "
+        "minute to catch up, then try again.",
+        activation_url="https://example.test/enable",
+        project="12345",
+    )
+
+    said = services.describe_create_failure(disabled)
+
+    assert said.startswith("The Google Sheets API is not enabled")
+    assert "https://example.test/enable" in said
+
+
+def test_any_other_failure_keeps_the_prefix() -> None:
+    said = services.describe_create_failure(RuntimeError("sheets create 429"))
+    assert said == "Could not create the spreadsheet: sheets create 429"
+
+
+def test_the_window_links_the_api_library_not_the_credentials_page() -> None:
+    # Two different pages: the credentials one makes OAuth clients and cannot
+    # switch an API on.
+    assert services.GOOGLE_SHEETS_API_URL != services.GOOGLE_CREDENTIALS_URL
+    assert services.GOOGLE_SHEETS_API_URL.endswith("sheets.googleapis.com")
+
+
 def test_autostart_unsupported_off_windows(monkeypatch) -> None:
     monkeypatch.setattr(services.sys, "platform", "linux")
     assert services.autostart_supported() is False

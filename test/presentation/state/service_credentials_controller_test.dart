@@ -182,6 +182,51 @@ void main() {
     expect(controller.state.counterCreating, isFalse);
     expect(controller.state.createdCounter, isNull);
     expect((await counterStore.read()).spreadsheetId, isEmpty);
+    // Nothing to go and fix, so the card has no button to draw.
+    expect(controller.state.counterErrorUrl, isNull);
+  });
+
+  test('a failure with a page that fixes it carries the page', () async {
+    // A project whose Sheets API is off (#165). The screen turns this into a
+    // button, so the URL has to survive as a field and not only inside the
+    // sentence.
+    createSheet = () async => throw const CounterSpreadsheetException(
+          'The Google Sheets API is not enabled on your Google Cloud project '
+          '(123456789). Enable it at https://example.test/enable, give '
+          'Google a minute to catch up, then try again.',
+          activationUrl: 'https://example.test/enable',
+        );
+    final controller = build();
+    await controller.load();
+
+    await controller.createCounterSpreadsheet();
+
+    expect(controller.state.counterErrorUrl, 'https://example.test/enable');
+    expect(
+      controller.state.counterError,
+      contains('Google Sheets API is not enabled'),
+    );
+  });
+
+  test('a later failure does not inherit the last one\'s page', () async {
+    // The link belongs to the error it came with; offering to enable an API
+    // over a "sign in first" would send the user somewhere useless.
+    createSheet = () async => throw const CounterSpreadsheetException(
+          'disabled',
+          activationUrl: 'https://example.test/enable',
+        );
+    final controller = build();
+    await controller.load();
+    await controller.createCounterSpreadsheet();
+    expect(controller.state.counterErrorUrl, isNotNull);
+
+    createSheet = () async => throw const CounterSpreadsheetException(
+          'Sign in to Google for the like counter first.',
+        );
+    await controller.createCounterSpreadsheet();
+
+    expect(controller.state.counterError, contains('Sign in'));
+    expect(controller.state.counterErrorUrl, isNull);
   });
 
   test('pasting a different ID drops the created panel', () async {

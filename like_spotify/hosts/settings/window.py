@@ -329,6 +329,12 @@ class SettingsWindow:
         self._link(
             self.sheets_frame, "Create a Google OAuth client", services.GOOGLE_CREDENTIALS_URL, 5
         )
+        # A second link, because they are two different pages: the
+        # credentials one makes the client, and an API is only ever
+        # switched on from its own page in the library (#165).
+        self._link(
+            self.sheets_frame, "Enable the Google Sheets API", services.GOOGLE_SHEETS_API_URL, 6
+        )
         return box
 
     def _build_startup(self, parent):
@@ -524,7 +530,7 @@ class SettingsWindow:
         self.sheets_button.state(["!disabled"])
         self.create_sheet_button.state(["!disabled"])
         if error is not None and kind == "create_sheet":
-            self.v_status.set(f"Could not create the spreadsheet: {error}")
+            self.v_status.set(services.describe_create_failure(error))
         elif error is not None:
             self.v_status.set(f"Sign-in failed: {error}")
         elif kind == "create_sheet":
