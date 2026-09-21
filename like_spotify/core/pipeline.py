@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from typing import Protocol
 
 from .actions import PostLikeAction, PreLikeAction
+from .errors import UserActionRequired
 from .music_provider import MusicProvider, PlaylistCapableProvider
 from .storage import Storage
 from .types import CurrentTrack, LikeContext
@@ -31,7 +32,8 @@ class Pipeline:
         2. PreLikeAction chain — any action returning False aborts the like
         3. is_liked probe (only when Storage is wired — feeds the backfill flag)
         4. MusicProvider.like
-        5. Storage.increment (soft-fail; new count shown in feedback title)
+        5. Storage.increment (soft-fail, always logged; new count shown in
+           the feedback title, and a `UserActionRequired` failure says so)
         6. PostLikeAction chain — each action runs independently, failures
            are logged and the chain continues
 
@@ -107,14 +109,28 @@ class Pipeline:
             return
 
         # ── Storage (#22, soft fail) ──────────────────────────────────────
+        # The like has already happened, so the count degrades to None
+        # whatever went wrong — a counter must never cost the user a like.
+        # What the failure is worth differs, though (#168): a timeout or a
+        # 5xx clears itself and only earns a log line, while a
+        # `UserActionRequired` will repeat on every press until the user
+        # does the thing its message names, so it also goes to the feedback.
+        storage_problem: str | None = None
         if self._storage is not None:
             try:
                 user_id = await self._provider.user_id()
                 ctx.like_count = await self._storage.increment(
                     user_id, ctx.track, was_already_liked
                 )
-            except Exception:
+            except Exception as e:
                 ctx.like_count = None
+                logger.warning(
+                    "Storage %s could not count the like",
+                    type(self._storage).__name__,
+                    exc_info=True,
+                )
+                if isinstance(e, UserActionRequired):
+                    storage_problem = str(e)
 
         # ── Post-like chain (independent, log + continue on failure) ──────
         for action in self._post_actions:
@@ -126,7 +142,13 @@ class Pipeline:
                 )
 
         title = "Liked" if ctx.like_count is None else f"Liked × {ctx.like_count}"
-        self._feedback(True, title, _display(ctx.track))
+        message = _display(ctx.track)
+        if storage_problem is not None:
+            title = "Liked — counter not updated"
+            # The reason travels in the message as well as the title because
+            # the tray balloon renders the message and drops the title.
+            message = f"{message}\n{storage_problem}"
+        self._feedback(True, title, message)
 
 
 class RemoveFromPlaylistPipeline:

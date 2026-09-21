@@ -315,6 +315,14 @@ backfill flag — on first encounter with `True`, seed `count=2` and a
 [#24](https://github.com/Osasuwu/like-current-song/issues/24)
 for why this exists.
 
+Raising is safe: the pipeline logs the failure, lets the like succeed and
+reports no count. That silence is right for a blip, wrong for a problem
+only the user can clear (a spreadsheet they deleted, an API they never
+switched on) — mix `like_spotify.core.errors.UserActionRequired` into your
+exception type for those, and the message you raise is shown to the user
+alongside the like. See
+[#168](https://github.com/Osasuwu/like-current-song/issues/168).
+
 **Existing impls**: `google_sheets_storage` — REST PUT/APPEND on a sheet
 you own. A Supabase backend shipped alongside it until the release after
 v1.1.0 and was removed: a hosted Postgres project was a lot of setup to
