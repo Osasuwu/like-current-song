@@ -196,6 +196,9 @@ class SpotifyMusicServiceRepository implements MusicServiceRepository {
       expiresAtEpochSec: expiresAt.millisecondsSinceEpoch ~/ 1000,
       clientId: clientId,
     );
+    // Whoever just signed in may not be who signed in last, and the user id
+    // both halves cache keys the shared like counter's rows.
+    await _forgetUserId();
 
     _pendingState = null;
     _pendingVerifier = null;
@@ -218,6 +221,23 @@ class SpotifyMusicServiceRepository implements MusicServiceRepository {
   @override
   Future<void> disconnect() async {
     await _tokenStore.clear();
+    await _forgetUserId();
+  }
+
+  /// Drops the cached Spotify user id on both sides of the method channel.
+  ///
+  /// The native side keeps it in `SharedPreferences` with no expiry, so
+  /// nothing but this ever clears it; leaving it behind after an account
+  /// change would file the new account's likes under the old account's row in
+  /// the shared counter. A native side that cannot do it is not worth failing
+  /// a disconnect over — the in-process copy is still dropped.
+  Future<void> _forgetUserId() async {
+    _playlistService.forgetUserId();
+    try {
+      await _platformServiceRepository.clearSpotifyUserId();
+    } catch (error) {
+      debugPrint('Could not clear the cached Spotify user id: $error');
+    }
   }
 
   @override
@@ -409,7 +429,18 @@ class SpotifyMusicServiceRepository implements MusicServiceRepository {
     };
   }
 
-  /// Expose the playlist service's cached user ID, which keys the shared like
-  /// counter's rows.
-  String? get cachedUserId => _playlistService.cachedUserId;
+  /// The signed-in account's Spotify user id, which keys the shared like
+  /// counter's rows. Fetched on first ask and kept afterwards.
+  ///
+  /// Null when nobody is signed in, or when the lookup failed — the counter
+  /// treats that as "count locally for now" rather than an error, so the
+  /// failure must not propagate.
+  Future<String?> ensureUserId() async {
+    try {
+      return await _playlistService.ensureUserId(await _ensureAccessToken());
+    } catch (error) {
+      debugPrint('Spotify user id unavailable for the like counter: $error');
+      return null;
+    }
+  }
 }

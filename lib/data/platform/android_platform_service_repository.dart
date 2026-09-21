@@ -158,6 +158,11 @@ class AndroidPlatformServiceRepository implements PlatformServiceRepository {
   }
 
   @override
+  Future<void> clearSpotifyUserId() async {
+    await _methodChannel.invokeMethod<void>('clearSpotifyUserId');
+  }
+
+  @override
   Future<void> syncYouTubeMusicTokens({
     required String accessToken,
     required String refreshToken,

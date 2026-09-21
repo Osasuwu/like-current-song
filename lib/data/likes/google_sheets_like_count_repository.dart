@@ -41,7 +41,12 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
   /// signed in.
   final Future<String?> Function() readAccessToken;
 
-  final String? Function() userIdGetter;
+  /// The music-service account id the rows are keyed by, null when there is
+  /// none. Asynchronous because resolving it may mean asking the service, and
+  /// something has to: a getter that only ever returned an id some *other*
+  /// feature had already looked up left the sheet empty for everyone whose
+  /// other features were switched off.
+  final Future<String?> Function() userIdGetter;
 
   final SharedPrefsLikeCountRepository _local = SharedPrefsLikeCountRepository();
   final http.Client _httpClient;
@@ -77,7 +82,7 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
     }
     if (spreadsheetId.isEmpty) return null;
 
-    final userId = userIdGetter();
+    final userId = await userIdGetter();
     if (userId == null) return null;
 
     final String? token;
