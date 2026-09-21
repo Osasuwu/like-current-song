@@ -31,6 +31,24 @@ still the only option for the desktop half.
   A playlist destination on a service that has no playlist API is refused when
   the config is read, with a message naming the service, instead of failing on
   every press.
+- **Android: choose where a like goes.** A like always meant one thing — Liked
+  Songs on Spotify, a thumbs-up on YouTube Music. *Trigger configuration* now
+  opens with **Where likes go**, and it has three settings: *Liked songs* (the
+  default, exactly what the app did before), *A playlist*, or *Both*. It matters most on YouTube Music, where a thumbs-up drops the song
+  into the same bucket as every video you have ever liked, so a playlist is the
+  only song-only list you can keep; on Spotify it is a way to collect likes
+  somewhere other than Liked Songs. The playlist is matched **by name on
+  whichever service played the song** — one name, so a phone that switches
+  between Spotify and YouTube Music keeps filling the list it is on — and it is
+  created on first use if it isn't there yet. The setting reaches the headphone
+  trigger as well as the in-app button, so a like fired with the screen off
+  lands in the same place. With *Both*, a like that only made it to one of the
+  two still counts, and the Logs screen names the half that failed instead of
+  reporting a failure you would have to guess at. On YouTube Music a playlist
+  destination spends about 50 of the 10,000 daily API units per like, which the
+  setting says on screen. **An existing install keeps behaving exactly as it
+  did**: saved settings with no destination in them read back as the service's
+  own likes.
 - **The shared like counter can make its own spreadsheet.** Setting the counter
   up used to start with homework: open Google Sheets, make a file, name a tab
   `Likes`, type five column headers exactly right, add an `ArtistTracks` tab,

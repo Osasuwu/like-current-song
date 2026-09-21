@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:like_spotify_mobile_app/core/app_constants.dart';
+import 'package:like_spotify_mobile_app/domain/entities/like_destination.dart';
 import 'package:like_spotify_mobile_app/domain/entities/rule_config.dart';
 
 void main() {
@@ -40,6 +41,8 @@ void main() {
         'followArtistThreshold': 7,
         'likeCooldownEnabled': false,
         'likeCooldownMinutes': 20,
+        'likeDestination': 'playlist',
+        'likePlaylistName': 'Trigger likes',
       };
 
       final config = RuleConfig.fromJson(saved);
@@ -172,6 +175,91 @@ void main() {
       );
 
       expect(config.validate(), hasLength(2));
+    });
+
+    test('a playlist destination needs a playlist name', () {
+      for (final destination in [LikeDestination.playlist, LikeDestination.both]) {
+        final config = RuleConfig.defaults().copyWith(
+          likeDestination: destination,
+          likePlaylistName: '   ',
+        );
+
+        expect(
+          config.validate(),
+          contains('Like playlist name is required when likes go to a playlist.'),
+          reason: '$destination without a name should not validate',
+        );
+      }
+    });
+
+    test('a named playlist destination validates', () {
+      final config = RuleConfig.defaults().copyWith(
+        likeDestination: LikeDestination.both,
+        likePlaylistName: 'Trigger likes',
+      );
+
+      expect(config.validate(), isEmpty);
+    });
+
+    test('liked songs needs no playlist name', () {
+      expect(RuleConfig.defaults().validate(), isEmpty);
+    });
+  });
+
+  group('like destination', () {
+    test('both factories send likes to liked songs with no playlist', () {
+      // The single most important upgrade guarantee: an install that predates
+      // the setting must keep liking exactly the way it always did.
+      for (final config in [RuleConfig.defaults(), RuleConfig.legacyDefaults()]) {
+        expect(config.likeDestination, LikeDestination.native);
+        expect(config.likePlaylistName, isEmpty);
+      }
+    });
+
+    test('a payload from before the setting lands on liked songs', () {
+      final config = RuleConfig.fromJson(<String, dynamic>{
+        'archiveRemoveEnabled': true,
+        'archivePlaylistName': 'Archive',
+        'bestEnabled': true,
+        'bestPlaylistName': 'Best',
+        'bestThreshold': 3,
+        'followArtistEnabled': true,
+        'followArtistThreshold': 5,
+      });
+
+      expect(config.likeDestination, LikeDestination.native);
+      expect(config.likePlaylistName, isEmpty);
+    });
+
+    test('round-trips through JSON', () {
+      final config = RuleConfig.defaults().copyWith(
+        likeDestination: LikeDestination.both,
+        likePlaylistName: 'Trigger likes',
+      );
+
+      final restored = RuleConfig.fromJson(config.toJson());
+
+      expect(restored.likeDestination, LikeDestination.both);
+      expect(restored.likePlaylistName, 'Trigger likes');
+    });
+
+    test('every destination survives the round trip', () {
+      for (final destination in LikeDestination.values) {
+        final restored = RuleConfig.fromJson(RuleConfig.defaults()
+            .copyWith(likeDestination: destination, likePlaylistName: 'P')
+            .toJson());
+
+        expect(restored.likeDestination, destination);
+      }
+    });
+
+    test('a destination this build does not know falls back to liked songs', () {
+      final config = RuleConfig.fromJson(<String, dynamic>{
+        'likeDestination': 'somewhere-new',
+        'likePlaylistName': 'Trigger likes',
+      });
+
+      expect(config.likeDestination, LikeDestination.native);
     });
   });
 }

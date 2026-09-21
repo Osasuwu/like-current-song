@@ -66,7 +66,16 @@ void main() {
 
       final config = await repo.loadRuleConfig();
 
-      expect(config.toJson(), equals(saved));
+      // Every value the old build wrote survives untouched, and the settings
+      // added since land on the behaviour that install already had.
+      expect(
+        config.toJson(),
+        equals(<String, dynamic>{
+          ...saved,
+          'likeDestination': 'native',
+          'likePlaylistName': '',
+        }),
+      );
     });
 
     test('upgrade: pre-rule_config legacy keys migrate with the old actions on', () async {

@@ -45,6 +45,16 @@ object AppConstants {
     const val KEY_YTM_CLIENT_SECRET = "ytm_client_secret"
     const val KEY_YTM_USER_SUB = "ytm_user_sub"
 
+    /**
+     * Where a like goes ("native" | "playlist" | "both"); see [LikeDestination].
+     * Absent means "native", so an install upgraded from a build without the
+     * setting keeps liking exactly as it did.
+     */
+    const val KEY_RULE_LIKE_DESTINATION = "rule_like_destination"
+
+    /** Playlist a like is added to, matched by name on the selected service. */
+    const val KEY_RULE_LIKE_PLAYLIST_NAME = "rule_like_playlist_name"
+
     const val KEY_RULE_ARCHIVE_REMOVE_ENABLED = "rule_archive_remove_enabled"
     const val KEY_RULE_ARCHIVE_PLAYLIST_NAME = "rule_archive_playlist_name"
     const val KEY_RULE_BEST_ENABLED = "rule_best_enabled"
@@ -137,6 +147,20 @@ object AppConstants {
         prefs.contains(KEY_RULE_BEST_PLAYLIST_NAME) -> prefs.getString(KEY_RULE_BEST_PLAYLIST_NAME, null)
         else -> prefs.getString(LEGACY_KEY_RULE_BEST_PLAYLIST_NAME, null)
     }?.trim().orEmpty()
+
+    /** The like playlist name, trimmed; empty when none is configured. */
+    fun likeRulePlaylistName(prefs: SharedPreferences): String =
+        prefs.getString(KEY_RULE_LIKE_PLAYLIST_NAME, null)?.trim().orEmpty()
+
+    /**
+     * Where likes go, already reconciled with the playlist name: a playlist
+     * destination without a name falls back to the service's own like.
+     */
+    fun likeRuleDestination(prefs: SharedPreferences): LikeDestination =
+        LikeDestination.resolve(
+            prefs.getString(KEY_RULE_LIKE_DESTINATION, null),
+            likeRulePlaylistName(prefs),
+        )
 
     fun bestRuleThreshold(prefs: SharedPreferences): Int = when {
         prefs.contains(KEY_RULE_BEST_THRESHOLD) -> prefs.getInt(KEY_RULE_BEST_THRESHOLD, DEFAULT_BEST_THRESHOLD)

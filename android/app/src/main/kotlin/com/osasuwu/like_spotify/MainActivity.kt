@@ -256,6 +256,9 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 						?.takeIf { it >= 1 }
 						?: AppConstants.DEFAULT_FOLLOW_ARTIST_THRESHOLD
 					val likeCooldownEnabled = call.argument<Boolean>("likeCooldownEnabled") ?: true
+					val likeDestination = call.argument<String>("likeDestination")
+						?: LikeDestination.DEFAULT.id
+					val likePlaylistName = call.argument<String>("likePlaylistName")?.trim().orEmpty()
 					val likeCooldownMinutes = call.argument<Int>("likeCooldownMinutes")
 						?.takeIf { it >= 0 }
 						?: AppConstants.DEFAULT_LIKE_COOLDOWN_MINUTES
@@ -270,6 +273,8 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 						.putInt(AppConstants.KEY_RULE_FOLLOW_ARTIST_THRESHOLD, followArtistThreshold)
 						.putBoolean(AppConstants.KEY_RULE_LIKE_COOLDOWN_ENABLED, likeCooldownEnabled)
 						.putInt(AppConstants.KEY_RULE_LIKE_COOLDOWN_MINUTES, likeCooldownMinutes)
+						.putString(AppConstants.KEY_RULE_LIKE_DESTINATION, likeDestination)
+						.putString(AppConstants.KEY_RULE_LIKE_PLAYLIST_NAME, likePlaylistName)
 						.apply()
 					result.success(true)
 				}
