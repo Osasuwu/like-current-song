@@ -6,6 +6,7 @@ Slices:
     #23 — Pre/PostLikeAction chains.
     #24 — backfill probe (is_liked → was_already_liked → Storage.increment).
     #168 — a storage failure is logged, and a user-fixable one is shown.
+    #43 / #172 — DiscardPipeline: the two independent "not this one" legs.
 
 Network / keyboard / tray are not exercised — we mock MusicProvider +
 Storage and verify the core composition flows the way the host depends on.
@@ -19,14 +20,14 @@ import pytest
 
 from like_spotify.core.actions import PostLikeAction, PreLikeAction
 from like_spotify.core.errors import TransientError, UserActionRequired
-from like_spotify.core.music_provider import MusicProvider
+from like_spotify.core.music_provider import DislikeCapableProvider, MusicProvider
 from like_spotify.core.pipeline import (
     BOTH,
     NATIVE,
     PLAYLIST,
+    DiscardPipeline,
     LikeDestination,
     Pipeline,
-    RemoveFromPlaylistPipeline,
 )
 from like_spotify.core.storage import Storage
 from like_spotify.core.types import CurrentTrack, LikeContext
@@ -492,11 +493,16 @@ async def test_post_action_failure_does_not_abort_chain() -> None:
     assert fb.calls[0][0] is True  # Like still reported as success.
 
 
-# ── #43: RemoveFromPlaylistPipeline (remove-without-like hotkey) ────────
+# ── #43 / #172: DiscardPipeline ("I don't want this one") ───────────────
+#
+# Two legs per press — dislike the track on the service, take it out of the
+# archive playlist — that must not be able to cost each other. The fakes
+# below therefore come in all four capability shapes: playlist-only,
+# dislike-only, both, and neither.
 
 
 class FakeRemoveProvider(MusicProvider):
-    """Provider speaking `PlaylistCapableProvider` — the remove flow needs it."""
+    """Provider speaking `PlaylistCapableProvider` only — no dislike."""
 
     def __init__(
         self,
@@ -522,10 +528,10 @@ class FakeRemoveProvider(MusicProvider):
         return self._track
 
     async def like(self, track: CurrentTrack) -> None:  # pragma: no cover
-        raise AssertionError("remove flow must not like")
+        raise AssertionError("discard flow must not like")
 
     async def is_liked(self, track: CurrentTrack) -> bool:  # pragma: no cover
-        raise AssertionError("remove flow must not probe is_liked")
+        raise AssertionError("discard flow must not probe is_liked")
 
     async def user_id(self) -> str:  # pragma: no cover
         return "user-id"
@@ -546,28 +552,195 @@ class FakeRemoveProvider(MusicProvider):
             raise self._remove_raises
 
     async def get_playlist_track_ids(self, playlist_id: str) -> set[str]:  # pragma: no cover
-        raise AssertionError("remove flow does not need track-id membership")
+        raise AssertionError("discard flow does not need track-id membership")
 
     async def find_or_create_playlist(self, name: str) -> str:  # pragma: no cover
-        raise AssertionError("remove flow must not create playlists")
+        raise AssertionError("discard flow must not create playlists")
 
     async def add_track_to_playlist(
         self, track_id: str, playlist_id: str
     ) -> None:  # pragma: no cover
-        raise AssertionError("remove flow must not add tracks")
+        raise AssertionError("discard flow must not add tracks")
 
     async def follow_artist(self, artist_id: str) -> None:  # pragma: no cover
-        raise AssertionError("remove flow does not follow artists")
+        raise AssertionError("discard flow does not follow artists")
+
+
+class FakeDislikeProvider(FakeProvider):
+    """`DislikeCapableProvider` and nothing more — no playlist API.
+
+    Stands in for the dislike-only wiring a user gets with no archive
+    playlist configured.
+    """
+
+    def __init__(
+        self,
+        track: CurrentTrack | None,
+        dislike_raises: Exception | None = None,
+        get_raises: Exception | None = None,
+    ):
+        super().__init__(track=track)
+        self._dislike_raises = dislike_raises
+        self._get_raises = get_raises
+        self.dislike_calls: list[str] = []
+
+    async def get_currently_playing(self) -> CurrentTrack | None:
+        if self._get_raises is not None:
+            raise self._get_raises
+        return await super().get_currently_playing()
+
+    async def dislike(self, track: CurrentTrack) -> None:
+        self.dislike_calls.append(track.provider_track_id)
+        if self._dislike_raises is not None:
+            raise self._dislike_raises
+
+
+class FakeBothProvider(FakeRemoveProvider):
+    """Playlist- *and* dislike-capable — what Spotify and YT Music are."""
+
+    def __init__(self, *args, dislike_raises: Exception | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._dislike_raises = dislike_raises
+        self.dislike_calls: list[str] = []
+
+    async def dislike(self, track: CurrentTrack) -> None:
+        self.dislike_calls.append(track.provider_track_id)
+        if self._dislike_raises is not None:
+            raise self._dislike_raises
+
+
+# ── Capability detection ────────────────────────────────────────────────
+
+
+def test_dislike_protocol_is_structural() -> None:
+    assert isinstance(FakeDislikeProvider(track=None), DislikeCapableProvider)
+    assert not isinstance(FakeRemoveProvider(track=None), DislikeCapableProvider)
+    # The ABC itself gained nothing — a pre-#172 provider still qualifies as
+    # a MusicProvider without implementing `dislike`.
+    assert not hasattr(MusicProvider, "dislike")
+
+
+# ── Both legs ───────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_remove_pipeline_removes_current_track_without_liking() -> None:
-    provider = FakeRemoveProvider(track=_track("trk1"), playlist_id="pl1")
+async def test_discard_runs_both_legs() -> None:
+    provider = FakeBothProvider(track=_track("trk1"), playlist_id="pl1")
     fb = Feedback()
 
-    await RemoveFromPlaylistPipeline(
+    await DiscardPipeline(
         provider=provider, feedback=fb, playlist_name="My Archive"
     ).run_once()
+
+    assert provider.dislike_calls == ["trk1"]
+    assert provider.remove_calls == [("trk1", "pl1")]
+    assert fb.calls[0][0] is True
+    assert fb.calls[0][1] == "Disliked and removed from My Archive"
+    assert fb.kinds == ["remove"]
+
+
+@pytest.mark.asyncio
+async def test_discard_playlist_leg_failure_does_not_cost_the_dislike() -> None:
+    provider = FakeBothProvider(
+        track=_track("trk1"), playlist_id="pl1", remove_raises=RuntimeError("boom")
+    )
+    fb = Feedback()
+
+    await DiscardPipeline(
+        provider=provider, feedback=fb, playlist_name="My Archive"
+    ).run_once()
+
+    assert provider.dislike_calls == ["trk1"]  # still happened
+    ok, title, message = fb.calls[0][:3]
+    assert ok is False  # the tone reports the partial failure
+    assert title == "Disliked — not removed from My Archive"
+    assert "boom" in message
+
+
+@pytest.mark.asyncio
+async def test_discard_dislike_leg_failure_does_not_cost_the_remove() -> None:
+    provider = FakeBothProvider(
+        track=_track("trk1"),
+        playlist_id="pl1",
+        dislike_raises=RuntimeError("rate limited"),
+    )
+    fb = Feedback()
+
+    await DiscardPipeline(
+        provider=provider, feedback=fb, playlist_name="My Archive"
+    ).run_once()
+
+    assert provider.remove_calls == [("trk1", "pl1")]  # still happened
+    ok, title, message = fb.calls[0][:3]
+    assert ok is False
+    assert title == "Removed from My Archive — not disliked"
+    assert "rate limited" in message
+
+
+@pytest.mark.asyncio
+async def test_discard_both_legs_failing_says_nothing_changed() -> None:
+    provider = FakeBothProvider(
+        track=_track("trk1"),
+        playlist_id="pl1",
+        dislike_raises=RuntimeError("nope"),
+        remove_raises=RuntimeError("boom"),
+    )
+    fb = Feedback()
+
+    await DiscardPipeline(
+        provider=provider, feedback=fb, playlist_name="My Archive"
+    ).run_once()
+
+    ok, title, message = fb.calls[0][:3]
+    assert ok is False
+    assert title == "Nothing changed"
+    assert "nope" in message and "boom" in message
+
+
+# ── One capability only ─────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_discard_dislike_capable_but_not_playlist_capable() -> None:
+    """The dislike-only wiring: no archive name, no playlist API."""
+    provider = FakeDislikeProvider(track=_track("trk1"))
+    fb = Feedback()
+    pipe = DiscardPipeline(provider=provider, feedback=fb)
+
+    assert pipe.label == "Dislike current track"
+    await pipe.run_once()
+
+    assert provider.dislike_calls == ["trk1"]
+    assert fb.calls[0][0] is True
+    assert fb.calls[0][1] == "Disliked"
+    assert fb.kinds == ["remove"]
+
+
+@pytest.mark.asyncio
+async def test_discard_dislike_capable_ignores_configured_playlist() -> None:
+    """A name is configured but the provider can't do playlists: the dislike
+    still lands, and the missing leg is not counted as a failure."""
+    provider = FakeDislikeProvider(track=_track("trk1"))
+    fb = Feedback()
+
+    await DiscardPipeline(
+        provider=provider, feedback=fb, playlist_name="My Archive"
+    ).run_once()
+
+    assert provider.dislike_calls == ["trk1"]
+    assert fb.calls[0][:2] == (True, "Disliked")
+
+
+@pytest.mark.asyncio
+async def test_discard_playlist_capable_but_not_dislike_capable() -> None:
+    provider = FakeRemoveProvider(track=_track("trk1"), playlist_id="pl1")
+    fb = Feedback()
+    pipe = DiscardPipeline(
+        provider=provider, feedback=fb, playlist_name="My Archive"
+    )
+
+    assert pipe.label == "Remove from My Archive"
+    await pipe.run_once()
 
     assert provider.remove_calls == [("trk1", "pl1")]
     assert provider.find_calls == ["My Archive"]
@@ -577,11 +750,57 @@ async def test_remove_pipeline_removes_current_track_without_liking() -> None:
 
 
 @pytest.mark.asyncio
-async def test_remove_pipeline_nothing_playing() -> None:
+async def test_discard_provider_with_neither_capability() -> None:
+    provider = FakeProvider(track=_track("trk1"))  # like-flow only
+    fb = Feedback()
+
+    await DiscardPipeline(
+        provider=provider, feedback=fb, playlist_name="My Archive"
+    ).run_once()
+
+    assert fb.calls[0][:2] == (False, "Discard unsupported")
+    assert fb.kinds == ["remove"]
+
+
+@pytest.mark.asyncio
+async def test_discard_with_neither_capability_and_no_playlist() -> None:
+    """Degrades to the same clear message, never a crash."""
+    provider = FakeProvider(track=_track("trk1"))
+    fb = Feedback()
+
+    await DiscardPipeline(provider=provider, feedback=fb).run_once()
+
+    assert fb.calls[0][:2] == (False, "Discard unsupported")
+
+
+def test_discard_label_names_both_legs() -> None:
+    pipe = DiscardPipeline(
+        provider=FakeBothProvider(track=None),
+        feedback=Feedback(),
+        playlist_name="My Archive",
+    )
+    assert pipe.label == "Dislike and remove from My Archive"
+
+
+def test_discard_accepts_blank_playlist_name() -> None:
+    """Blank is the dislike-only wiring, not a misconfiguration (#172).
+    It used to raise ValueError, when the playlist leg was the only leg."""
+    pipe = DiscardPipeline(
+        provider=FakeDislikeProvider(track=None), feedback=Feedback(),
+        playlist_name="   ",
+    )
+    assert pipe.label == "Dislike current track"
+
+
+# ── Shared preconditions and playlist-id caching (#43, unchanged) ───────
+
+
+@pytest.mark.asyncio
+async def test_discard_nothing_playing() -> None:
     provider = FakeRemoveProvider(track=None)
     fb = Feedback()
 
-    await RemoveFromPlaylistPipeline(
+    await DiscardPipeline(
         provider=provider, feedback=fb, playlist_name="My Archive"
     ).run_once()
 
@@ -591,12 +810,23 @@ async def test_remove_pipeline_nothing_playing() -> None:
 
 
 @pytest.mark.asyncio
-async def test_remove_pipeline_playlist_not_found_does_not_cache() -> None:
+async def test_discard_get_currently_playing_failure() -> None:
+    provider = FakeRemoveProvider(track=None, get_raises=RuntimeError("api down"))
+    fb = Feedback()
+
+    await DiscardPipeline(
+        provider=provider, feedback=fb, playlist_name="My Archive"
+    ).run_once()
+
+    assert fb.calls[0][:2] == (False, "Error")
+    assert provider.remove_calls == []
+
+
+@pytest.mark.asyncio
+async def test_discard_playlist_not_found_does_not_cache() -> None:
     provider = FakeRemoveProvider(track=_track("trk1"), playlist_id=None)
     fb = Feedback()
-    pipe = RemoveFromPlaylistPipeline(
-        provider=provider, feedback=fb, playlist_name="Ghost"
-    )
+    pipe = DiscardPipeline(provider=provider, feedback=fb, playlist_name="Ghost")
 
     await pipe.run_once()
     await pipe.run_once()
@@ -604,14 +834,15 @@ async def test_remove_pipeline_playlist_not_found_does_not_cache() -> None:
     assert provider.remove_calls == []
     # Not cached → re-resolved on the second press.
     assert provider.find_calls == ["Ghost", "Ghost"]
-    assert fb.calls[0] == (False, "Playlist not found", "Ghost")
+    assert fb.calls[0][:2] == (False, "Nothing changed")
+    assert "Playlist not found: Ghost" in fb.calls[0][2]
 
 
 @pytest.mark.asyncio
-async def test_remove_pipeline_caches_playlist_id_after_success() -> None:
+async def test_discard_caches_playlist_id_after_success() -> None:
     provider = FakeRemoveProvider(track=_track("trk1"), playlist_id="pl1")
     fb = Feedback()
-    pipe = RemoveFromPlaylistPipeline(
+    pipe = DiscardPipeline(
         provider=provider, feedback=fb, playlist_name="My Archive"
     )
 
@@ -624,35 +855,22 @@ async def test_remove_pipeline_caches_playlist_id_after_success() -> None:
 
 
 @pytest.mark.asyncio
-async def test_remove_pipeline_provider_without_playlist_api() -> None:
-    provider = FakeProvider(track=_track("trk1"))  # like-flow only, no playlist API
-    fb = Feedback()
-
-    await RemoveFromPlaylistPipeline(
-        provider=provider, feedback=fb, playlist_name="My Archive"
-    ).run_once()
-
-    assert fb.calls[0][:2] == (False, "Remove unsupported")
-    assert fb.kinds == ["remove"]
-
-
-@pytest.mark.asyncio
-async def test_remove_pipeline_remove_failure_surfaces() -> None:
+async def test_discard_remove_failure_surfaces() -> None:
     provider = FakeRemoveProvider(
         track=_track("trk1"), playlist_id="pl1", remove_raises=RuntimeError("boom")
     )
     fb = Feedback()
 
-    await RemoveFromPlaylistPipeline(
+    await DiscardPipeline(
         provider=provider, feedback=fb, playlist_name="My Archive"
     ).run_once()
 
-    assert fb.calls[0][:2] == (False, "Remove failed")
-    assert "boom" in fb.calls[0][2]
+    assert fb.calls[0][:2] == (False, "Nothing changed")
+    assert "Remove failed: boom" in fb.calls[0][2]
 
 
 @pytest.mark.asyncio
-async def test_remove_pipeline_drops_cache_after_remove_failure() -> None:
+async def test_discard_drops_cache_after_remove_failure() -> None:
     """A remove failure (stale id — playlist deleted/renamed) must drop the
     cached id so the next press re-resolves instead of failing forever."""
     provider = FakeRemoveProvider(
@@ -662,7 +880,7 @@ async def test_remove_pipeline_drops_cache_after_remove_failure() -> None:
         remove_raises_once=True,
     )
     fb = Feedback()
-    pipe = RemoveFromPlaylistPipeline(
+    pipe = DiscardPipeline(
         provider=provider, feedback=fb, playlist_name="My Archive"
     )
 
@@ -672,17 +890,17 @@ async def test_remove_pipeline_drops_cache_after_remove_failure() -> None:
     # find called twice proves the cache was invalidated by the failure.
     assert provider.find_calls == ["My Archive", "My Archive"]
     assert provider.remove_calls == [("trk1", "pl1"), ("trk1", "pl1")]
-    assert fb.calls[0][:2] == (False, "Remove failed")
+    assert fb.calls[0][0] is False
     assert fb.calls[1][0] is True
 
 
 @pytest.mark.asyncio
-async def test_remove_pipeline_lookup_failure_does_not_cache() -> None:
+async def test_discard_lookup_failure_does_not_cache() -> None:
     provider = FakeRemoveProvider(
         track=_track("trk1"), find_raises=RuntimeError("net")
     )
     fb = Feedback()
-    pipe = RemoveFromPlaylistPipeline(
+    pipe = DiscardPipeline(
         provider=provider, feedback=fb, playlist_name="My Archive"
     )
 
@@ -691,28 +909,7 @@ async def test_remove_pipeline_lookup_failure_does_not_cache() -> None:
 
     assert provider.find_calls == ["My Archive", "My Archive"]
     assert provider.remove_calls == []
-    assert fb.calls[0][:2] == (False, "Playlist lookup failed")
-
-
-@pytest.mark.asyncio
-async def test_remove_pipeline_get_currently_playing_failure() -> None:
-    provider = FakeRemoveProvider(track=None, get_raises=RuntimeError("api down"))
-    fb = Feedback()
-
-    await RemoveFromPlaylistPipeline(
-        provider=provider, feedback=fb, playlist_name="My Archive"
-    ).run_once()
-
-    assert fb.calls[0][:2] == (False, "Error")
-    assert provider.remove_calls == []
-
-
-def test_remove_pipeline_rejects_blank_playlist_name() -> None:
-    with pytest.raises(ValueError):
-        RemoveFromPlaylistPipeline(
-            provider=FakeRemoveProvider(track=None), feedback=Feedback(),
-            playlist_name="   ",
-        )
+    assert "Playlist lookup failed: net" in fb.calls[0][2]
 
 
 # ── #173: where a like goes (native / playlist / both) ──────────────────

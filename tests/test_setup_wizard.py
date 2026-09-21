@@ -616,7 +616,7 @@ def test_build_storage_missing_spreadsheet_id_returns_none(tmp_paths) -> None:
     assert _common.build_storage({"storage": {"backend": "sheets"}}) is None
 
 
-# ── archive name resolution + remove-pipeline builder (#43) ────────────
+# ── archive name resolution + discard-pipeline builder (#43 / #172) ───
 
 
 def test_resolve_archive_name_reads_nested_key() -> None:
@@ -637,15 +637,30 @@ def test_resolve_archive_name_empty_when_unset() -> None:
     assert _common.resolve_archive_playlist_name({}) == ""
 
 
-def test_build_remove_pipeline_none_when_no_archive() -> None:
-    assert _common.build_remove_pipeline({}, object(), lambda *a, **k: None) is None
+def test_build_discard_pipeline_none_when_nothing_to_discard_with() -> None:
+    """No archive playlist *and* a provider with no dislike: no press to wire."""
+    assert _common.build_discard_pipeline({}, object(), lambda *a, **k: None) is None
 
 
-def test_build_remove_pipeline_built_when_configured() -> None:
+def test_build_discard_pipeline_built_when_configured() -> None:
     cfg = {"actions": {"archive_remove": {"playlist_name": "Arch"}}}
-    pipe = _common.build_remove_pipeline(cfg, object(), lambda *a, **k: None)
+    pipe = _common.build_discard_pipeline(cfg, object(), lambda *a, **k: None)
     assert pipe is not None
     assert pipe._playlist_name == "Arch"
+
+
+def test_build_discard_pipeline_built_for_a_dislike_capable_provider() -> None:
+    """The relaxed gate (#172): a service that can be told "not this one"
+    earns the press on its own, with no archive playlist configured."""
+
+    class _Dislikes:
+        async def dislike(self, track) -> None:  # pragma: no cover - never run
+            pass
+
+    pipe = _common.build_discard_pipeline({}, _Dislikes(), lambda *a, **k: None)
+    assert pipe is not None
+    assert pipe._playlist_name == ""
+    assert pipe.label == "Dislike current track"
 
 
 def test_resolve_remove_hotkey_default_and_override() -> None:

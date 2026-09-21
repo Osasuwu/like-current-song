@@ -67,7 +67,8 @@ LIKE_DESTINATION_HINT = (
 ACTION_HINTS: dict[str, str] = {
     "archive_remove": (
         "Liking a track removes it from this playlist (e.g. a saved copy of "
-        "Discover Weekly). Also turns on the remove-without-like hotkey."
+        "Discover Weekly). The discard hotkey also takes tracks back out "
+        "of it."
     ),
     "promote_to_best": (
         "Adds a track to this playlist once you've liked it N times "
@@ -308,12 +309,20 @@ def validate(s: Settings) -> Validation:
     problem = hotkey_problem(s.hotkey)
     if problem:
         err("hotkey", f"Like hotkey {problem}.")
-    if s.archive_enabled:
+    # Checked whenever a combo is set, not just when archiving is on:
+    # since #172 the discard hotkey also works with no archive playlist at
+    # all (a dislike-capable service is enough), so gating the check on
+    # `archive_enabled` would let a broken combo through. A blank field
+    # falls back to the default on load and needs no check.
+    if s.remove_hotkey.strip():
         problem = hotkey_problem(s.remove_hotkey)
         if problem:
-            err("remove_hotkey", f"Remove hotkey {problem}.")
+            err("remove_hotkey", f"Discard hotkey {problem}.")
         elif _norm_hotkey(s.remove_hotkey) == _norm_hotkey(s.hotkey):
-            err("remove_hotkey", "The remove hotkey must differ from the like hotkey.")
+            err(
+                "remove_hotkey",
+                "The discard hotkey must differ from the like hotkey.",
+            )
 
     if not 0.0 <= s.feedback_volume <= 1.0:
         err("feedback_volume", "Feedback volume must be between 0 and 100%.")

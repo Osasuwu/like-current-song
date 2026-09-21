@@ -15,7 +15,7 @@ jobs:
       # flutter-action brings no JDK of its own, and the Android Gradle Plugin
       # needs 17. `cache: gradle` keeps ~/.gradle across runs, which is what
       # stops every run from re-downloading the Gradle distribution.
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'

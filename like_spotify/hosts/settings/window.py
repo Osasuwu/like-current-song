@@ -279,11 +279,12 @@ class SettingsWindow:
     def _build_hotkeys(self, parent):
         box = self._section(parent, "Hotkeys")
         self._entry(box, "Like current track", self.v_hotkey, 0, width=28)
-        self._entry(box, "Remove from archive", self.v_remove_hotkey, 1, width=28)
+        self._entry(box, "Discard current track", self.v_remove_hotkey, 1, width=28)
         self._hint(
             box,
-            "Keys joined with '+', e.g. ctrl+shift+alt+w. The remove hotkey works "
-            "only while archive clean-up (Extra actions) is on.",
+            "Keys joined with '+', e.g. ctrl+shift+alt+w. Discard dislikes the "
+            "track on your music service (where that service has a dislike) and "
+            "takes it out of the archive playlist, if one is set.",
             2,
         )
         return box
@@ -682,8 +683,8 @@ def _keyboard_problems(s: model.Settings) -> list[str]:
     except Exception:
         return []
     combos = [("Like hotkey", s.hotkey)]
-    if s.archive_enabled:
-        combos.append(("Remove hotkey", s.remove_hotkey))
+    if s.remove_hotkey.strip():
+        combos.append(("Discard hotkey", s.remove_hotkey))
     problems = []
     for label, combo in combos:
         try:

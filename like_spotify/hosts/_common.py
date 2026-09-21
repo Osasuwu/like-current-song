@@ -29,13 +29,16 @@ from typing import Callable
 
 from like_spotify.auth import google as google_auth
 from like_spotify.core.actions import PostLikeAction, PreLikeAction
-from like_spotify.core.music_provider import PlaylistCapableProvider
+from like_spotify.core.music_provider import (
+    DislikeCapableProvider,
+    PlaylistCapableProvider,
+)
 from like_spotify.core.pipeline import (
     LIKE_DESTINATIONS,
     NATIVE,
+    DiscardPipeline,
     FeedbackFn,
     LikeDestination,
-    RemoveFromPlaylistPipeline,
 )
 from like_spotify.core.storage import Storage
 from like_spotify.extensions.one_shot_cli_trigger import (
@@ -168,7 +171,7 @@ def resolve_archive_playlist_name(cfg: dict) -> str:
     """The configured Discover Weekly archive playlist name, or "".
 
     Single source of truth for both the like-flow `ArchiveRemoveAction`
-    and the remove-without-like `RemoveFromPlaylistPipeline` — they curate
+    and the discard hotkey's `DiscardPipeline` — they curate
     the *same* playlist, so they must read the same key. Honors the
     `actions.archive_remove.enabled = false` opt-out (returns "" when off).
     """
@@ -458,7 +461,7 @@ def resolve_feedback_volume(cfg: dict) -> float:
 def run_one_shot(pipeline, feedback) -> int:
     """Drive a single pipeline pass via OneShotCliTrigger; return an exit code.
 
-    Shared by every host's `like-once` / `remove-once` subcommand: the
+    Shared by every host's `like-once` / `discard-once` subcommand: the
     only thing that varies between them is which pipeline is built and how
     config errors are surfaced (handled by the caller). Exit code follows
     the pipeline's last feedback outcome — 0 on success, 1 on failure or
@@ -482,25 +485,33 @@ def run_one_shot(pipeline, feedback) -> int:
     return 0 if feedback.calls[-1][0] else 1
 
 
-def build_remove_pipeline(
+def build_discard_pipeline(
     cfg: dict, provider, feedback: FeedbackFn
-) -> RemoveFromPlaylistPipeline | None:
-    """Build the remove-without-like pipeline, or None when not configured.
+) -> DiscardPipeline | None:
+    """Build the discard pipeline, or None when the press could do nothing.
 
-    Wired only when an archive playlist name is set — without a target
-    playlist there's nothing to remove from, so the second hotkey stays
-    dark rather than failing on every press. Targets the same playlist as
-    the like-flow archive action (see `resolve_archive_playlist_name`).
+    Two independent reasons to wire it, and *either* is enough (#172):
+
+      * an archive playlist name is set, so the playlist leg has a target
+        (the same playlist the like-flow archive action curates — see
+        `resolve_archive_playlist_name`), or
+      * the provider is `DislikeCapableProvider`, so the dislike leg can
+        speak to the service even with no playlist configured.
+
+    Only when neither holds is there nothing a press could accomplish, and
+    the second hotkey stays dark rather than failing every time. Note this
+    gate is deliberately coarser than `DiscardPipeline`'s own per-leg
+    checks: the playlist leg additionally needs a playlist-capable
+    provider, but a configured archive name with a provider that cannot do
+    playlists is a misconfiguration worth a clear message on press, not a
+    silently missing hotkey.
     """
     archive_name = resolve_archive_playlist_name(cfg)
-    if not archive_name:
+    if not archive_name and not isinstance(provider, DislikeCapableProvider):
         return None
-    try:
-        return RemoveFromPlaylistPipeline(
-            provider=provider, feedback=feedback, playlist_name=archive_name
-        )
-    except ValueError:
-        return None
+    return DiscardPipeline(
+        provider=provider, feedback=feedback, playlist_name=archive_name
+    )
 
 
 # ── CLI ────────────────────────────────────────────────────────────────
@@ -510,12 +521,17 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     """Parse the shared CLI surface.
 
     Subcommands:
-        (none)      — run the platform's default host (tray on Windows,
-                      CLI-only stub elsewhere).
-        like-once   — perform a single like and exit (uses OneShotCliTrigger,
-                      works on every platform).
-        remove-once — remove the currently-playing track from the archive
-                      playlist WITHOUT liking it, then exit.
+        (none)       — run the platform's default host (tray on Windows,
+                       CLI-only stub elsewhere).
+        like-once    — perform a single like and exit (uses OneShotCliTrigger,
+                       works on every platform).
+        discard-once — reject the currently-playing track WITHOUT liking it:
+                       dislike it on the service and take it out of the
+                       archive playlist, whichever of the two applies.
+        remove-once  — deprecated alias of `discard-once`, kept because the
+                       README has told people to bind it in AutoHotkey /
+                       Stream Deck since #43. Normalised to `discard-once`
+                       here, so hosts only ever see the new name.
 
     Flags (back-compat with the original tray launcher):
         --setup    — interactive Client ID + browser OAuth.
@@ -527,12 +543,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "command",
         nargs="?",
         default="run",
-        choices=["run", "like-once", "remove-once"],
+        choices=["run", "like-once", "discard-once", "remove-once"],
         help=(
             "run (default) — start the long-lived host (tray on Windows). "
             "like-once — perform a single like and exit. "
-            "remove-once — remove the current track from the archive "
-            "playlist without liking it."
+            "discard-once — dislike the current track and remove it from "
+            "the archive playlist, without liking it "
+            "(remove-once is a deprecated alias)."
         ),
     )
     p.add_argument("--setup", action="store_true", help="Interactive setup wizard.")
@@ -553,7 +570,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     # Internal: set when the tray spawns the window, so the window knows the
     # running tray will pick up the save and doesn't tell the user to restart.
     p.add_argument("--from-tray", action="store_true", help=argparse.SUPPRESS)
-    return p.parse_args(argv)
+    args = p.parse_args(argv)
+    if args.command == "remove-once":
+        args.command = "discard-once"
+    return args
 
 
 def print_config_paths() -> int:

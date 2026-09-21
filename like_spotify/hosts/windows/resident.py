@@ -1,7 +1,7 @@
 """Windows host — resident tray wiring, one-shot subcommands, startup log.
 
 Split out of `hosts/windows.py` in #55. Owns process-level concerns: the
-single-instance mutex, `like-once`/`remove-once` one-shot subcommands, the
+single-instance mutex, `like-once`/`discard-once` one-shot subcommands, the
 login-time startup log + shell-readiness wait, and `_run_resident_host`
 (wires `Pipeline` + `Trigger` + the tray icon built by `tray.build_icon`).
 Since #100 the wiring is rebuildable (`_build_wiring` / `_HostRuntime.reload`)
@@ -21,7 +21,7 @@ import threading
 import time
 from dataclasses import dataclass
 
-from like_spotify.core.pipeline import Pipeline
+from like_spotify.core.pipeline import DiscardPipeline, Pipeline
 from like_spotify.extensions.tray_hotkey_trigger import (
     DEFAULT_HOTKEY,
     TRIGGER as make_tray_hotkey_trigger,
@@ -119,16 +119,19 @@ def _run_like_once() -> int:
     return _common.run_one_shot(pipeline, feedback)
 
 
-def _run_remove_once() -> int:
+def _run_discard_once() -> int:
     provider, err, cfg = _resolved_provider_or_hint()
     if provider is None:
         return err
 
     feedback = CliFeedback()
-    pipeline = _common.build_remove_pipeline(cfg, provider, feedback)
+    pipeline = _common.build_discard_pipeline(cfg, provider, feedback)
     if pipeline is None:
+        # Both legs are out: no archive playlist to remove from, and a
+        # music service that can't be told "not this one" either.
         _msgbox(
-            "No archive playlist configured. Run from a terminal:\n\n"
+            "Nothing to discard with: this music service has no dislike, "
+            "and no archive playlist is configured. Run from a terminal:\n\n"
             "    like-current-song --setup\n",
             title="Like Current Song — setup required",
         )
@@ -233,8 +236,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_settings(from_tray=args.from_tray)
     if args.command == "like-once":
         return _run_like_once()
-    if args.command == "remove-once":
-        return _run_remove_once()
+    if args.command == "discard-once":
+        return _run_discard_once()
 
     # Resident tray host — the login-launched path. Log the launch context
     # and funnel any startup crash to the log before pythonw lets it die
@@ -271,13 +274,13 @@ class _Wiring:
     remove_hotkey: str
     volume: float
     pipeline: Pipeline
-    remove_pipeline: Pipeline | None
+    discard_pipeline: DiscardPipeline | None
     trigger: object
-    remove_trigger: object | None
+    discard_trigger: object | None
 
     @property
-    def remove_enabled(self) -> bool:
-        return self.remove_trigger is not None
+    def discard_enabled(self) -> bool:
+        return self.discard_trigger is not None
 
 
 def _build_wiring(cfg: dict, feedback, *, make_trigger=make_tray_hotkey_trigger) -> _Wiring:
@@ -306,21 +309,24 @@ def _build_wiring(cfg: dict, feedback, *, make_trigger=make_tray_hotkey_trigger)
         like_destination=destination,
     )
 
-    # ── Second hotkey: remove-without-like (only when an archive is set) ──
-    # Skip when no archive playlist is configured (nothing to remove from)
-    # or when the remove hotkey collides with the like hotkey — registering
-    # two handlers on one combo would fire both pipelines per press.
+    # ── Second hotkey: discard-without-like ───────────────────────────────
+    # Skipped only when a press could do nothing at all — no archive
+    # playlist *and* a provider with no dislike (`build_discard_pipeline`
+    # owns that call) — or when the discard hotkey collides with the like
+    # hotkey, since registering two handlers on one combo would fire both
+    # pipelines per press. Note a dislike-capable provider now earns the
+    # hotkey on its own, so a user who never archives still gets it (#172).
     remove_hotkey = _common.resolve_remove_hotkey(cfg)
-    remove_pipeline = _common.build_remove_pipeline(cfg, provider, feedback)
-    remove_enabled = remove_pipeline is not None and remove_hotkey != hotkey
+    discard_pipeline = _common.build_discard_pipeline(cfg, provider, feedback)
+    discard_enabled = discard_pipeline is not None and remove_hotkey != hotkey
     return _Wiring(
         hotkey=hotkey,
         remove_hotkey=remove_hotkey,
         volume=_common.resolve_feedback_volume(cfg),
         pipeline=pipeline,
-        remove_pipeline=remove_pipeline if remove_enabled else None,
+        discard_pipeline=discard_pipeline if discard_enabled else None,
         trigger=make_trigger(hotkey=hotkey),
-        remove_trigger=make_trigger(hotkey=remove_hotkey) if remove_enabled else None,
+        discard_trigger=make_trigger(hotkey=remove_hotkey) if discard_enabled else None,
     )
 
 
@@ -347,18 +353,18 @@ class _HostRuntime:
     async def _emit_like(self) -> None:
         await self.wiring.pipeline.run_once()
 
-    async def _emit_remove(self) -> None:
-        if self.wiring.remove_pipeline is not None:
-            await self.wiring.remove_pipeline.run_once()
+    async def _emit_discard(self) -> None:
+        if self.wiring.discard_pipeline is not None:
+            await self.wiring.discard_pipeline.run_once()
 
     def _start_triggers(self, w: _Wiring) -> None:
         started = []
         try:
             self._call(w.trigger.start(self._emit_like))
             started.append(w.trigger)
-            if w.remove_trigger is not None:
-                self._call(w.remove_trigger.start(self._emit_remove))
-                started.append(w.remove_trigger)
+            if w.discard_trigger is not None:
+                self._call(w.discard_trigger.start(self._emit_discard))
+                started.append(w.discard_trigger)
         except BaseException:
             for t in started:
                 self._stop_trigger(t)
@@ -371,7 +377,7 @@ class _HostRuntime:
             pass
 
     def _stop_triggers(self, w: _Wiring) -> None:
-        for t in (w.trigger, w.remove_trigger):
+        for t in (w.trigger, w.discard_trigger):
             if t is not None:
                 self._stop_trigger(t)
 
@@ -384,12 +390,19 @@ class _HostRuntime:
     def like(self) -> None:
         asyncio.run_coroutine_threadsafe(self._emit_like(), self.loop)
 
-    def remove(self) -> None:
-        asyncio.run_coroutine_threadsafe(self._emit_remove(), self.loop)
+    def discard(self) -> None:
+        asyncio.run_coroutine_threadsafe(self._emit_discard(), self.loop)
 
-    def state(self) -> tuple[str, bool, str | None]:
+    def state(self) -> tuple[str, bool, str | None, str]:
+        """`(like hotkey, discard enabled, discard hotkey, discard label)`.
+
+        The label comes from the pipeline rather than the tray so the menu
+        item, the startup balloon and the feedback all name the same press
+        — which now varies with what the provider can actually do (#172).
+        """
         w = self.wiring
-        return w.hotkey, w.remove_enabled, w.remove_hotkey
+        label = w.discard_pipeline.label if w.discard_pipeline is not None else ""
+        return w.hotkey, w.discard_enabled, w.remove_hotkey, label
 
     def reload(self, cfg: dict) -> None:
         """Apply `cfg` live. Raises `_NotReady` (nothing changed) or the
@@ -603,7 +616,7 @@ def _run_resident_host() -> int:
         feedback=feedback,
         state=runtime.state,
         on_like=lambda _icon, _item: runtime.like(),
-        on_remove=lambda _icon, _item: runtime.remove(),
+        on_discard=lambda _icon, _item: runtime.discard(),
         on_settings=on_settings,
         on_toggle_autostart=on_toggle_autostart,
         on_open_log=on_open_log,
@@ -612,10 +625,10 @@ def _run_resident_host() -> int:
 
     def _startup_notify():
         time.sleep(0.5)
-        hotkey, remove_enabled, remove_hotkey = runtime.state()
+        hotkey, discard_enabled, remove_hotkey, discard_label = runtime.state()
         msg = f"Press {hotkey.upper()} to like the current track"
-        if remove_enabled:
-            msg += f"\n{remove_hotkey.upper()} removes it from the archive"
+        if discard_enabled:
+            msg += f"\n{remove_hotkey.upper()}: {discard_label.lower()}"
         try:
             icon.notify(msg, "Like Current Song")
         except Exception:

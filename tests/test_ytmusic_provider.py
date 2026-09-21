@@ -1,4 +1,5 @@
-"""YouTubeMusicProvider — search resolution, like/is_liked, errors, user id.
+"""YouTubeMusicProvider — search resolution, like/dislike/is_liked, errors,
+user id.
 
 HTTP is faked at the `requests` boundary and now-playing is injected, so
 nothing here needs winrt, a browser, or a Google project.
@@ -172,6 +173,24 @@ async def test_like_rates_the_video(monkeypatch, tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_dislike_rates_the_video_down(monkeypatch, tmp_path) -> None:
+    """A real thumbs-down, not a library removal: YouTube’s `videos.rate`
+    takes `dislike` as a first-class rating (#172)."""
+    captured: dict[str, Any] = {}
+
+    def fake_post(url, headers=None, params=None, timeout=None):
+        captured["url"] = url
+        captured["params"] = params
+        return FakeResponse(204)
+
+    monkeypatch.setattr(ytmusic.requests, "post", fake_post)
+    await _provider(tmp_path).dislike(_track("abc"))
+
+    assert captured["url"].endswith("/videos/rate")
+    assert captured["params"] == {"id": "abc", "rating": "dislike"}
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("rating,expected", [("like", True), ("none", False)])
 async def test_is_liked_reads_rating(monkeypatch, tmp_path, rating, expected) -> None:
     monkeypatch.setattr(
@@ -200,6 +219,17 @@ async def test_exhausted_quota_is_rate_limited_not_auth(monkeypatch, tmp_path) -
     )
     with pytest.raises(RateLimited):
         await _provider(tmp_path).like(_track())
+
+
+@pytest.mark.asyncio
+async def test_dislike_surfaces_quota_exhaustion(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        ytmusic.requests,
+        "post",
+        lambda *a, **kw: FakeResponse(403, _error("quotaExceeded")),
+    )
+    with pytest.raises(RateLimited):
+        await _provider(tmp_path).dislike(_track())
 
 
 @pytest.mark.asyncio

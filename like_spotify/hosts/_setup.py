@@ -367,7 +367,7 @@ def _setup_like_destination(cfg: dict) -> None:
 
 
 def _setup_archive(cfg: dict) -> None:
-    """Playlist clean-up (e.g. a Discover Weekly archive): archive playlist + remove-without-like hotkey.
+    """Playlist clean-up (e.g. a Discover Weekly archive): archive playlist + discard hotkey.
 
     Two coupled settings, one playlist:
       - `actions.archive_remove.playlist_name` — when you like a track, it's
@@ -385,9 +385,10 @@ def _setup_archive(cfg: dict) -> None:
     print(
         "  Name one of your playlists to curate (e.g. an archived copy of\n"
         "  Spotify's Discover Weekly, or a YouTube Music playlist).\n"
-        "  Liking a track removes it from this playlist; a second hotkey "
-        "removes\n"
-        "  the current track WITHOUT liking it. Blank = skip, '-' = turn off."
+        "  Liking a track removes it from this playlist; the discard hotkey "
+        "takes\n"
+        "  the current track out of it WITHOUT liking it. Blank = skip, "
+        "'-' = turn off."
     )
     current_name = _common.resolve_archive_playlist_name(cfg)
     if current_name:
@@ -413,12 +414,12 @@ def _setup_archive(cfg: dict) -> None:
 
     current_hotkey = _common.resolve_remove_hotkey(cfg)
     remove_hotkey = _prompt(
-        "  Remove-without-like hotkey",
+        "  Discard hotkey (dislike + un-archive, no like)",
         default=current_hotkey or _common.DEFAULT_REMOVE_HOTKEY,
     )
     cfg.setdefault("trigger", {})["remove_hotkey"] = remove_hotkey
     print(f"  ✓ Archive playlist: {playlist_name}")
-    print(f"  ✓ Remove hotkey: {remove_hotkey.upper()}")
+    print(f"  ✓ Discard hotkey: {remove_hotkey.upper()}")
 
 
 def _setup_autostart() -> None:

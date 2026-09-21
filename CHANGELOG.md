@@ -51,6 +51,28 @@ still the only option for the desktop half.
   tells you so instead of quietly making a second one and splitting your counts
   across two files.
 
+- **Desktop: the second hotkey now also tells the service “not this one”.**
+  `Ctrl+Shift+Alt+Q` used to do exactly one thing — take the playing track back
+  out of your archive playlist. It still does that, and in the same press it
+  now sends the strongest negative signal your music service actually
+  supports. On YouTube Music that is a real thumbs-down (`videos.rate` with
+  `rating=dislike`), which also clears a like you had on the track. On Spotify
+  there is nothing to send: **the Web API has no dislike endpoint at all**, and
+  the “Hide this song” control in the official clients is not exposed to
+  third-party apps — so there the press removes the track from your Liked
+  Songs, which is the strongest honest negative available, and the feedback
+  says which of the two happened. The two halves are independent: if the
+  playlist removal fails the dislike still goes out, and the message names what
+  actually happened (“Disliked and removed from Archive”, “Disliked — could
+  not remove from Archive”, “Nothing changed”). Because a dislike needs no
+  playlist, the hotkey now registers for a dislike-capable service even with
+  **no archive playlist configured**; before, that combination left you with no
+  second hotkey at all. **No new key combination was added.** The tray menu
+  item, the startup balloon and the CLI all describe what one press will do on
+  your setup; the CLI command is now `like-current-song discard-once`, and the
+  old `remove-once` keeps working as an alias so existing AutoHotkey / Stream
+  Deck bindings are unaffected.
+
 ### Fixed
 
 - **Android: the listener survives a reboot again on Android 15 and newer.**

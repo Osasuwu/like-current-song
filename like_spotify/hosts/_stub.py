@@ -5,7 +5,8 @@ platform we still want `pip install like-current-song` to be useful, so this
 stub host wires up:
 
     - `--setup` / `--config` (identical to Windows)
-    - `like-current-song like-once`  → single like via OneShotCliTrigger
+    - `like-current-song like-once`    → single like via OneShotCliTrigger
+    - `like-current-song discard-once` → dislike and/or un-archive, no like
 
 The long-lived `run` command prints a friendly message and exits with a
 non-zero code — full tray + global-hotkey support on mac/linux is left
@@ -116,16 +117,20 @@ def _run_like_once() -> int:
     return _common.run_one_shot(pipeline, feedback)
 
 
-def _run_remove_once() -> int:
+def _run_discard_once() -> int:
     provider, err, cfg = _resolved_provider_or_hint()
     if provider is None:
         return err
 
     feedback = CliFeedback()
-    pipeline = _common.build_remove_pipeline(cfg, provider, feedback)
+    pipeline = _common.build_discard_pipeline(cfg, provider, feedback)
     if pipeline is None:
+        # Both legs are out: no archive playlist to remove from, and a
+        # music service that can't be told "not this one" either.
         _common.msgbox(
-            "No archive playlist configured. Run:\n\n    like-current-song --setup\n",
+            "Nothing to discard with: this music service has no dislike, and "
+            "no archive playlist is configured. Run:\n\n"
+            "    like-current-song --setup\n",
             title="Like Current Song — setup required",
         )
         return 2
@@ -146,8 +151,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "like-once":
         return _run_like_once()
-    if args.command == "remove-once":
-        return _run_remove_once()
+    if args.command == "discard-once":
+        return _run_discard_once()
 
     # Default `run` on a non-tray platform: tell the user what works.
     print(_no_tray_message(), file=sys.stderr)

@@ -78,3 +78,30 @@ class PlaylistCapableProvider(Protocol):
         ...
 
     async def follow_artist(self, artist_id: str) -> None: ...
+
+
+@runtime_checkable
+class DislikeCapableProvider(Protocol):
+    """Optional capability: say "not this one" to the service itself.
+
+    The second capability axis, declared and checked exactly like
+    `PlaylistCapableProvider` above — structural, no inheritance, and
+    deliberately *not* a method on the `MusicProvider` ABC, so a provider
+    written against CONTRIBUTING.md before this existed keeps importing and
+    running. Call sites check `isinstance(provider, DislikeCapableProvider)`
+    and stay silent when it doesn't qualify.
+
+    What the signal *is* differs per service, and the protocol only promises
+    the strongest one that service offers. YouTube Music has a real
+    thumbs-down (`videos.rate`), which feeds its recommendations. Spotify's
+    Web API has no dislike at all — the X in the client is client-only — so
+    its strongest negative is taking the track back out of the library. Both
+    are honest answers to "I don't want this"; neither is the other.
+
+    Idempotent from the caller's view: disliking a track that is already
+    disliked, or removing one that was never liked, is not an error.
+    """
+
+    async def dislike(self, track: CurrentTrack) -> None:
+        """The strongest negative signal this service supports."""
+        ...

@@ -120,6 +120,24 @@ class SpotifyMusicProvider(MusicProvider):
     async def follow_artist(self, artist_id: str) -> None:
         await asyncio.to_thread(self._follow_artist_sync, artist_id)
 
+    # ── DislikeCapableProvider ────────────────────────────────────────
+
+    async def dislike(self, track: CurrentTrack) -> None:
+        """Take the track back out of the user's library — the strongest
+        negative signal Spotify's Web API offers.
+
+        Spotify has **no dislike endpoint**. The "hide this song" X in the
+        official clients is client-side only and is not exposed to third
+        parties, so this is deliberately not a thumbs-down: it is the exact
+        inverse of `like`, undoing a save and nothing more. It does not tell
+        the recommender anything. YouTube Music's `dislike` really does (see
+        `DislikeCapableProvider`), and the docs say so per service rather
+        than pretending the two are equivalent.
+
+        Idempotent: removing a track that was never saved returns 200.
+        """
+        await asyncio.to_thread(self._dislike_sync, track.provider_track_id)
+
     # ── Auth (sync, called from setup; safe outside event loop) ───────
 
     @property
@@ -248,10 +266,11 @@ class SpotifyMusicProvider(MusicProvider):
             album=(item.get("album") or {}).get("name"),
         )
 
-    def _save_to_library(self, uri: str, legacy_call) -> None:
-        """Save/follow `uri` through the generic `PUT /me/library` endpoint that
-        replaced `PUT /me/tracks`, `PUT /me/following` and friends in Spotify's
-        February 2026 API migration.
+    def _write_library(self, request, uri: str, legacy_call) -> None:
+        """Write `uri` through the generic `/me/library` endpoint that replaced
+        `PUT /me/tracks`, `DELETE /me/tracks`, `PUT /me/following` and friends
+        in Spotify's February 2026 API migration. `request` is the verb to use
+        — `requests.put` to save, `requests.delete` to take back out.
 
         `uris` is a *query* parameter — a comma-separated list, maximum 40 —
         not a request body, which is why this passes `params=` and sends no
@@ -268,7 +287,7 @@ class SpotifyMusicProvider(MusicProvider):
         """
         token = self._access_token()
         if not SpotifyMusicProvider._use_legacy_library_endpoints:
-            r = requests.put(
+            r = request(
                 f"{API_BASE}/me/library",
                 headers={"Authorization": f"Bearer {token}"},
                 params={"uris": uri},
@@ -282,6 +301,12 @@ class SpotifyMusicProvider(MusicProvider):
         _raise_for_status(legacy_call(token))
         SpotifyMusicProvider._use_legacy_library_endpoints = True
 
+    def _save_to_library(self, uri: str, legacy_call) -> None:
+        self._write_library(requests.put, uri, legacy_call)
+
+    def _remove_from_library(self, uri: str, legacy_call) -> None:
+        self._write_library(requests.delete, uri, legacy_call)
+
     def _like_sync(self, track_id: str) -> None:
         def legacy(token: str):
             return requests.put(
@@ -292,6 +317,17 @@ class SpotifyMusicProvider(MusicProvider):
             )
 
         self._save_to_library(f"spotify:track:{track_id}", legacy)
+
+    def _dislike_sync(self, track_id: str) -> None:
+        def legacy(token: str):
+            return requests.delete(
+                f"{API_BASE}/me/tracks",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"ids": track_id},
+                timeout=5,
+            )
+
+        self._remove_from_library(f"spotify:track:{track_id}", legacy)
 
     def _is_liked_sync(self, track_id: str) -> bool:
         """`GET /me/library/contains`, falling back to `GET /me/tracks/contains`
