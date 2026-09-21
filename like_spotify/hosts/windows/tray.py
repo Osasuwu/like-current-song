@@ -25,9 +25,9 @@ def icon_title(hotkey: str) -> str:
 def build_icon(
     *,
     feedback,
-    state: Callable[[], tuple[str, bool, str | None]],
+    state: Callable[[], tuple[str, bool, str | None, str]],
     on_like: Callable,
-    on_remove: Callable,
+    on_discard: Callable,
     on_settings: Callable,
     on_toggle_autostart: Callable,
     on_open_log: Callable,
@@ -35,20 +35,24 @@ def build_icon(
 ):
     """Build the resident host's pystray.Icon and attach `feedback` to it.
 
-    `state()` returns the live `(hotkey, remove_enabled, remove_hotkey)`.
+    `state()` returns the live
+    `(hotkey, discard_enabled, discard_hotkey, discard_label)`.
     """
     import pystray  # local import: heavy
 
     def like_text(_item) -> str:
         return f"Like current track  [{state()[0].upper()}]"
 
-    def remove_text(_item) -> str:
-        remove_hotkey = state()[2] or ""
-        return f"Remove from archive  [{remove_hotkey.upper()}]"
+    def discard_text(_item) -> str:
+        # The label is the pipeline's, not ours: what one press does
+        # depends on the provider's capabilities and whether an archive
+        # playlist is configured, and only the pipeline knows both.
+        _hotkey, _enabled, discard_hotkey, label = state()
+        return f"{label}  [{(discard_hotkey or '').upper()}]"
 
     menu = pystray.Menu(
         pystray.MenuItem(like_text, on_like, default=True),
-        pystray.MenuItem(remove_text, on_remove, visible=lambda _item: state()[1]),
+        pystray.MenuItem(discard_text, on_discard, visible=lambda _item: state()[1]),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Settings…", on_settings),
         pystray.MenuItem(

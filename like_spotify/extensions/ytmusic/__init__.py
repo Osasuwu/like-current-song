@@ -154,6 +154,21 @@ class YouTubeMusicProvider(MusicProvider):
     async def follow_artist(self, artist_id: str) -> None:
         await asyncio.to_thread(self._subscribe_sync, artist_id)
 
+    # ── DislikeCapableProvider ────────────────────────────────────────
+
+    async def dislike(self, track: CurrentTrack) -> None:
+        """A real thumbs-down: `videos.rate` with `rating=dislike`.
+
+        This is the genuine article — the same signal the thumbs-down
+        button in the YT Music client sends, and it feeds recommendations.
+        Spotify has no equivalent (see `DislikeCapableProvider`), so the
+        two providers' `dislike` differ in what they reach, on purpose.
+
+        Costs the same 50 units as a like, and clears any existing like on
+        the track because ratings are exclusive.
+        """
+        await asyncio.to_thread(self._dislike_sync, track.provider_track_id)
+
     # ── Auth (host wiring, not on the abstract base) ──────────────────
 
     @property
@@ -207,14 +222,26 @@ class YouTubeMusicProvider(MusicProvider):
             self._resolved[key] = match
         return match
 
-    def _like_sync(self, video_id: str) -> None:
+    def _rate_sync(self, video_id: str, rating: str) -> None:
+        """`videos.rate` — 50 quota units, whichever rating is sent.
+
+        Ratings are exclusive, not additive: posting `dislike` clears an
+        existing `like` in the same call (and vice versa), so neither side
+        needs to read `getRating` first or undo the other.
+        """
         r = requests.post(
             f"{API_BASE}/videos/rate",
             headers={"Authorization": f"Bearer {self._access_token()}"},
-            params={"id": video_id, "rating": "like"},
+            params={"id": video_id, "rating": rating},
             timeout=5,
         )
         _raise_for_status(r)
+
+    def _like_sync(self, video_id: str) -> None:
+        self._rate_sync(video_id, "like")
+
+    def _dislike_sync(self, video_id: str) -> None:
+        self._rate_sync(video_id, "dislike")
 
     def _is_liked_sync(self, video_id: str) -> bool:
         r = requests.get(

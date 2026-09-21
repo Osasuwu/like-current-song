@@ -1,8 +1,8 @@
 """Contract tests for SpotifyMusicProvider.
 
 We don't re-test the OAuth flow here; just the library calls the pipeline
-makes — `is_liked`, `like` and `follow_artist` — against the generic
-`/me/library` endpoints and their entity-specific fallbacks (#121).
+makes — `is_liked`, `like`, `dislike` and `follow_artist` — against the
+generic `/me/library` endpoints and their entity-specific fallbacks (#121).
 """
 
 from __future__ import annotations
@@ -302,3 +302,79 @@ async def test_follow_artist_falls_back_to_the_legacy_endpoint(
 
     assert calls[-1]["url"].endswith("/me/following")
     assert calls[-1]["params"] == {"type": "artist", "ids": "art-7"}
+
+
+# ── dislike ─────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_dislike_deletes_through_the_generic_library_endpoint(
+    monkeypatch, tmp_path
+) -> None:
+    """Spotify has no dislike endpoint, so the strongest negative we can send
+    is the exact inverse of `like`: the same URL, the DELETE verb (#172)."""
+    calls = _record(monkeypatch, "delete", lambda url: FakeResponse(status_code=200))
+
+    p = _provider(tmp_path)
+    await p.dislike(_track("trk-42"))
+
+    assert len(calls) == 1
+    assert calls[0]["url"].endswith("/me/library")
+    assert calls[0]["params"] == {"uris": "spotify:track:trk-42"}
+    assert calls[0]["json"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [403, 404])
+async def test_dislike_falls_back_to_the_legacy_endpoint(
+    monkeypatch, tmp_path, status: int
+) -> None:
+    def respond(url):
+        if url.endswith("/me/library"):
+            return FakeResponse(status_code=status, text="denied")
+        return FakeResponse(status_code=200)
+
+    calls = _record(monkeypatch, "delete", respond)
+
+    p = _provider(tmp_path)
+    await p.dislike(_track("trk-42"))
+
+    assert [c["url"].rsplit("/v1", 1)[-1] for c in calls] == [
+        "/me/library",
+        "/me/tracks",
+    ]
+    assert calls[-1]["params"] == {"ids": "trk-42"}
+    assert calls[-1]["json"] is None
+
+
+@pytest.mark.asyncio
+async def test_dislike_shares_the_remembered_endpoint_choice(
+    monkeypatch, tmp_path
+) -> None:
+    """The latch is per-class, not per-verb: a fallback learned by a like
+    spares the dislike its wasted round trip too."""
+    _record(monkeypatch, "put", lambda url: FakeResponse(
+        status_code=404 if url.endswith("/me/library") else 200
+    ))
+    deletes = _record(monkeypatch, "delete", lambda url: FakeResponse(status_code=200))
+
+    p = _provider(tmp_path)
+    await p.like(_track("trk-1"))
+    await p.dislike(_track("trk-1"))
+
+    assert [c["url"].rsplit("/v1", 1)[-1] for c in deletes] == ["/me/tracks"]
+
+
+@pytest.mark.asyncio
+async def test_dislike_surfaces_rate_limits(monkeypatch, tmp_path) -> None:
+    calls = _record(
+        monkeypatch,
+        "delete",
+        lambda url: FakeResponse(status_code=429, headers={"Retry-After": "7"}),
+    )
+
+    p = _provider(tmp_path)
+    with pytest.raises(RateLimited):
+        await p.dislike(_track())
+
+    assert len(calls) == 1

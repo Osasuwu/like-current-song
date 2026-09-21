@@ -18,8 +18,18 @@ from like_spotify.hosts.windows import resident
 
 
 class _FakeProvider:
+    """Neither playlist- nor dislike-capable — the plain baseline."""
+
     def __init__(self, has_tokens: bool = True) -> None:
         self.has_tokens = has_tokens
+
+
+class _DislikeProvider(_FakeProvider):
+    """`DislikeCapableProvider` structurally — enough to earn the discard
+    hotkey on its own, with no archive playlist configured (#172)."""
+
+    async def dislike(self, track) -> None:  # pragma: no cover - never run
+        pass
 
 
 class _FakeTrigger:
@@ -101,18 +111,30 @@ def test_build_wiring_requires_a_signed_in_provider(env) -> None:
         resident._build_wiring({}, _Volume(), make_trigger=env["make_trigger"])
 
 
-def test_remove_hotkey_only_with_archive_and_distinct_combo(env) -> None:
+def test_discard_hotkey_needs_an_archive_or_a_dislike_and_a_distinct_combo(env) -> None:
     mk = env["make_trigger"]
-    assert not resident._build_wiring(_cfg("a+b"), _Volume(), make_trigger=mk).remove_enabled
-    assert resident._build_wiring(_cfg("a+b", archive="W"), _Volume(), make_trigger=mk).remove_enabled
+    # Nothing to do: no archive playlist, and a provider with no dislike.
+    assert not resident._build_wiring(_cfg("a+b"), _Volume(), make_trigger=mk).discard_enabled
+    assert resident._build_wiring(_cfg("a+b", archive="W"), _Volume(), make_trigger=mk).discard_enabled
+    # A colliding combo would fire both pipelines on one press.
     same = _cfg("a+b", archive="W", remove="a+b")
-    assert not resident._build_wiring(same, _Volume(), make_trigger=mk).remove_enabled
+    assert not resident._build_wiring(same, _Volume(), make_trigger=mk).discard_enabled
+
+
+def test_discard_hotkey_registers_for_a_dislike_capable_provider(env) -> None:
+    """The relaxed gate (#172): no archive playlist at all, but the service
+    can be told "not this one", so the hotkey must still register."""
+    env["provider"]["value"] = _DislikeProvider()
+    w = resident._build_wiring(_cfg("a+b"), _Volume(), make_trigger=env["make_trigger"])
+    assert w.discard_enabled
+    assert w.discard_pipeline is not None
+    assert w.discard_pipeline.label == "Dislike current track"
 
 
 def test_reload_swaps_hotkeys_and_volume(env) -> None:
     fb = _Volume()
     rt = _runtime(env, _cfg("ctrl+alt+l"), fb)
-    assert rt.state() == ("ctrl+alt+l", False, "ctrl+alt+r")
+    assert rt.state() == ("ctrl+alt+l", False, "ctrl+alt+r", "")
 
     rt.reload(_cfg("ctrl+alt+k", archive="Weekly", volume=0.9))
 
@@ -122,7 +144,11 @@ def test_reload_swaps_hotkeys_and_volume(env) -> None:
         ("start", "ctrl+alt+k"),
         ("start", "ctrl+alt+r"),
     ]
-    assert rt.state() == ("ctrl+alt+k", True, "ctrl+alt+r")
+    # The fake provider is neither playlist- nor dislike-capable, so the
+    # label stays generic even though an archive playlist is configured.
+    assert rt.state() == (
+        "ctrl+alt+k", True, "ctrl+alt+r", "Discard current track"
+    )
     assert fb.volumes == [0.9]
 
 

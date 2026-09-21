@@ -23,6 +23,13 @@ steps:
 3. **Like.** It calls `videos.rate`. On YouTube, liking the video *is* liking
    the song, so it shows up in YT Music's Liked music.
 
+The discard hotkey takes the same three steps and ends in the same call with
+`rating=dislike` — a **real thumbs-down**, the one YT Music's own interface
+sends. Ratings are exclusive rather than additive, so disliking a song you had
+liked clears the like in the same call; there is no separate “un-like” step to
+go wrong. (This is where YT Music differs from Spotify, which has no dislike
+in its API at all — see `../spotify/README.md`.)
+
 ## Setup: your own Google OAuth client (one time, about 5 minutes)
 
 The app ships no shared credentials, so each user brings their own free
@@ -69,7 +76,8 @@ clean-up" step in `--setup`, or `actions.*` in `config.json`).
   matched case-insensitively. Best creates its playlist as **private**
   if it doesn't exist yet.
 - **Archive remove** takes the liked song out of the named playlist. The
-  remove-without-like hotkey works as well.
+  discard hotkey works as well, and under this provider it also thumbs the
+  song down — both in one press, each independent of the other's failure.
 - **Follow artist** means **subscribing to the artist's channel**, which
   is what YT Music's own "Subscribe" button on an artist page does. The
   channel is the one that uploaded the matched song, and only when that
@@ -94,7 +102,9 @@ pip install "like-current-song[ytmusic]"
   about **100 new songs a day**, with the 10,000 units barely dented. Repeat
   presses on the same song reuse the match and spend no search call. When
   either bucket is empty the like fails with a rate-limit error until they
-  reset at midnight Pacific time.
+  reset at midnight Pacific time. A **dislike costs exactly the same**: it is
+  the same `videos.rate` call, 50 units, on a song that had to be matched
+  first.
 - **Playlist actions spend quota too**, but only from the 10,000-unit pool,
   never from the search bucket. Each write costs about **50 units**: adding to
   best, removing from the archive, creating the best playlist once, and

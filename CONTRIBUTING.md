@@ -385,14 +385,20 @@ Existing impls: `archive_remove`, `promote_to_best`, `follow_artist`.
 `archive_remove` reads its target playlist from
 `actions.archive_remove.playlist_name` in `config.json`; a blank name
 disables it (and `build_action_chains` drops the action). The same name
-feeds the standalone **remove-without-like** flow: `RemoveFromPlaylistPipeline`
-(in `core/pipeline.py`) removes the currently-playing track from that
-playlist *without* a like. The Windows tray host binds it to a second
-global hotkey, `trigger.remove_hotkey` (default `Ctrl+Shift+Alt+Q`), and
-every host exposes it as `like-current-song remove-once`. The hotkey is
-skipped if it equals `trigger.hotkey` or no archive name is configured.
+feeds the standalone **discard** flow: `DiscardPipeline` (in
+`core/pipeline.py`) says “not this one” about the playing track *without*
+a like. It has two legs — remove from that playlist, and dislike through
+the provider — and runs whichever are available, independently: one leg
+raising never costs the other, and the feedback line names what actually
+happened. The Windows tray host binds it to a second global hotkey,
+`trigger.remove_hotkey` (default `Ctrl+Shift+Alt+Q`), and every host
+exposes it as `like-current-song discard-once` (`remove-once` is kept as a
+deprecated alias). The hotkey is skipped only if it equals
+`trigger.hotkey`, or if there is neither an archive name **nor** a
+dislike-capable provider — either one on its own is enough to wire it.
 `resolve_archive_playlist_name` in `hosts/_common.py` is the single
-source of truth both flows read.
+source of truth both flows read, and `DiscardPipeline.label` is the single
+source of truth for how a press is described (tray menu, startup balloon).
 
 **Provider-aware actions** check a capability, not a class. Playlist and
 follow operations live on the `PlaylistCapableProvider` protocol
@@ -416,6 +422,30 @@ that can't name a track's artist leaves `artist_ids` empty, and
 follow-artist skips that track. For an API that only one provider has,
 downcast to the concrete class and ship the action in a folder named
 after that provider, so the dependency is visible.
+
+**`DislikeCapableProvider`** is the second such protocol, declared and
+checked the same way:
+
+| Method | Contract |
+|--------|----------|
+| `dislike(track)` | The strongest negative signal the service supports; already-disliked is not an error |
+
+It is deliberately *not* on the `MusicProvider` ABC — adding an abstract
+method there would break every third-party provider written against this
+guide. A provider opts in by defining the method; callers check
+`isinstance(provider, DislikeCapableProvider)` and degrade quietly when it
+is absent.
+
+What `dislike` means is the service's business, and the docs must say so
+rather than imply a shared feature. `ytmusic` sends a real thumbs-down
+(`videos.rate` with `rating=dislike`; ratings are exclusive, so it also
+clears an existing like). `spotify` **cannot** — the Spotify Web API has no
+dislike endpoint, and the “Hide this song” control in the first-party
+clients is not exposed to third-party apps — so it removes the track from
+the user's library, the strongest negative it can honestly send. If you
+add a provider whose service has no negative signal at all, implement
+nothing: no `dislike` method is a truthful answer, and the discard flow
+will simply leave that leg out.
 
 ## Adding an extension — checklist
 
