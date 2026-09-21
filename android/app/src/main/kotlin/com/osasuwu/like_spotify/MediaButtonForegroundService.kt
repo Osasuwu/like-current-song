@@ -365,9 +365,36 @@ class MediaButtonForegroundService : Service() {
     /**
      * Queues a one-shot start of this service about a second from now. If the
      * service is still alive the start is a no-op re-assert; if the OEM killed it,
-     * this brings it back. Starting a foreground service from the background is
-     * only permitted on Android 12+ when the app is exempt from battery
-     * optimisation, so a refused start fails inside the system, not here.
+     * this brings it back.
+     *
+     * **This is not [start]**, and deliberately so. [start] is an in-process
+     * start, where a refusal lands in this app's process; here the start is
+     * performed by `system_server` on our behalf, when the alarm fires, and a
+     * refusal never leaves `system_server`:
+     *
+     * - `AlarmManagerService` delivers the alarm by sending the [PendingIntent],
+     *   which runs `PendingIntentRecord.sendInner` — `PendingIntentRecord` is an
+     *   `IIntentSender.Stub` inside `system_server`, so `sendInner` always runs
+     *   there regardless of who called `send`.
+     * - For `INTENT_SENDER_FOREGROUND_SERVICE`, `sendInner` calls
+     *   `ActivityManagerInternal.startServiceInPackage` — a `LocalServices`
+     *   abstract class, "Only for use within the system server", so a plain
+     *   in-process call with no binder hop — inside
+     *   `catch (RuntimeException e) { Slog.w(TAG, "Unable to send startService
+     *   intent", e); }`.
+     * - `ForegroundServiceStartNotAllowedException` extends
+     *   `ServiceStartNotAllowedException` extends `IllegalStateException`
+     *   extends `RuntimeException`, so that catch swallows it and logs it there.
+     *   The other denial shape, `ActiveServices.startServiceLocked` returning
+     *   `ComponentName("?", msg)`, is discarded by `sendInner` outright — only
+     *   `ContextImpl.startServiceCommon` turns that marker into an exception,
+     *   and that code runs in the *app's* process, which this path never enters.
+     *
+     * So this app only ever learns the alarm-fired start was refused by not
+     * being started: there is nothing here to catch, and routing this through
+     * [start] would be impossible anyway — the start happens later, in another
+     * process. The [runCatching] below guards `AlarmManager.set` itself, which
+     * is a different failure (an exact-alarm or quota refusal at schedule time).
      */
     private fun scheduleRestart() {
         val alarmManager = getSystemService(AlarmManager::class.java) ?: return
@@ -438,14 +465,23 @@ class MediaButtonForegroundService : Service() {
         }
 
         /**
-         * Starts this service, surviving a refusal instead of crashing.
+         * Starts this service **from this process, right now**, surviving a
+         * refusal instead of crashing. Every direct
+         * `startForegroundService`/`startService` call in this app goes
+         * through here. The one start that does *not* is the alarm-fired
+         * `PendingIntent` in [scheduleRestart], which `system_server` performs
+         * on our behalf — see that method for why a refusal there cannot reach
+         * us and so needs no catch.
          *
          * The system can refuse a foreground-service start for reasons the
          * caller cannot test for beforehand: Android 12+ blocks most starts
          * from the background, and Android 15+ blocks whole service types from
-         * a BOOT_COMPLETED receiver. The refusal arrives as
-         * `ForegroundServiceStartNotAllowedException`, thrown in *this*
-         * process — from a broadcast receiver that is an uncaught crash at
+         * a BOOT_COMPLETED receiver. Because the start is in-process, the
+         * refusal surfaces *here*: AMS answers the binder call with the
+         * `ComponentName("?", msg)` marker and `ContextImpl.startServiceCommon`
+         * — app-side code — turns it into
+         * `ForegroundServiceStartNotAllowedException` and throws it on this
+         * very stack. From a broadcast receiver that is an uncaught crash at
          * boot, which is a worse outcome than a listener that did not start.
          *
          * Caught as [IllegalStateException], its supertype: the exception
