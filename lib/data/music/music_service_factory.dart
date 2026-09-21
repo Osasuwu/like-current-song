@@ -50,6 +50,10 @@ ActiveMusicServiceRepository createMusicServiceRepository({
       MusicProvider.spotify,
       spotifyUserId: await spotify.ensureUserId(),
     ),
+    // A like the sheet could not record still counts locally, so the Logs
+    // screen is the only place it can show up — one method, not the whole
+    // settings repository (#170).
+    appendLog: settingsRepository.appendLog,
   );
 
   spotify = SpotifyMusicServiceRepository(

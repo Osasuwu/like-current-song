@@ -3,10 +3,27 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../../domain/entities/app_log.dart';
 import '../../domain/repositories/like_count_repository.dart';
 import 'counter_sheet_schema.dart';
 import 'sheets_api_error.dart';
 import 'shared_prefs_like_count_repository.dart';
+
+/// A Sheets call the counter could not complete, in words a user can read.
+///
+/// The status code travels alongside the message rather than inside it, so
+/// the log line can carry it as `httpCode` instead of spelling it out; and a
+/// refusal Google explained — today only "the Sheets API is off" — arrives
+/// here already turned into the sentence that names the fix.
+class SheetsCallException implements Exception {
+  const SheetsCallException(this.message, {this.statusCode});
+
+  final String message;
+  final int? statusCode;
+
+  @override
+  String toString() => message;
+}
 
 /// Tries the shared Google Sheet first, falls back to local SharedPreferences.
 ///
@@ -22,8 +39,12 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
     required this.readSpreadsheetId,
     required this.readAccessToken,
     required this.userIdGetter,
+    required this.appendLog,
     http.Client? httpClient,
   }) : _httpClient = httpClient ?? http.Client();
+
+  /// The action type every counter line on the Logs screen carries.
+  static const logActionType = 'like_count';
 
   static const _apiBase = 'https://sheets.googleapis.com/v4/spreadsheets';
 
@@ -48,6 +69,16 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
   /// feature had already looked up left the sheet empty for everyone whose
   /// other features were switched off.
   final Future<String?> Function() userIdGetter;
+
+  /// Where a like that could not be counted on the sheet goes — in practice
+  /// `SettingsRepository.appendLog`, which feeds the Logs screen.
+  ///
+  /// One method rather than the whole repository: counting a like has no
+  /// business loading trigger configs or pending likes, and the narrow seam
+  /// is the same shape as the three getters above. It is required because
+  /// the bug this fixes was precisely a counter wired up with nowhere to
+  /// report to (#170).
+  final Future<void> Function(AppLog log) appendLog;
 
   final SharedPrefsLikeCountRepository _local = SharedPrefsLikeCountRepository();
   final http.Client _httpClient;
@@ -78,22 +109,54 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
     try {
       spreadsheetId = await readSpreadsheetId();
     } catch (error) {
-      debugPrint('Like counter sheet unreadable, counting locally: $error');
+      await _reportFallback(
+        trackId,
+        'The counter spreadsheet could not be read: $error',
+      );
       return null;
     }
+    // Nothing configured is not a failure — the counter is simply off, and a
+    // log line per like would be noise for everyone who never wanted one.
     if (spreadsheetId.isEmpty) return null;
 
-    final userId = await userIdGetter();
-    if (userId == null) return null;
+    final String? userId;
+    try {
+      userId = await userIdGetter();
+    } catch (error) {
+      await _reportFallback(
+        trackId,
+        'The account the shared count is keyed by could not be resolved: '
+        '$error',
+      );
+      return null;
+    }
+    if (userId == null) {
+      await _reportFallback(
+        trackId,
+        'The music service is not signed in, so the shared count has no row '
+        'to add to. Reconnect it under Connected services.',
+      );
+      return null;
+    }
 
     final String? token;
     try {
       token = await readAccessToken();
     } catch (error) {
-      debugPrint('Like counter token unavailable, counting locally: $error');
+      await _reportFallback(
+        trackId,
+        "The counter's Google sign-in could not be read: $error",
+      );
       return null;
     }
-    if (token == null || token.isEmpty) return null;
+    if (token == null || token.isEmpty) {
+      await _reportFallback(
+        trackId,
+        'The counter is not signed in to Google. Sign in under Connected '
+        'services → Shared like counter.',
+      );
+      return null;
+    }
 
     try {
       final rows = await _ensureLoaded(spreadsheetId, token);
@@ -141,9 +204,46 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
     } catch (error) {
       // Anything unexpected and the cache may no longer match the sheet, so
       // throw it away and count locally for this press.
-      debugPrint('Like counter sheet write failed, counting locally: $error');
       _invalidate();
+      await _reportFallback(
+        trackId,
+        error is SheetsCallException
+            ? error.message
+            : 'The sheet could not be written: $error',
+        httpCode: error is SheetsCallException ? error.statusCode : null,
+      );
       return null;
+    }
+  }
+
+  /// The one trace a user has of a counter that is not counting.
+  ///
+  /// `debugPrint` used to be it, and logcat is not somewhere a release build
+  /// can be read from — so a sheet that had never once been written looked
+  /// exactly like one that was working, the local tally rising all the while
+  /// (#170). The Logs screen is where every other step of the like reports,
+  /// so the counter reports there too.
+  ///
+  /// The like has already succeeded and the local tally stands in by the time
+  /// this runs, so nothing here may throw: a log line must never cost a like.
+  Future<void> _reportFallback(
+    String trackId,
+    String reason, {
+    int? httpCode,
+  }) async {
+    final message = 'Like counted on this device only. $reason';
+    debugPrint(message);
+    try {
+      await appendLog(AppLog(
+        at: DateTime.now().toUtc(),
+        actionType: logActionType,
+        targetId: trackId,
+        result: LogResult.failure,
+        httpCode: httpCode,
+        message: message,
+      ));
+    } catch (error) {
+      debugPrint('Like counter failure could not be logged: $error');
     }
   }
 
@@ -162,7 +262,7 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
         )
         .timeout(_timeout);
     if (response.statusCode < 200 || response.statusCode > 299) {
-      throw http.ClientException(_failureMessage('get', response));
+      throw _failure('get', response);
     }
 
     final decoded = jsonDecode(response.body);
@@ -210,7 +310,7 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
         )
         .timeout(_timeout);
     if (response.statusCode < 200 || response.statusCode > 299) {
-      throw http.ClientException(_failureMessage('update', response));
+      throw _failure('update', response);
     }
   }
 
@@ -233,7 +333,7 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
         )
         .timeout(_timeout);
     if (response.statusCode < 200 || response.statusCode > 299) {
-      throw http.ClientException(_failureMessage('append', response));
+      throw _failure('append', response);
     }
     final decoded = jsonDecode(response.body);
     final updates = decoded is Map<String, dynamic> ? decoded['updates'] : null;
@@ -241,16 +341,26 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
     return rowFromA1Range(range is String ? range : '');
   }
 
-  /// What to log when a Sheets call is refused.
+  /// What to say when a Sheets call is refused.
   ///
   /// A project that never had the Sheets API switched on says so in the body,
   /// and a counter set up by pasting an id never calls the creator that would
   /// catch that at setup time — so without this, the only trace is a status
-  /// code and a wall of JSON in the log (#165).
-  static String _failureMessage(String call, http.Response response) {
+  /// code and a wall of JSON in the log (#165). That sentence names the fix,
+  /// which is what tells a user reading the Logs screen that this failure is
+  /// theirs to clear rather than a blip to ignore (#170).
+  static SheetsCallException _failure(String call, http.Response response) {
     final disabled = SheetsApiDisabled.read(response.statusCode, response.body);
-    if (disabled != null) return disabled.message;
-    return 'sheets $call ${response.statusCode}: ${response.body}';
+    if (disabled != null) {
+      return SheetsCallException(
+        disabled.message,
+        statusCode: response.statusCode,
+      );
+    }
+    return SheetsCallException(
+      'The sheet refused a $call (${response.statusCode}): ${response.body}',
+      statusCode: response.statusCode,
+    );
   }
 
   Map<String, String> _headers(String token) => <String, String>{
