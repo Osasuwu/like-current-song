@@ -488,7 +488,14 @@ class MediaButtonForegroundService : Service() {
          * class itself is API 31 and this app runs back to 24, so naming it
          * would put a class the runtime cannot resolve in a catch clause.
          *
-         * @return true if the start was accepted.
+         * @return true if the start was accepted. A caller that persists "the
+         *   listener is on" must gate that write on this, or the app ends up
+         *   claiming to listen while nothing runs. [MainActivity] does exactly
+         *   that. [BootCompletedReceiver] deliberately does not: the flag it
+         *   would clear is the only record that the user ever asked for the
+         *   listener, there is no UI at boot to tell them it was dropped, and
+         *   leaving it set is what lets opening the app bring the listener
+         *   back.
          */
         fun start(context: Context, intent: Intent): Boolean = try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

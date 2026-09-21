@@ -20,9 +20,11 @@ const restrictedFromBootCompleted = <String>{
   'microphone',
 };
 
-/// This is a manifest test rather than a Kotlin one on purpose: the Kotlin unit
-/// tests under `android/app/src/test/` are not wired into CI (`ci.yml` runs
-/// `flutter test` and `pytest`), so a guard placed there would gate nothing.
+/// This is a manifest test rather than a Kotlin one on purpose: what it asserts
+/// is a fact about `AndroidManifest.xml`, so it is file parsing — no Android
+/// API, no emulator, nothing to instrument. A guard over a checked-in XML file
+/// belongs with the rest of the repo-wide guards in `flutter test`, not in the
+/// Kotlin suite, which is there to cover Kotlin behaviour.
 void main() {
   late String manifest;
 
