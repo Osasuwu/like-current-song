@@ -87,8 +87,9 @@ def test_setup_writes_config_and_runs_oauth(
     answers = [
         "",                    # music service — default spotify
         "abc123client",        # Spotify Client ID
+        "",  # [2/5] like destination — default native
         "none",                # Storage backend
-        "",                    # [3/4] archive playlist name — blank = skip
+        "",                    # [4/5] archive playlist name — blank = skip
         # autostart prompt only fires on win32 — we patch sys.platform off
     ]
     monkeypatch.setattr("builtins.input", _scripted_input(answers))
@@ -111,8 +112,9 @@ def test_setup_skips_spotify_oauth_when_tokens_present(
     monkeypatch.setattr("builtins.input", _scripted_input([
         "",  # music service — default spotify
         "abc123client",
+        "",  # [2/5] like destination — default native
         "none",
-        "",  # [3/4] archive — skip
+        "",  # [4/5] archive — skip
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -129,8 +131,9 @@ def test_setup_reauth_forces_oauth_even_with_tokens(
     monkeypatch.setattr("builtins.input", _scripted_input([
         "",  # music service — default spotify
         "abc123client",
+        "",  # [2/5] like destination — default native
         "none",
-        "",  # [3/4] archive — skip
+        "",  # [4/5] archive — skip
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -157,8 +160,9 @@ def test_setup_storage_none_writes_backend_marker(
     monkeypatch.setattr("builtins.input", _scripted_input([
         "",  # music service — default spotify
         "abc123client",
+        "",  # [2/5] like destination — default native
         "none",
-        "",  # [3/4] archive — skip
+        "",  # [4/5] archive — skip
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -173,14 +177,15 @@ def test_setup_storage_none_writes_backend_marker(
 def test_setup_archive_writes_playlist_and_remove_hotkey(
     tmp_paths, fake_provider, monkeypatch
 ) -> None:
-    """[3/4]: a playlist name + remove hotkey land in config so the
+    """[4/5]: a playlist name + remove hotkey land in config so the
     archive PostLikeAction AND the remove-without-like trigger both wire."""
     monkeypatch.setattr("builtins.input", _scripted_input([
         "",  # music service — default spotify
         "abc123client",
+        "",  # [2/5] like destination — default native
         "none",
-        "Discover Weekly Archive",  # [3/4] archive playlist name
-        "ctrl+shift+alt+e",         # [3/4] remove hotkey (override default)
+        "Discover Weekly Archive",  # [4/5] archive playlist name
+        "ctrl+shift+alt+e",         # [4/5] remove hotkey (override default)
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -205,8 +210,9 @@ def test_setup_archive_blank_disables_previously_set_name(
     monkeypatch.setattr("builtins.input", _scripted_input([
         "",  # music service — default spotify
         "abc123client",
+        "",  # [2/5] like destination — default native
         "none",
-        "-",  # [3/4] archive — '-' turns it off (blank would KEEP it)
+        "-",  # [4/5] archive — '-' turns it off (blank would KEEP it)
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -228,9 +234,10 @@ def test_setup_archive_overwrites_existing_name(
     monkeypatch.setattr("builtins.input", _scripted_input([
         "",  # music service — default spotify
         "abc123client",
+        "",  # [2/5] like destination — default native
         "none",
-        "New Archive",        # [3/4] archive — rename
-        "ctrl+shift+alt+q",   # [3/4] remove hotkey
+        "New Archive",        # [4/5] archive — rename
+        "ctrl+shift+alt+q",   # [4/5] remove hotkey
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -250,8 +257,9 @@ def test_setup_archive_dash_when_nothing_configured_disables_cleanly(
     monkeypatch.setattr("builtins.input", _scripted_input([
         "",  # music service — default spotify
         "abc123client",
+        "",  # [2/5] like destination — default native
         "none",
-        "-",  # [3/4] archive — explicit off with nothing set
+        "-",  # [4/5] archive — explicit off with nothing set
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -298,6 +306,7 @@ def test_setup_aborts_when_paste_chosen_without_an_id(
     monkeypatch.setattr("builtins.input", _scripted_input([
         "",  # music service — default spotify
         "abc123client",
+        "",  # [2/5] like destination — default native
         "sheets",
         "paste",
         "",  # empty spreadsheet id
@@ -319,9 +328,10 @@ def test_setup_creates_the_spreadsheet_and_stores_its_id(
     monkeypatch.setattr("builtins.input", _scripted_input([
         "",  # music service — default spotify
         "abc123client",
+        "",  # [2/5] like destination — default native
         "sheets",
         "",  # spreadsheet — bare Enter takes 'create'
-        "",  # [3/4] archive — skip
+        "",  # [4/5] archive — skip
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -345,9 +355,10 @@ def test_setup_keeps_the_configured_spreadsheet_rather_than_making_a_second(
     monkeypatch.setattr("builtins.input", _scripted_input([
         "",  # music service — default spotify
         "abc123client",
+        "",  # [2/5] like destination — default native
         "sheets",
         "",  # spreadsheet — bare Enter keeps what is configured
-        "",  # [3/4] archive — skip
+        "",  # [4/5] archive — skip
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -366,10 +377,11 @@ def test_setup_second_spreadsheet_needs_a_confirmation(
     monkeypatch.setattr("builtins.input", _scripted_input([
         "",  # music service — default spotify
         "abc123client",
+        "",  # [2/5] like destination — default native
         "sheets",
         "create",  # asked for a second one…
         "n",       # …then said no
-        "",        # [3/4] archive — skip
+        "",        # [4/5] archive — skip
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -385,9 +397,10 @@ def test_setup_skip_turns_the_counter_off_without_aborting(
     monkeypatch.setattr("builtins.input", _scripted_input([
         "",  # music service — default spotify
         "abc123client",
+        "",  # [2/5] like destination — default native
         "sheets",
         "skip",
-        "",  # [3/4] archive — skip
+        "",  # [4/5] archive — skip
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -403,6 +416,7 @@ def test_setup_reports_why_creating_failed(
     monkeypatch.setattr("builtins.input", _scripted_input([
         "",  # music service — default spotify
         "abc123client",
+        "",  # [2/5] like destination — default native
         "sheets",
         "create",
     ]))
@@ -432,6 +446,7 @@ def test_setup_says_to_switch_the_sheets_api_on(
     monkeypatch.setattr("builtins.input", _scripted_input([
         "",  # music service — default spotify
         "abc123client",
+        "",  # [2/5] like destination — default native
         "sheets",
         "create",
     ]))
@@ -454,8 +469,9 @@ def test_setup_does_not_default_to_a_retired_backend(
     monkeypatch.setattr("builtins.input", _scripted_input([
         "",  # music service — default spotify
         "abc123client",
+        "",  # [2/5] like destination — default native
         "",  # storage backend — bare Enter takes the default
-        "",  # [3/4] archive — skip
+        "",  # [4/5] archive — skip
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -470,13 +486,14 @@ def test_setup_sheets_branch_runs_google_oauth(
     monkeypatch.setattr("builtins.input", _scripted_input([
         "",  # music service — default spotify
         "abc123client",
+        "",  # [2/5] like destination — default native
         "sheets",
         # Google auth comes first now — making a spreadsheet needs its tokens.
         "google-client.apps.googleusercontent.com",
         "google-secret",
         "paste",
         "spreadsheet-id-xyz",
-        "",  # [3/4] archive — skip
+        "",  # [4/5] archive — skip
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -516,11 +533,12 @@ def test_setup_sheets_skips_google_oauth_when_refresh_token_present(
     monkeypatch.setattr("builtins.input", _scripted_input([
         "",  # music service — default spotify
         "abc123client",
+        "",  # [2/5] like destination — default native
         "sheets",
         # NO client_id/secret prompts because refresh_token is present.
         "paste",
         "spreadsheet-id-xyz",
-        "",  # [3/4] archive — skip
+        "",  # [4/5] archive — skip
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -676,8 +694,9 @@ def test_setup_ytmusic_runs_google_oauth(
         "ytmusic",      # music service
         "g-client",     # Google OAuth client id
         "g-secret",     # Google OAuth client secret
+        "",             # [2/5] like destination — default native
         "none",         # storage
-        "",             # [3/4] archive — skip
+        "",             # [4/5] archive — skip
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -698,8 +717,9 @@ def test_setup_ytmusic_offers_archive_step(
     monkeypatch.setattr(_common, "make_ytmusic", lambda: _FakeYtProvider(has_tokens=True))
     monkeypatch.setattr("builtins.input", _scripted_input([
         "ytmusic",          # music service (tokens present → no OAuth prompts)
+        "",                 # [2/5] like destination — default native
         "none",             # storage
-        "YT Archive",       # [3/4] archive playlist name
+        "YT Archive",       # [4/5] archive playlist name
         "",                 # remove hotkey — default
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
@@ -740,3 +760,89 @@ def test_build_provider_selects_ytmusic(monkeypatch) -> None:
 
 def test_build_provider_unknown_name_is_not_configured() -> None:
     assert _common.build_provider({"music": {"provider": "napster"}}) is None
+
+
+# ── #173: [2/5] where a like goes ──────────────────────────────────────
+
+
+def test_setup_writes_the_like_destination(tmp_paths, fake_provider, monkeypatch) -> None:
+    monkeypatch.setattr("builtins.input", _scripted_input([
+        "",              # music service — default spotify
+        "abc123client",  # Spotify Client ID
+        "playlist",      # [2/5] like destination
+        "  Songs  ",     # …and the playlist it goes to
+        "none",          # [3/5] storage backend
+        "",              # [4/5] archive — skip
+    ]))
+    monkeypatch.setattr(_common.sys, "platform", "linux")
+
+    assert _setup.do_setup(reauth=False) == 0
+    cfg = _common.load_config()
+    assert cfg["like"] == {"destination": "playlist", "playlist_name": "Songs"}
+
+
+def test_setup_native_destination_needs_no_playlist(
+    tmp_paths, fake_provider, monkeypatch
+) -> None:
+    """The default answer must not ask for a name it will never use — the
+    scripted input asserts on any extra prompt."""
+    monkeypatch.setattr("builtins.input", _scripted_input([
+        "",
+        "abc123client",
+        "native",  # [2/5] spelled out rather than defaulted
+        "none",
+        "",
+    ]))
+    monkeypatch.setattr(_common.sys, "platform", "linux")
+
+    assert _setup.do_setup(reauth=False) == 0
+    assert _common.load_config()["like"] == {"destination": "native"}
+
+
+def test_setup_re_offers_the_configured_destination(
+    tmp_paths, fake_provider, monkeypatch
+) -> None:
+    """Re-running the wizard on a configured box: blank answers keep both
+    the destination and the playlist name."""
+    _common.save_config(
+        {
+            "music": {"provider": "spotify"},
+            "spotify": {"client_id": "abc123client"},
+            "like": {"destination": "both", "playlist_name": "Songs"},
+        }
+    )
+    monkeypatch.setattr("builtins.input", _scripted_input([
+        "",  # music service
+        "",  # client id — keep
+        "",  # [2/5] destination — keep `both`
+        "",  # …playlist name — keep `Songs`
+        "none",
+        "",
+    ]))
+    monkeypatch.setattr(_common.sys, "platform", "linux")
+
+    assert _setup.do_setup(reauth=False) == 0
+    cfg = _common.load_config()
+    assert cfg["like"] == {"destination": "both", "playlist_name": "Songs"}
+
+
+def test_setup_keeps_the_playlist_name_when_switching_to_native(
+    tmp_paths, fake_provider, monkeypatch
+) -> None:
+    """Switching back to native must not cost the typed name — the user may
+    be comparing the choices."""
+    _common.save_config(
+        {
+            "music": {"provider": "spotify"},
+            "spotify": {"client_id": "abc123client"},
+            "like": {"destination": "playlist", "playlist_name": "Songs"},
+        }
+    )
+    monkeypatch.setattr("builtins.input", _scripted_input([
+        "", "", "native", "none", "",
+    ]))
+    monkeypatch.setattr(_common.sys, "platform", "linux")
+
+    assert _setup.do_setup(reauth=False) == 0
+    cfg = _common.load_config()
+    assert cfg["like"] == {"destination": "native", "playlist_name": "Songs"}

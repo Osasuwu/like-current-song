@@ -93,6 +93,15 @@ def _run_like_once() -> int:
     if provider is None:
         return err
 
+    try:
+        destination = _common.resolve_like_destination(cfg, provider)
+    except _common.LikeDestinationError as e:
+        _common.msgbox(
+            f"Can't like: {e}.\n\n{_common.LIKE_DESTINATION_HINT}",
+            title="Like Current Song — setup required",
+        )
+        return 2
+
     feedback = CliFeedback()
     storage = _common.build_storage(cfg)
     pre_actions, post_actions = _common.build_action_chains(cfg, storage)
@@ -102,6 +111,7 @@ def _run_like_once() -> int:
         storage=storage,
         pre_like_actions=pre_actions,
         post_like_actions=post_actions,
+        like_destination=destination,
     )
     return _common.run_one_shot(pipeline, feedback)
 

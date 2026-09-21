@@ -96,6 +96,15 @@ def _run_like_once() -> int:
     if provider is None:
         return err
 
+    try:
+        destination = _common.resolve_like_destination(cfg, provider)
+    except _common.LikeDestinationError as e:
+        _msgbox(
+            f"Can't like: {e}.\n\n{_common.LIKE_DESTINATION_HINT}",
+            title="Like Current Song — setup required",
+        )
+        return 2
+
     feedback = CliFeedback()
     storage = _common.build_storage(cfg)
     pre_actions, post_actions = _common.build_action_chains(cfg, storage)
@@ -105,6 +114,7 @@ def _run_like_once() -> int:
         storage=storage,
         pre_like_actions=pre_actions,
         post_like_actions=post_actions,
+        like_destination=destination,
     )
     return _common.run_one_shot(pipeline, feedback)
 
@@ -277,6 +287,13 @@ def _build_wiring(cfg: dict, feedback, *, make_trigger=make_tray_hotkey_trigger)
     if not provider.has_tokens:
         raise _NotReady("you're not signed in to the music service")
 
+    try:
+        destination = _common.resolve_like_destination(cfg, provider)
+    except _common.LikeDestinationError as e:
+        # A live reload keeps the previous wiring and shows this reason —
+        # better than a tray whose hotkey fails on every press.
+        raise _NotReady(str(e)) from e
+
     hotkey = cfg.get("trigger", {}).get("hotkey", DEFAULT_HOTKEY)
     storage = _common.build_storage(cfg)
     pre_actions, post_actions = _common.build_action_chains(cfg, storage)
@@ -286,6 +303,7 @@ def _build_wiring(cfg: dict, feedback, *, make_trigger=make_tray_hotkey_trigger)
         storage=storage,
         pre_like_actions=pre_actions,
         post_like_actions=post_actions,
+        like_destination=destination,
     )
 
     # ── Second hotkey: remove-without-like (only when an archive is set) ──

@@ -315,7 +315,7 @@ The installer checks for Python 3.11+, installs `pipx` if missing,
 installs the `like-current-song` package, then walks you through the
 interactive setup wizard. It opens by asking which **music service** you
 want — `spotify` or `ytmusic` — and that answer decides what step 1 asks
-for. Then four numbered steps:
+for. Then five numbered steps:
 
 1. **Sign in to the service you picked.**
    - *Spotify*: paste a Client ID from
@@ -324,15 +324,23 @@ for. Then four numbered steps:
      for PKCE OAuth.
    - *YouTube Music*: paste your own Google OAuth client — see
      [YouTube Music (beta, Windows)](#youtube-music-beta-windows) below.
-2. **Storage** — `sheets` counts your likes into a Google Sheet you own;
+2. **Where a like goes** — `native` (the default) likes the track on the
+   music service itself, which is what feeds its recommendations;
+   `playlist` adds it to a playlist of yours instead; `both` does the
+   two. On YouTube Music the native like shares one bucket with liked
+   videos, so a playlist is the only song-only list you can keep. Picking
+   `playlist` or `both` asks for the playlist name next; the playlist is
+   created on first use if it doesn't exist yet, so a typo makes a new
+   playlist rather than an error.
+3. **Storage** — `sheets` counts your likes into a Google Sheet you own;
    `none` skips counting. Likes work either way; without a counter you
    lose cross-device aggregation and the two rules that read it
    (promote-to-best, follow-artist). The default is `none`, so nothing is
    set up behind your back.
-3. **Playlist clean-up** (optional) — the archive playlist that a like
+4. **Playlist clean-up** (optional) — the archive playlist that a like
    should remove the track from, plus the best playlist. Leave blank to
    skip.
-4. **Autostart** — Windows: toggle the `HKCU\…\Run` entry. macOS /
+5. **Autostart** — Windows: toggle the `HKCU\…\Run` entry. macOS /
    Linux: instructions for a Launch Agent / `.desktop` file are
    printed (no auto-config — too platform-fragmented).
 
@@ -361,7 +369,9 @@ autostart.
 
 **Settings window.** Everything the wizard asks, in one window instead of a
 terminal: the music service and the account sign-in (the same browser flow
-as `--setup`), the hotkeys, the sound volume (with a Test button), the like
+as `--setup`), **Where a like goes** (the same three choices as the wizard,
+with the playlist name greyed out while likes only go to the service), the
+hotkeys, the sound volume (with a Test button), the like
 counter storage, and autostart. The optional **Extra actions** (archive
 clean-up, best, follow artist, like cooldown) sit in a collapsed
 section, each with a one-line explanation. On a fresh install they all
@@ -580,6 +590,8 @@ settings window (`like-current-song --settings`, or **Settings…** in the tray 
 |---------|---------|---------|
 | Trigger pattern / hotkey | In-app UI | `~/.like_spotify/config.json` → `trigger.hotkey` (default `Ctrl+Shift+Alt+W`) |
 | Remove-from-archive hotkey | n/a (one trigger on headphones) | `~/.like_spotify/config.json` → `trigger.remove_hotkey` (default `Ctrl+Shift+Alt+Q`) |
+| Where a like goes | n/a (always the service's own like) | `~/.like_spotify/config.json` → `like.destination` (`native` / `playlist` / `both`, default `native`) |
+| Like destination playlist | n/a | `~/.like_spotify/config.json` → `like.playlist_name` (required by `playlist` / `both`; created on first use) |
 | Archive playlist name | In-app UI | `~/.like_spotify/config.json` → `actions.archive_remove.playlist_name` (blank = archive-remove disabled) |
 | Music service | In-app UI (Spotify / YouTube Music / Automatic) | `~/.like_spotify/config.json` → `music.provider` (`spotify` / `ytmusic`, default `spotify`) |
 | YouTube Music client ID / secret | In-app UI (*Connected services*), stored in `FlutterSecureStorage`; `.env` (`YTMUSIC_CLIENT_ID`, `YTMUSIC_CLIENT_SECRET`) seeds a build | `like-current-song --setup` → `~/.like_spotify/config.json` |

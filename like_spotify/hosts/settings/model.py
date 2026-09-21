@@ -29,6 +29,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from like_spotify.core.pipeline import LIKE_DESTINATIONS, NATIVE
 from like_spotify.extensions.follow_artist import (
     DEFAULT_THRESHOLD as DEFAULT_FOLLOW_THRESHOLD,
 )
@@ -45,6 +46,21 @@ PROVIDER_LABELS: dict[str, str] = {
     "ytmusic": "YouTube Music (beta, Windows)",
 }
 STORAGE_BACKENDS: tuple[str, ...] = ("none", "sheets")
+
+# Where a like lands (#173) — a core like setting, not an extra action:
+# it changes what one press *does*, which is why it isn't tucked into the
+# collapsed "Extra actions" section.
+LIKE_DESTINATION_LABELS: dict[str, str] = {
+    "native": "Like on the music service",
+    "playlist": "Add to a playlist",
+    "both": "Both",
+}
+LIKE_DESTINATION_HINT = (
+    "On YouTube Music the service's own like shares one bucket with liked "
+    "videos, so a playlist is the only song-only list you can keep. 'Both' "
+    "still feeds the service's recommendations. A name that doesn't exist "
+    "yet is created on the first like."
+)
 
 # One-line hints shown under each extra action in the window. Kept here so
 # the copy lives next to the defaults it describes.
@@ -74,6 +90,9 @@ class Settings:
 
     provider: str = _common.DEFAULT_PROVIDER
     spotify_client_id: str = ""
+
+    like_destination: str = NATIVE
+    like_playlist: str = ""
 
     storage_backend: str = "none"
     sheets_spreadsheet_id: str = ""
@@ -134,6 +153,26 @@ def _infer_storage_backend(cfg: dict) -> str:
     return backend if backend in STORAGE_BACKENDS else "none"
 
 
+def _infer_like_destination(cfg: dict) -> str:
+    """The like destination the window shows.
+
+    Same shape as `_infer_storage_backend`, and the same reason: a value
+    the host would fall back on (unknown name, or a playlist destination
+    with no playlist name) has to read back as what the host actually
+    does — `native` — or the window would offer to save a setting that
+    silently doesn't apply. `_common.resolve_like_destination` is not
+    reused here because it prints to stderr; opening a window is not the
+    moment for that.
+    """
+    like = _section(cfg, "like")
+    mode = like.get("destination") or NATIVE
+    if mode not in LIKE_DESTINATIONS:
+        return NATIVE
+    if mode != NATIVE and not str(like.get("playlist_name") or "").strip():
+        return NATIVE
+    return mode
+
+
 def is_fresh(cfg: dict) -> bool:
     """A config nobody has written yet (missing, empty, or unreadable file)."""
     return not cfg
@@ -172,6 +211,8 @@ def settings_from_config(cfg: dict) -> Settings:
     return Settings(
         provider=_common.resolve_provider_name(cfg),
         spotify_client_id=_section(cfg, "spotify").get("client_id", "") or "",
+        like_destination=_infer_like_destination(cfg),
+        like_playlist=str(_section(cfg, "like").get("playlist_name") or "").strip(),
         storage_backend=_infer_storage_backend(cfg),
         sheets_spreadsheet_id=_section(cfg, "sheets").get("spreadsheet_id", "") or "",
         hotkey=trigger.get("hotkey") or DEFAULT_HOTKEY,
@@ -241,6 +282,14 @@ def validate(s: Settings) -> Validation:
             "spotify_client_id",
             "Spotify needs a Client ID from developer.spotify.com/dashboard.",
         )
+
+    if s.like_destination not in LIKE_DESTINATIONS:
+        err("like_destination", f"Unknown like destination '{s.like_destination}'.")
+    elif s.like_destination != NATIVE and not s.like_playlist.strip():
+        # Blocking, unlike the spreadsheet warning: there is nothing in the
+        # window that would fill this in later, and saving it would leave a
+        # destination the host quietly falls back out of.
+        err("like_playlist", "Add the name of the playlist likes should go to.")
 
     if s.storage_backend not in STORAGE_BACKENDS:
         err("storage_backend", f"Unknown storage backend '{s.storage_backend}'.")
@@ -344,6 +393,15 @@ def apply_settings(cfg: dict, s: Settings, baseline: Settings | None = None) -> 
         s.spotify_client_id or "client_id" in _section(out, "spotify")
     ):
         _ensure(out, "spotify")["client_id"] = s.spotify_client_id.strip()
+
+    # The playlist name is written whenever it is set, even under `native`,
+    # so switching the destination back and forth doesn't make the user
+    # retype it — the host ignores the name unless the destination uses it.
+    if _changed(s, baseline, "like_destination", "like_playlist"):
+        like_out = _ensure(out, "like")
+        like_out["destination"] = s.like_destination
+        if s.like_playlist.strip():
+            like_out["playlist_name"] = s.like_playlist.strip()
 
     # Baseline diffing is not enough for the backend: a config left on a
     # retired backend reads back as "none" (`_infer_storage_backend`), so a
@@ -507,6 +565,10 @@ __all__ = [
     "ACTION_HINTS",
     "ConfigDocument",
     "Issue",
+    "LIKE_DESTINATIONS",
+    "LIKE_DESTINATION_HINT",
+    "LIKE_DESTINATION_LABELS",
+    "NATIVE",
     "PROVIDER_LABELS",
     "STORAGE_BACKENDS",
     "Settings",
