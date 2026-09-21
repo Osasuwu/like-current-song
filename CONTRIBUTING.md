@@ -400,6 +400,32 @@ dislike-capable provider — either one on its own is enough to wire it.
 source of truth both flows read, and `DiscardPipeline.label` is the single
 source of truth for how a press is described (tray menu, startup balloon).
 
+**Where a like goes** is a property of the like itself, not an action:
+`like.destination` in `config.json` is `native` (the provider's own like),
+`playlist` (add to `like.playlist_name`) or `both`. Hosts resolve it once
+with `resolve_like_destination` in `hosts/_common.py` and hand the
+resulting `LikeDestination` to `Pipeline`. Three rules to keep if you
+touch it:
+
+- A config with no `like` block resolves to `native` with no notice —
+  that is the upgrade path, and it must stay byte-identical to the old
+  behaviour. An unreadable value (unknown name, or a playlist destination
+  with no name) falls back to `native` and says so on one line, the same
+  way a retired storage backend does.
+- `both` fails only when *both* legs fail. A partial failure still counts
+  the like and names the leg that failed in the notification, because the
+  user did get their like somewhere.
+- A playlist destination on a provider that is not a
+  `PlaylistCapableProvider` is refused where the config is read, not at
+  the first press: `resolve_like_destination` raises
+  `LikeDestinationError` naming the configured service, and `Pipeline`
+  raises `ValueError` if you construct it anyway.
+
+Under `playlist`, the backfill probe (`was_already_liked`) asks whether
+the track is already in the destination playlist instead of calling
+`is_liked` — otherwise every first like on a playlist destination would
+look like a backfill. `native` and `both` keep `is_liked`.
+
 **Provider-aware actions** check a capability, not a class. Playlist and
 follow operations live on the `PlaylistCapableProvider` protocol
 (`core/music_provider.py`), not on `MusicProvider`:

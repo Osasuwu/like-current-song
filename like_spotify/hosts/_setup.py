@@ -1,4 +1,5 @@
-"""Interactive `--setup` wizard — music service + OAuth, storage, archive, autostart.
+"""Interactive `--setup` wizard — music service + OAuth, like destination,
+storage, archive, autostart.
 
 Split out of `hosts/_common.py` in #58: the wizard (prompts, `do_setup`,
 the `_setup_*` steps) was one of five unrelated concerns living in that
@@ -17,6 +18,7 @@ from __future__ import annotations
 import sys
 
 from like_spotify.auth import google as google_auth
+from like_spotify.core.pipeline import BOTH, LIKE_DESTINATIONS, NATIVE
 from like_spotify.extensions.google_sheets_storage.create import (
     create_counter_spreadsheet,
 )
@@ -77,7 +79,7 @@ class _SetupAbort(Exception):
 
 def do_setup(reauth: bool = False) -> int:
     """Interactive wizard: music service → its OAuth (Spotify or YouTube)
-    → storage choice → archive playlist → autostart.
+    → like destination → storage choice → archive playlist → autostart.
 
     Re-runnable. Existing OAuth tokens (Spotify, YouTube, Google) are kept unless
     `reauth=True` is passed — turning the counter off and back on does NOT
@@ -92,6 +94,7 @@ def do_setup(reauth: bool = False) -> int:
             _setup_ytmusic(cfg, reauth=reauth)
         else:
             _setup_spotify(cfg, reauth=reauth)
+        _setup_like_destination(cfg)
         _setup_storage(cfg, reauth=reauth)
         # Both providers speak the playlist capability, so the archive
         # step is offered whichever music service was picked.
@@ -123,7 +126,7 @@ def _choose_provider(cfg: dict) -> str:
 
 
 def _setup_ytmusic(cfg: dict, *, reauth: bool) -> None:
-    print("\n[1/4] YouTube Music")
+    print("\n[1/5] YouTube Music")
     cfg.setdefault("trigger", {}).setdefault("hotkey", DEFAULT_HOTKEY)
     # Persist now so a later step's failure doesn't lose the provider choice.
     _common.save_config(cfg)
@@ -159,7 +162,7 @@ def _setup_ytmusic(cfg: dict, *, reauth: bool) -> None:
 
 
 def _setup_spotify(cfg: dict, *, reauth: bool) -> None:
-    print("\n[1/4] Spotify")
+    print("\n[1/5] Spotify")
     current_id = cfg.get("spotify", {}).get("client_id", "")
     client_id = _prompt_secret("  Client ID", current=current_id)
     if not client_id:
@@ -187,7 +190,7 @@ STORAGE_CHOICES = ["sheets", "none"]
 
 
 def _setup_storage(cfg: dict, *, reauth: bool) -> None:
-    print("\n[2/4] Storage (counts likes across devices)")
+    print("\n[3/5] Storage (counts likes across devices)")
     print(
         "  Optional. 'none' keeps every like working and just doesn't count\n"
         "  them; 'sheets' counts them into a Google Sheet you own, which is\n"
@@ -318,8 +321,53 @@ def _setup_spreadsheet(cfg: dict) -> None:
     print("    Paste that ID into your phone to share the count.")
 
 
+def _setup_like_destination(cfg: dict) -> None:
+    """Where a like lands: the service's own like, a playlist, or both (#173).
+
+    Asked before the counter because it decides what a press *does*;
+    everything after it only decorates that. The current value is read
+    through `_common.resolve_like_destination` (no provider — nothing is
+    built yet), so a config that already names a destination re-offers it
+    as the default, and an unreadable one is reported there.
+
+    Picking `native` leaves any playlist name in place instead of blanking
+    it: switching back and forth shouldn't make the user retype it.
+    """
+    print("\n[2/5] Where a like goes")
+    print(
+        "  'native' likes the track on the music service — that's what feeds\n"
+        "  its recommendations. 'playlist' adds it to a playlist of your own\n"
+        "  instead; on YouTube Music the native like shares one bucket with\n"
+        "  liked videos, so a playlist is the only song-only list you can\n"
+        "  keep. 'both' does the two."
+    )
+    current = _common.resolve_like_destination(cfg)
+    destination = _prompt_choice(
+        "  Like destination",
+        choices=list(LIKE_DESTINATIONS),
+        default=current.mode,
+    )
+    like_cfg = cfg.setdefault("like", {})
+    like_cfg["destination"] = destination
+
+    if destination == NATIVE:
+        print("  ✓ Likes go to the music service.")
+        return
+
+    playlist_name = _prompt(
+        "  Playlist name",
+        default=current.playlist_name,
+        required=True,
+    )
+    like_cfg["playlist_name"] = playlist_name
+    if destination == BOTH:
+        print(f"  ✓ Likes go to the music service and to: {playlist_name}")
+    else:
+        print(f"  ✓ Likes go to: {playlist_name}")
+
+
 def _setup_archive(cfg: dict) -> None:
-    """Playlist clean-up (e.g. a Discover Weekly archive): archive playlist + remove-without-like hotkey.
+    """Playlist clean-up (e.g. a Discover Weekly archive): archive playlist + discard hotkey.
 
     Two coupled settings, one playlist:
       - `actions.archive_remove.playlist_name` — when you like a track, it's
@@ -333,7 +381,7 @@ def _setup_archive(cfg: dict) -> None:
     so re-running setup for an unrelated step won't clobber the archive.
     Type `-` to turn the feature off; blank with nothing set = skip.
     """
-    print("\n[3/4] Playlist clean-up (optional)")
+    print("\n[4/5] Playlist clean-up (optional)")
     print(
         "  Name one of your playlists to curate (e.g. an archived copy of\n"
         "  Spotify's Discover Weekly, or a YouTube Music playlist).\n"
@@ -375,7 +423,7 @@ def _setup_archive(cfg: dict) -> None:
 
 
 def _setup_autostart() -> None:
-    print("\n[4/4] Autostart")
+    print("\n[5/5] Autostart")
     if sys.platform != "win32":
         # Print instructions only — issue AC: no auto-config on mac/linux.
         if sys.platform == "darwin":

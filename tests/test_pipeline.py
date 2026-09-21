@@ -21,7 +21,14 @@ import pytest
 from like_spotify.core.actions import PostLikeAction, PreLikeAction
 from like_spotify.core.errors import TransientError, UserActionRequired
 from like_spotify.core.music_provider import DislikeCapableProvider, MusicProvider
-from like_spotify.core.pipeline import DiscardPipeline, Pipeline
+from like_spotify.core.pipeline import (
+    BOTH,
+    NATIVE,
+    PLAYLIST,
+    DiscardPipeline,
+    LikeDestination,
+    Pipeline,
+)
 from like_spotify.core.storage import Storage
 from like_spotify.core.types import CurrentTrack, LikeContext
 
@@ -903,3 +910,282 @@ async def test_discard_lookup_failure_does_not_cache() -> None:
     assert provider.find_calls == ["My Archive", "My Archive"]
     assert provider.remove_calls == []
     assert "Playlist lookup failed: net" in fb.calls[0][2]
+
+
+# ── #173: where a like goes (native / playlist / both) ──────────────────
+
+
+class FakeLikeProvider(MusicProvider):
+    """Playlist-capable provider that records both halves of a like.
+
+    `FakeRemoveProvider` asserts on the playlist *writes* (the remove flow
+    must never add), so the destination tests need their own fake.
+    """
+
+    def __init__(
+        self,
+        track: CurrentTrack | None = None,
+        *,
+        playlist_id: str = "pl-dest",
+        playlist_tracks: set[str] | None = None,
+        like_raises: Exception | None = None,
+        add_raises: Exception | None = None,
+        is_liked_value: bool = False,
+    ):
+        self._track = track if track is not None else _track()
+        self._playlist_id = playlist_id
+        self._playlist_tracks = set(playlist_tracks or ())
+        self._like_raises = like_raises
+        self._add_raises = add_raises
+        self._is_liked_value = is_liked_value
+        self.like_calls: list[CurrentTrack] = []
+        self.is_liked_calls: list[CurrentTrack] = []
+        self.find_or_create_calls: list[str] = []
+        self.add_calls: list[tuple[str, str]] = []
+        self.membership_calls: list[str] = []
+
+    async def get_currently_playing(self) -> CurrentTrack | None:
+        return self._track
+
+    async def like(self, track: CurrentTrack) -> None:
+        if self._like_raises is not None:
+            raise self._like_raises
+        self.like_calls.append(track)
+
+    async def is_liked(self, track: CurrentTrack) -> bool:
+        self.is_liked_calls.append(track)
+        return self._is_liked_value
+
+    async def user_id(self) -> str:
+        return "user-id"
+
+    async def find_playlist_by_name(self, name: str) -> str | None:  # pragma: no cover
+        raise AssertionError("the like destination resolves with find_or_create")
+
+    async def find_or_create_playlist(self, name: str) -> str:
+        self.find_or_create_calls.append(name)
+        return self._playlist_id
+
+    async def get_playlist_track_ids(self, playlist_id: str) -> set[str]:
+        self.membership_calls.append(playlist_id)
+        return set(self._playlist_tracks)
+
+    async def add_track_to_playlist(self, track_id: str, playlist_id: str) -> None:
+        if self._add_raises is not None:
+            raise self._add_raises
+        self.add_calls.append((track_id, playlist_id))
+
+    async def remove_track_from_playlist(
+        self, track_id: str, playlist_id: str
+    ) -> None:  # pragma: no cover
+        raise AssertionError("the like flow must not remove tracks")
+
+    async def follow_artist(self, artist_id: str) -> None:  # pragma: no cover
+        raise AssertionError("no follow-artist action is wired in these tests")
+
+
+def test_like_destination_rejects_an_unknown_mode() -> None:
+    with pytest.raises(ValueError, match="unknown like destination"):
+        LikeDestination(mode="mixtape")
+
+
+def test_like_destination_needs_a_playlist_name_off_native() -> None:
+    with pytest.raises(ValueError, match="playlist_name"):
+        LikeDestination(mode=PLAYLIST, playlist_name="   ")
+    # …and native does not.
+    assert LikeDestination().mode == NATIVE
+
+
+@pytest.mark.asyncio
+async def test_default_destination_never_touches_the_playlist_api() -> None:
+    """THE upgrade path: a config with no `like` block behaves exactly as
+    it did before #173, even on a provider that *could* do playlists."""
+    provider = FakeLikeProvider()
+    fb = Feedback()
+
+    await Pipeline(provider=provider, feedback=fb).run_once()
+
+    assert len(provider.like_calls) == 1
+    assert provider.find_or_create_calls == []
+    assert provider.add_calls == []
+    assert fb.calls == [(True, "Liked", "Song — Artist")]
+
+
+@pytest.mark.asyncio
+async def test_playlist_destination_adds_instead_of_liking() -> None:
+    provider = FakeLikeProvider()
+    fb = Feedback()
+
+    await Pipeline(
+        provider=provider,
+        feedback=fb,
+        like_destination=LikeDestination(mode=PLAYLIST, playlist_name="Songs"),
+    ).run_once()
+
+    assert provider.like_calls == []
+    assert provider.find_or_create_calls == ["Songs"]
+    assert provider.add_calls == [("abc123", "pl-dest")]
+    assert fb.calls[0][:2] == (True, "Liked")
+
+
+@pytest.mark.asyncio
+async def test_both_destination_does_the_two() -> None:
+    provider = FakeLikeProvider()
+    fb = Feedback()
+
+    await Pipeline(
+        provider=provider,
+        feedback=fb,
+        like_destination=LikeDestination(mode=BOTH, playlist_name="Songs"),
+    ).run_once()
+
+    assert len(provider.like_calls) == 1
+    assert provider.add_calls == [("abc123", "pl-dest")]
+    assert fb.calls[0][:2] == (True, "Liked")
+
+
+@pytest.mark.asyncio
+async def test_both_counts_the_like_when_only_the_playlist_leg_fails() -> None:
+    provider = FakeLikeProvider(add_raises=RuntimeError("playlist is full"))
+    storage = FakeStorage()
+    fb = Feedback()
+
+    await Pipeline(
+        provider=provider,
+        feedback=fb,
+        storage=storage,
+        like_destination=LikeDestination(mode=BOTH, playlist_name="Songs"),
+    ).run_once()
+
+    success, title, message = fb.calls[0]
+    assert success is True  # the press landed somewhere
+    assert "Liked × 1" in title and "not added to Songs" in title
+    assert "playlist is full" in message
+    assert len(storage.increment_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_both_counts_the_like_when_only_the_native_leg_fails() -> None:
+    provider = FakeLikeProvider(like_raises=RuntimeError("token expired"))
+    storage = FakeStorage()
+    fb = Feedback()
+
+    await Pipeline(
+        provider=provider,
+        feedback=fb,
+        storage=storage,
+        like_destination=LikeDestination(mode=BOTH, playlist_name="Songs"),
+    ).run_once()
+
+    success, title, message = fb.calls[0]
+    assert success is True
+    assert "service like failed" in title
+    assert "token expired" in message
+    assert provider.add_calls == [("abc123", "pl-dest")]
+    assert len(storage.increment_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_both_fails_only_when_both_legs_fail() -> None:
+    provider = FakeLikeProvider(
+        like_raises=RuntimeError("token expired"),
+        add_raises=RuntimeError("playlist is full"),
+    )
+    storage = FakeStorage()
+    fb = Feedback()
+
+    await Pipeline(
+        provider=provider,
+        feedback=fb,
+        storage=storage,
+        like_destination=LikeDestination(mode=BOTH, playlist_name="Songs"),
+    ).run_once()
+
+    success, title, message = fb.calls[0]
+    assert (success, title) == (False, "Like failed")
+    assert "token expired" in message and "playlist is full" in message
+    assert storage.increment_calls == []  # nothing landed, nothing counted
+
+
+@pytest.mark.asyncio
+async def test_single_leg_failure_keeps_the_bare_provider_message() -> None:
+    """One configured leg has nothing to disambiguate, so the message stays
+    the raw provider error — what every install saw before #173."""
+    provider = FakeLikeProvider(add_raises=RuntimeError("playlist is full"))
+    fb = Feedback()
+
+    await Pipeline(
+        provider=provider,
+        feedback=fb,
+        like_destination=LikeDestination(mode=PLAYLIST, playlist_name="Songs"),
+    ).run_once()
+
+    assert fb.calls[0] == (False, "Like failed", "playlist is full")
+
+
+@pytest.mark.asyncio
+async def test_playlist_destination_probes_playlist_membership() -> None:
+    """Under `playlist` nothing writes the service's own like, so asking
+    `is_liked` would answer about a bucket this install never fills."""
+    provider = FakeLikeProvider(playlist_tracks={"abc123"}, is_liked_value=False)
+    storage = FakeStorage()
+
+    await Pipeline(
+        provider=provider,
+        feedback=Feedback(),
+        storage=storage,
+        like_destination=LikeDestination(mode=PLAYLIST, playlist_name="Songs"),
+    ).run_once()
+
+    assert provider.is_liked_calls == []
+    assert provider.membership_calls == ["pl-dest"]
+    assert storage.increment_calls == [("user-id", "abc123", True)]
+
+
+@pytest.mark.asyncio
+async def test_both_destination_keeps_the_is_liked_probe() -> None:
+    provider = FakeLikeProvider(playlist_tracks=set(), is_liked_value=True)
+    storage = FakeStorage()
+
+    await Pipeline(
+        provider=provider,
+        feedback=Feedback(),
+        storage=storage,
+        like_destination=LikeDestination(mode=BOTH, playlist_name="Songs"),
+    ).run_once()
+
+    assert len(provider.is_liked_calls) == 1
+    assert provider.membership_calls == []
+    assert storage.increment_calls == [("user-id", "abc123", True)]
+
+
+@pytest.mark.asyncio
+async def test_destination_playlist_id_is_cached_then_dropped_on_failure() -> None:
+    provider = FakeLikeProvider(add_raises=RuntimeError("gone"))
+    pipeline = Pipeline(
+        provider=provider,
+        feedback=Feedback(),
+        like_destination=LikeDestination(mode=PLAYLIST, playlist_name="Songs"),
+    )
+
+    await pipeline.run_once()
+    await pipeline.run_once()
+
+    # A failed add drops the cached id, so the next press re-resolves the
+    # playlist instead of writing to one that may have been deleted.
+    assert provider.find_or_create_calls == ["Songs", "Songs"]
+
+    provider._add_raises = None
+    await pipeline.run_once()
+    await pipeline.run_once()
+    # Two clean presses later the id is still the one resolved on the third.
+    assert provider.find_or_create_calls == ["Songs", "Songs", "Songs"]
+
+
+def test_playlist_destination_refused_on_a_provider_without_playlists() -> None:
+    with pytest.raises(ValueError, match="FakeProvider has no playlist API"):
+        Pipeline(
+            provider=FakeProvider(track=_track()),
+            feedback=Feedback(),
+            like_destination=LikeDestination(mode=BOTH, playlist_name="Songs"),
+        )

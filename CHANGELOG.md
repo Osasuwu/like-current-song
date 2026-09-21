@@ -14,6 +14,23 @@ still the only option for the desktop half.
 
 ### Added
 
+- **Desktop: choose where a like goes.** A like used to mean exactly one
+  thing — the music service's own like. It now has three settings: *Like on
+  the music service* (the default, unchanged), *Add to a playlist* of your
+  own, or *Both*. This matters most on YouTube Music, where the native like
+  drops the song into the same bucket as every liked video, so a playlist is
+  the only song-only list you can keep; on Spotify it is a way to collect
+  likes somewhere other than Liked Songs. Pick it in `like-current-song
+  --setup` (the new step 2) or in the settings window, under *Where a like
+  goes*; in `config.json` it is `like.destination` (`native` / `playlist` /
+  `both`) plus `like.playlist_name`. The playlist is created on first use if
+  it doesn't exist. **An existing config keeps behaving exactly as it did** —
+  no `like` block means the service's own like, as before. With *Both*, a
+  like that lands in only one of the two places still counts and tells you
+  which half failed, rather than reporting a failure you'd have to guess at.
+  A playlist destination on a service that has no playlist API is refused when
+  the config is read, with a message naming the service, instead of failing on
+  every press.
 - **The shared like counter can make its own spreadsheet.** Setting the counter
   up used to start with homework: open Google Sheets, make a file, name a tab
   `Likes`, type five column headers exactly right, add an `ArtistTracks` tab,

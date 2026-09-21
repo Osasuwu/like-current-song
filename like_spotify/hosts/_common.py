@@ -29,8 +29,17 @@ from typing import Callable
 
 from like_spotify.auth import google as google_auth
 from like_spotify.core.actions import PostLikeAction, PreLikeAction
-from like_spotify.core.music_provider import DislikeCapableProvider
-from like_spotify.core.pipeline import DiscardPipeline, FeedbackFn
+from like_spotify.core.music_provider import (
+    DislikeCapableProvider,
+    PlaylistCapableProvider,
+)
+from like_spotify.core.pipeline import (
+    LIKE_DESTINATIONS,
+    NATIVE,
+    DiscardPipeline,
+    FeedbackFn,
+    LikeDestination,
+)
 from like_spotify.core.storage import Storage
 from like_spotify.extensions.one_shot_cli_trigger import (
     TRIGGER as make_one_shot_cli_trigger,
@@ -366,6 +375,73 @@ def build_provider(cfg: dict):
     """
     builder = PROVIDER_BUILDERS.get(resolve_provider_name(cfg))
     return builder(cfg) if builder else None
+
+
+DEFAULT_LIKE_DESTINATION = NATIVE
+
+LIKE_DESTINATION_HINT = (
+    f"Re-run `like-current-song --setup` and pick '{NATIVE}' as the like "
+    f"destination, or switch to a music service that has playlists."
+)
+
+
+class LikeDestinationError(ValueError):
+    """A configured like destination the chosen music service can't serve."""
+
+
+def resolve_like_destination(cfg: dict, provider=None) -> LikeDestination:
+    """Read `like.destination` / `like.playlist_name` (#173).
+
+    A config with no `like` block is every config written before this
+    setting existed, and it means what it always meant: like on the music
+    service. That default is the reason the block is read this leniently.
+
+    A destination we can't honour — an unknown name, or a playlist one
+    with no playlist name — falls back to `native` with a line on stderr,
+    the `_RETIRED_BACKENDS` rule: a config mistake must not cost the user
+    their like. The one case that *is* refused is a playlist destination
+    on a provider with no playlist API, because falling back there would
+    silently send likes somewhere the user deliberately moved them away
+    from. Pass `provider` to have that checked (hosts do, at wiring time,
+    so the press never fails); the wizard omits it, since it configures
+    the destination before anything is built.
+    """
+    like_cfg = cfg.get("like") if isinstance(cfg.get("like"), dict) else {}
+    mode = like_cfg.get("destination") or DEFAULT_LIKE_DESTINATION
+    name = str(like_cfg.get("playlist_name") or "").strip()
+
+    if mode not in LIKE_DESTINATIONS:
+        print(
+            f"Like Current Song: unknown like destination {mode!r} — liking on "
+            f"the music service instead. Expected one of "
+            f"{', '.join(LIKE_DESTINATIONS)}; fix it with "
+            f"`like-current-song --setup`.",
+            file=sys.stderr,
+        )
+        mode = DEFAULT_LIKE_DESTINATION
+    elif mode != DEFAULT_LIKE_DESTINATION and not name:
+        print(
+            f"Like Current Song: like destination {mode!r} needs a playlist "
+            f"name — liking on the music service instead. Set one with "
+            f"`like-current-song --setup`.",
+            file=sys.stderr,
+        )
+        mode = DEFAULT_LIKE_DESTINATION
+
+    destination = LikeDestination(mode=mode, playlist_name=name)
+    if (
+        destination.wants_playlist
+        and provider is not None
+        and not isinstance(provider, PlaylistCapableProvider)
+    ):
+        # A bare clause, no trailing period: the tray host splices it into
+        # sentences of its own ("Like Current Song can't start: …"), and
+        # the CLI hosts append LIKE_DESTINATION_HINT.
+        raise LikeDestinationError(
+            f"the '{resolve_provider_name(cfg)}' music service has no playlist "
+            f"API, so the like destination '{destination.mode}' can't work"
+        )
+    return destination
 
 
 def resolve_remove_hotkey(cfg: dict) -> str:

@@ -253,6 +253,9 @@ def test_spotify_needs_client_id_but_ytmusic_does_not() -> None:
     [
         ({"provider": "tidal"}, "provider"),
         ({"storage_backend": "supabase"}, "storage_backend"),
+        ({"like_destination": "mixtape"}, "like_destination"),
+        ({"like_destination": "playlist"}, "like_playlist"),
+        ({"like_destination": "both", "like_playlist": "   "}, "like_playlist"),
         ({"hotkey": ""}, "hotkey"),
         ({"hotkey": "ctrl++w"}, "hotkey"),
         ({"feedback_volume": 1.5}, "feedback_volume"),
@@ -520,3 +523,72 @@ def test_settings_flag_parses() -> None:
     args = _common.parse_args(["--settings", "--from-tray"])
     assert args.settings and args.from_tray
     assert not _common.parse_args([]).settings
+
+
+# ── #173: the like destination in the settings window ──────────────────
+
+
+def test_like_destination_defaults_to_native() -> None:
+    s = model.settings_from_config({})
+    assert (s.like_destination, s.like_playlist) == ("native", "")
+
+
+def test_like_destination_round_trips() -> None:
+    cfg = {"like": {"destination": "both", "playlist_name": " Songs "}}
+    s = model.settings_from_config(cfg)
+    assert (s.like_destination, s.like_playlist) == ("both", "Songs")
+
+
+def test_unreadable_like_destination_reads_back_as_native() -> None:
+    """The window shows what the host will actually do, and the host falls
+    back to native for an unknown name or a missing playlist."""
+    assert model.settings_from_config(
+        {"like": {"destination": "mixtape"}}
+    ).like_destination == "native"
+    assert model.settings_from_config(
+        {"like": {"destination": "playlist", "playlist_name": ""}}
+    ).like_destination == "native"
+
+
+def test_saving_a_like_destination_keeps_unknown_keys() -> None:
+    cfg = {
+        "spotify": {"client_id": "x"},
+        "like": {"destination": "native", "future_key": 1},
+        "future_section": {"a": [1, 2, 3]},
+    }
+    s = model.settings_from_config(cfg)
+    out = model.apply_settings(
+        cfg,
+        replace(s, like_destination="playlist", like_playlist="Songs"),
+        baseline=s,
+    )
+
+    assert out["like"]["destination"] == "playlist"
+    assert out["like"]["playlist_name"] == "Songs"
+    assert out["like"]["future_key"] == 1
+    assert out["future_section"] == {"a": [1, 2, 3]}
+    # Input not mutated.
+    assert cfg["like"]["destination"] == "native"
+
+
+def test_untouched_like_destination_is_not_written() -> None:
+    """A config with no `like` block must not grow one just because the
+    window was opened and saved — the upgrade path stays byte-identical."""
+    cfg = {"spotify": {"client_id": "x"}}
+    s = model.settings_from_config(cfg)
+    assert model.apply_settings(cfg, s, baseline=s) == cfg
+
+
+def test_saved_like_destination_drives_the_host(tmp_paths) -> None:
+    """End to end: what the window writes is what `_common` resolves."""
+    doc = ConfigDocument()
+    s = replace(
+        doc.initial_settings(),
+        spotify_client_id="x",
+        like_destination="both",
+        like_playlist="Songs",
+    )
+    doc.save(s)
+
+    destination = _common.resolve_like_destination(_common.load_config())
+    assert (destination.mode, destination.playlist_name) == ("both", "Songs")

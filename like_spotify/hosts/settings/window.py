@@ -48,6 +48,9 @@ class SettingsWindow:
         self.v_yt_secret = tk.StringVar(value=yt_secret)
         self.v_account = tk.StringVar()
 
+        self.v_like_dest = tk.StringVar(value=s.like_destination)
+        self.v_like_playlist = tk.StringVar(value=s.like_playlist)
+
         self.v_hotkey = tk.StringVar(value=s.hotkey)
         self.v_remove_hotkey = tk.StringVar(value=s.remove_hotkey)
         self.v_volume = tk.IntVar(value=round(s.feedback_volume * 100))
@@ -78,6 +81,7 @@ class SettingsWindow:
 
         self._build()
         self._on_provider_change()
+        self._on_like_destination_change()
         self._on_backend_change()
         self._on_volume_change()
         self._refresh_extras_title()
@@ -112,6 +116,7 @@ class SettingsWindow:
 
         for build in (
             self._build_music,
+            self._build_like,
             self._build_hotkeys,
             self._build_feedback,
             self._build_storage,
@@ -250,6 +255,25 @@ class SettingsWindow:
         ttk.Label(status, textvariable=self.v_account).grid(row=0, column=0, sticky="w", padx=8)
         self.connect_button = ttk.Button(status, text="Connect…", command=self._on_connect_account)
         self.connect_button.grid(row=0, column=1, sticky="e", padx=8)
+        return box
+
+    def _build_like(self, parent):
+        """Where a like lands. A core like setting, so it sits next to the
+        music service rather than under the collapsed "Extra actions"."""
+        box = self._section(parent, "Where a like goes")
+        radios = ttk.Frame(box)
+        radios.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 4))
+        for i, (name, label) in enumerate(model.LIKE_DESTINATION_LABELS.items()):
+            ttk.Radiobutton(
+                radios,
+                text=label,
+                value=name,
+                variable=self.v_like_dest,
+                command=self._on_like_destination_change,
+            ).grid(row=0, column=i, sticky="w", padx=(0, 16))
+
+        self.like_playlist_entry = self._entry(box, "Playlist name", self.v_like_playlist, 1)
+        self._hint(box, model.LIKE_DESTINATION_HINT, 2)
         return box
 
     def _build_hotkeys(self, parent):
@@ -411,6 +435,15 @@ class SettingsWindow:
         self.v_account.set("✓ Connected" if connected else "Not connected")
         self.connect_button.configure(text="Reconnect…" if connected else "Connect…")
 
+    def _on_like_destination_change(self) -> None:
+        """Grey the playlist field out while likes only go to the service.
+
+        The typed name stays in the box, so switching back and forth to
+        compare the choices doesn't cost the user a retype.
+        """
+        wanted = self.v_like_dest.get() != model.NATIVE
+        self.like_playlist_entry.state(["!disabled"] if wanted else ["disabled"])
+
     def _on_backend_change(self) -> None:
         """Show the Google Sheets fields iff the counter is switched on.
 
@@ -566,6 +599,8 @@ class SettingsWindow:
         s = model.Settings(
             provider=self.v_provider.get(),
             spotify_client_id=self.v_spotify_id.get().strip(),
+            like_destination=self.v_like_dest.get(),
+            like_playlist=self.v_like_playlist.get().strip(),
             storage_backend=self.v_backend.get(),
             sheets_spreadsheet_id=self.v_sheet_id.get().strip(),
             hotkey=self.v_hotkey.get().strip(),

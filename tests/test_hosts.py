@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 import pytest
 
-from like_spotify.hosts import _stub, select_host, windows
+from like_spotify.hosts import _common, _stub, select_host, windows
 from like_spotify.hosts.windows import autostart, resident
 
 
@@ -485,3 +485,116 @@ def test_cli_feedback_accepts_kind_keyword(capsys) -> None:
     assert "[ok] Removed from Archive — Song — Artist" in out
     assert fb.calls == [(True, "Removed from Archive", "Song — Artist")]
     assert fb.kinds == ["remove"]
+
+
+# ── #173: resolving the like destination from config ───────────────────
+
+
+class _NoPlaylists:
+    """A MusicProvider with no playlist capability (a minimal plugin)."""
+
+    async def get_currently_playing(self):  # pragma: no cover
+        return None
+
+    async def like(self, track) -> None:  # pragma: no cover
+        pass
+
+    async def is_liked(self, track) -> bool:  # pragma: no cover
+        return False
+
+    async def user_id(self) -> str:  # pragma: no cover
+        return "user-id"
+
+
+class _WithPlaylists(_NoPlaylists):
+    async def find_playlist_by_name(self, name):  # pragma: no cover
+        return None
+
+    async def find_or_create_playlist(self, name):  # pragma: no cover
+        return "pl1"
+
+    async def get_playlist_track_ids(self, playlist_id):  # pragma: no cover
+        return set()
+
+    async def add_track_to_playlist(self, track_id, playlist_id) -> None:  # pragma: no cover
+        pass
+
+    async def remove_track_from_playlist(self, track_id, playlist_id) -> None:  # pragma: no cover
+        pass
+
+    async def follow_artist(self, artist_id) -> None:  # pragma: no cover
+        pass
+
+
+def test_like_destination_defaults_to_native_without_a_like_block(capsys) -> None:
+    """THE upgrade path: an existing config that predates #173 keeps
+    behaving exactly as it did — native like, no playlist, no notice."""
+    destination = _common.resolve_like_destination({"music": {"provider": "spotify"}})
+
+    assert (destination.mode, destination.playlist_name) == ("native", "")
+    assert capsys.readouterr().err == ""
+
+
+def test_like_destination_reads_the_configured_playlist() -> None:
+    destination = _common.resolve_like_destination(
+        {"like": {"destination": "both", "playlist_name": "  Songs  "}},
+        _WithPlaylists(),
+    )
+
+    assert (destination.mode, destination.playlist_name) == ("both", "Songs")
+
+
+def test_unknown_like_destination_falls_back_to_native_with_a_notice(capsys) -> None:
+    """Same rule as a retired storage backend: say what was ignored on one
+    line and keep liking, rather than refusing to start."""
+    destination = _common.resolve_like_destination({"like": {"destination": "mixtape"}})
+
+    assert destination.mode == "native"
+    err = capsys.readouterr().err
+    assert "mixtape" in err
+    assert len(err.strip().splitlines()) == 1
+
+
+def test_like_destination_without_a_playlist_name_falls_back(capsys) -> None:
+    destination = _common.resolve_like_destination(
+        {"like": {"destination": "playlist", "playlist_name": "   "}}
+    )
+
+    assert destination.mode == "native"
+    assert "playlist name" in capsys.readouterr().err
+
+
+def test_like_destination_refused_when_the_service_has_no_playlists() -> None:
+    """Refused at resolution time, and the message names the service the
+    user configured — not the class name of some plugin they never saw."""
+    with pytest.raises(_common.LikeDestinationError) as excinfo:
+        _common.resolve_like_destination(
+            {
+                "music": {"provider": "ytmusic"},
+                "like": {"destination": "playlist", "playlist_name": "Songs"},
+            },
+            _NoPlaylists(),
+        )
+
+    assert "ytmusic" in str(excinfo.value)
+
+
+def test_stub_like_once_refuses_an_unservable_destination(
+    empty_config, capsys, monkeypatch
+) -> None:
+    """The CLI turns the refusal into a message that says what to do,
+    instead of letting the like fail on every press."""
+    provider = _NoPlaylists()
+    provider.has_tokens = True
+    monkeypatch.setattr(_common, "build_provider", lambda _cfg: provider)
+    _common.save_config(
+        {
+            "music": {"provider": "ytmusic"},
+            "like": {"destination": "playlist", "playlist_name": "Songs"},
+        }
+    )
+
+    assert _stub.main(["like-once"]) == 2
+    err = capsys.readouterr().err
+    assert "ytmusic" in err
+    assert "--setup" in err
