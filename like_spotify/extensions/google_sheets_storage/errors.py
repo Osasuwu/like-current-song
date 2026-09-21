@@ -18,6 +18,8 @@ from __future__ import annotations
 import json
 import re
 
+from like_spotify.core.errors import UserActionRequired
+
 #: Where the Sheets API is switched on, for when Google named no URL of its
 #: own. Note that this is the API's page in the *library* — the credentials
 #: page, which the README used to send people to, creates OAuth clients and
@@ -38,13 +40,17 @@ _URL_IN_PROSE = re.compile(r"https?://[^\s\"'<>)\]]+")
 _PROJECT_IN_PROSE = re.compile(r"\bproject\s+([A-Za-z0-9][\w.:-]*)")
 
 
-class SheetsApiDisabledError(RuntimeError):
+class SheetsApiDisabledError(UserActionRequired, RuntimeError):
     """The Cloud project behind these tokens has the Sheets API switched off.
 
-    A plain ``RuntimeError`` and deliberately *not* an
+    A ``RuntimeError`` and deliberately *not* an
     :class:`~like_spotify.core.errors.AuthError`: the tokens are fine and
     re-authorising fixes nothing, so no host should answer this by sending
     the user back through a sign-in they just completed.
+
+    It is also a :class:`~like_spotify.core.errors.UserActionRequired`,
+    which is how a step that soft-fails on everything else — the like
+    path's counter — knows this one is worth saying out loud (#168).
     """
 
     def __init__(

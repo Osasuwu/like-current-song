@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from like_spotify.core.errors import AuthError
+from like_spotify.core.errors import AuthError, UserActionRequired
 from like_spotify.core.types import CurrentTrack
 from like_spotify.extensions.google_sheets_storage import GoogleSheetsStorage
 from like_spotify.extensions.google_sheets_storage.create import (
@@ -256,6 +256,16 @@ async def test_a_paste_configured_counter_says_it_too(monkeypatch) -> None:
 
     with pytest.raises(SheetsApiDisabledError, match="not enabled"):
         await storage.get_count("user-1", _track())
+
+
+def test_the_disabled_api_is_a_failure_only_the_user_can_clear() -> None:
+    """What makes the like path show it instead of only logging it (#168)."""
+    error = SheetsApiDisabledError("off", activation_url=SHEETS_API_LIBRARY_URL)
+
+    assert isinstance(error, UserActionRequired)
+    # Still a RuntimeError, so nothing that caught it before stops doing so.
+    assert isinstance(error, RuntimeError)
+    assert not isinstance(error, AuthError)
 
 
 def _track() -> CurrentTrack:

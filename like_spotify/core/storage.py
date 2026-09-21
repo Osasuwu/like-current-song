@@ -10,7 +10,10 @@ class Storage(ABC):
     spreadsheet the user owns); `tests/test_storage_contract.py` holds the
     invariants any further impl has to satisfy. Failure is non-fatal — the
     like must succeed even if the storage is misconfigured or unreachable;
-    the host treats `None` as 'counter silently unavailable'.
+    the host treats `None` as 'counter silently unavailable'. Silence is the
+    right answer for a blip, not for a failure that will repeat until the
+    user fixes something: raise a `UserActionRequired` (core/errors.py) for
+    those and the pipeline tells them what the message says (#168).
 
     Track identity is delegated to the impl: most will key on
     `track.provider_track_id`, but a sheet-style impl may want
