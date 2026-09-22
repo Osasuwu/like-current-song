@@ -325,6 +325,130 @@ void main() {
     expect(await repo.incrementTrackLikeCount('track-1'), 1);
   });
 
+  group('one pair, one row (#193)', () {
+    /// A sheet whose contents the test can change between reads, and which
+    /// answers an append with the row it landed on — the next one down.
+    ({http.Client client, List<http.Request> requests, List<List<String>> rows})
+        liveSheet(
+      List<List<String>> initialRows, {
+      bool appendReportsRow = true,
+    }) {
+      final rows = <List<String>>[...initialRows];
+      final requests = <http.Request>[];
+      return (
+        client: MockClient((request) async {
+          requests.add(request);
+          if (request.method == 'GET') return http.Response(sheetBody(rows), 200);
+          if (request.method == 'POST') {
+            final appended =
+                (jsonDecode(request.body)['values'] as List).single as List;
+            rows.add(appended.map((cell) => '$cell').toList());
+            if (!appendReportsRow) return http.Response('{}', 200);
+            // Header is row 1, so the row just added is `rows.length + 1`.
+            final at = rows.length + 1;
+            return http.Response(
+              jsonEncode(<String, dynamic>{
+                'updates': <String, dynamic>{'updatedRange': 'Likes!A$at:E$at'},
+              }),
+              200,
+            );
+          }
+          return http.Response('{}', 200);
+        }),
+        requests: requests,
+        rows: rows,
+      );
+    }
+
+    test('a row the other half added after the cache loaded is not duplicated',
+        () async {
+      final spy = liveSheet(<List<String>>[]);
+      final repo = repoOver(spy.client);
+
+      // Some other track loads the cache; `track-1` is not in it.
+      expect(await repo.incrementTrackLikeCount('track-0'), 1);
+
+      // The Kotlin background half counts a like for `track-1` while the app
+      // is open: a row appears that the Dart cache has never seen.
+      spy.rows.add(
+        <String>['user-1', 'track-1', '1', 'FALSE', '2026-01-01T00:00:00Z'],
+      );
+
+      expect(await repo.incrementTrackLikeCount('track-1'), 2);
+      expect(
+        spy.rows.where((r) => r[0] == 'user-1' && r[1] == 'track-1'),
+        hasLength(1),
+        reason: 'the sheet already had a row for the pair, so it must be '
+            'updated rather than appended a second time',
+      );
+    });
+
+    test('two likes for one track at once append a single row', () async {
+      final spy = liveSheet(<List<String>>[]);
+      final repo = repoOver(spy.client);
+
+      // Two presses close enough together that neither has finished before
+      // the other starts — a double press, or a queued like flushing while a
+      // live one is in flight.
+      final counts = await Future.wait(<Future<int>>[
+        repo.incrementTrackLikeCount('track-1'),
+        repo.incrementTrackLikeCount('track-1'),
+      ]);
+
+      expect(
+        spy.rows.where((r) => r[0] == 'user-1' && r[1] == 'track-1'),
+        hasLength(1),
+        reason: 'both presses are the same pair, so they share one row',
+      );
+      expect(counts..sort(), <int>[1, 2]);
+    });
+
+    test('a pair that already has two rows keeps counting on the first',
+        () async {
+      // Sheets that already went wrong before the fix: the rule is that the
+      // topmost row wins, so both halves agree which one to add to.
+      final spy = liveSheet(<List<String>>[
+        <String>['user-1', 'track-1', '1', 'FALSE', '2026-01-01T00:00:00Z'],
+        <String>['user-1', 'track-1', '1', 'FALSE', '2026-01-02T00:00:00Z'],
+      ]);
+      final repo = repoOver(spy.client);
+
+      expect(await repo.incrementTrackLikeCount('track-1'), 2);
+      // The first data row is sheet row 2.
+      expect(
+        spy.requests.map((r) => r.url.path),
+        contains('/v4/spreadsheets/sheet-1/values/Likes!C2'),
+      );
+      expect(spy.requests.where((r) => r.method == 'POST'), isEmpty);
+
+      // It is said out loud once, with the rows to merge — a split count that
+      // nothing reports is the part of #193 that never gets noticed.
+      expect(logs, hasLength(1));
+      expect(logs.single.result, LogResult.info);
+      expect(logs.single.targetId, 'track-1');
+      expect(logs.single.message, contains('rows 2 and 3'));
+
+      // …and not again on the next like of the same track.
+      expect(await repo.incrementTrackLikeCount('track-1'), 3);
+      expect(logs, hasLength(1));
+    });
+
+    test('an append whose row is unreadable is looked up again, not repeated',
+        () async {
+      // The sheet took the append but its reply says nothing about where the
+      // row landed, so the repository has no row number to remember.
+      final spy = liveSheet(<List<String>>[], appendReportsRow: false);
+      final repo = repoOver(spy.client);
+
+      expect(await repo.incrementTrackLikeCount('track-1'), 1);
+      expect(await repo.incrementTrackLikeCount('track-1'), 2);
+      expect(
+        spy.rows.where((r) => r[0] == 'user-1' && r[1] == 'track-1'),
+        hasLength(1),
+      );
+    });
+  });
+
   group('rowFromA1Range', () {
     test('reads the row an append landed on', () {
       expect(
