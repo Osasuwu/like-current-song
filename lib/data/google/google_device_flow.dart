@@ -140,6 +140,13 @@ class GoogleDeviceFlow {
   /// (revoked, password changed, 6 months unused, or a Testing-mode consent
   /// screen's 7-day limit) and comes back as [GoogleSignInRevoked] so the
   /// caller can drop its tokens instead of failing on every like.
+  ///
+  /// Only `invalid_grant`. A rejected client — `invalid_client`,
+  /// `unauthorized_client` — is a [GoogleOAuthException] the caller keeps its
+  /// tokens through, because a new sign-in would present the same rejected
+  /// client. The native half draws the line in the same place
+  /// (`YouTubeDataApi.REAUTH_TOKEN_ERRORS`), and it has to: both halves
+  /// refresh the same stored tokens (#204).
   Future<GoogleTokenResponse> refresh({
     required OAuthClientCredentials credentials,
     required String refreshToken,

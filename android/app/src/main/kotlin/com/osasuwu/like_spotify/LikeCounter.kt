@@ -196,9 +196,13 @@ object LikeCounter {
      * same way. Note what the codes mean: a revoked grant really is fixed by
      * signing in again, a rejected client never is, and telling a user with a
      * wrong client secret to sign in again is what #200 was about.
+     *
+     * YouTube Music's sign-in splits the same two cases the same way in
+     * [YouTubeMusicLiker.tokenRefusedMessage]; it only points at its own
+     * credentials instead of the counter's (#204).
      */
     fun tokenRefusedMessage(failure: GoogleTokens.RefreshFailure): String = when {
-        failure.error == "invalid_client" || failure.error == "unauthorized_client" ->
+        YouTubeDataApi.isRejectedClient(failure.error) ->
             "Google rejected the counter's client ID or secret (${failure.error}). " +
                 "Check both under Connected services → Shared like counter"
         failure.error == "invalid_grant" ->

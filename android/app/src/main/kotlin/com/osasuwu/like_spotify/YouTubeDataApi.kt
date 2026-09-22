@@ -172,17 +172,30 @@ object YouTubeDataApi {
         else -> ErrorKind.FAILED
     }
 
-    /** Classifies a failed refresh at the OAuth token endpoint. */
+    /**
+     * Classifies a failed refresh at the OAuth token endpoint.
+     *
+     * [ErrorKind.REAUTH_REQUIRED] here means "signing in again fixes this",
+     * so it is reserved for [REAUTH_TOKEN_ERRORS]; a client the endpoint
+     * turned down is [isRejectedClient] instead, and the caller has to say
+     * what to check rather than ask for a sign-in that would present the
+     * same rejected client (#204).
+     */
     fun classifyTokenError(status: Int, body: String?): ErrorKind {
         val error = runCatching { JSONObject(body.orEmpty()).optString("error") }.getOrNull()
         return when {
-            // invalid_grant: refresh token revoked or expired. invalid_client /
-            // unauthorized_client: the OAuth client it was issued to is gone.
             error in REAUTH_TOKEN_ERRORS -> ErrorKind.REAUTH_REQUIRED
             status >= 500 -> ErrorKind.TRANSIENT
             else -> ErrorKind.FAILED
         }
     }
+
+    /**
+     * Whether the token endpoint turned down the OAuth client itself — a
+     * client ID or secret that is wrong, deleted, or of the wrong type —
+     * rather than the grant it was asked to exchange.
+     */
+    fun isRejectedClient(error: String?): Boolean = error in REJECTED_CLIENT_ERRORS
 
     /** `error.errors[0].reason` of a Google API error body, if any. */
     fun errorReason(body: String?): String? {
@@ -195,5 +208,24 @@ object YouTubeDataApi {
 
     private const val DUPLICATE_SUBSCRIPTION = "subscriptionDuplicate"
     private val RATE_LIMIT_REASONS = setOf("quotaExceeded", "rateLimitExceeded")
-    private val REAUTH_TOKEN_ERRORS = setOf("invalid_grant", "invalid_client", "unauthorized_client")
+    /**
+     * The one refusal a new sign-in fixes: the refresh token itself is gone —
+     * revoked, password changed, six months unused, or the Testing-mode
+     * consent screen's 7-day limit — so a fresh grant replaces it.
+     *
+     * The Dart half draws the line in the same place: `GoogleDeviceFlow.refresh`
+     * (`lib/data/google/google_device_flow.dart`) raises `GoogleSignInRevoked`
+     * for `invalid_grant` and nothing else. The two have to agree, because
+     * both halves refresh the same stored tokens: a rule that differed would
+     * have the app sign itself out over a refusal the service kept living
+     * with, or the other way round (#204).
+     */
+    private val REAUTH_TOKEN_ERRORS = setOf("invalid_grant")
+
+    /**
+     * The refusals a new sign-in cannot fix, because it would present the
+     * same rejected client. These need the client ID and secret checked, and
+     * saying "sign in again" instead is the loop #200 was about.
+     */
+    private val REJECTED_CLIENT_ERRORS = setOf("invalid_client", "unauthorized_client")
 }

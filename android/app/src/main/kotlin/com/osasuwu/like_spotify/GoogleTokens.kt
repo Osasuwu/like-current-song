@@ -61,12 +61,14 @@ object GoogleTokens {
     )
 
     /**
-     * A refresh that did not produce a token. [needsReauth] means the user has
-     * to sign in again (revoked grant, missing client); anything else may work
-     * on a later press. [error] is Google's own OAuth error code when it sent
-     * one — `invalid_grant`, `invalid_client`, ... — because "sign in again"
-     * and "your client secret is wrong" are both `needsReauth` and the caller
-     * has to be able to tell the user which it was (#200).
+     * A refresh that did not produce a token. [needsReauth] means signing in
+     * again is the fix — the grant is gone (`invalid_grant`), or nobody
+     * finished the sign-in in the first place; anything else may work on a
+     * later press, or needs something other than a sign-in. [error] is
+     * Google's own OAuth error code when it sent one — `invalid_grant`,
+     * `invalid_client`, ... — because a rejected client is *not* a re-auth
+     * and the caller has to be able to tell the user which it was (#200,
+     * #204).
      */
     class RefreshFailure(
         message: String,

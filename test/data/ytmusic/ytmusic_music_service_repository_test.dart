@@ -173,6 +173,25 @@ void main() {
       verify(() => platform.clearYouTubeMusicTokens()).called(1);
     });
 
+    // The native twin is `a rejected client is not a re-auth, the way the
+    // Dart half has it` in `YouTubeDataApiTest`. Both halves refresh these
+    // same stored tokens, so `invalid_grant` has to be the one refusal a new
+    // sign-in fixes on both — anything else and one half signs the user out
+    // over a refusal the other half lives with (#204).
+    test('a rejected client keeps the stored sign-in', () async {
+      await signedInWith(expiresAt: now.subtract(const Duration(minutes: 1)));
+      replies.add(jsonResponse({'error': 'invalid_client'}, 401));
+
+      expect((await repo.getAuthState()).connected, isTrue,
+          reason: 'a new sign-in would present the same rejected client');
+
+      replies.add(jsonResponse({'error': 'unauthorized_client'}, 401));
+
+      expect((await repo.getAuthState()).connected, isTrue);
+      expect(await tokenStore.readTokens(), isNotNull);
+      verifyNever(() => platform.clearYouTubeMusicTokens());
+    });
+
     test('a network failure keeps the stored sign-in', () async {
       await signedInWith(expiresAt: now.subtract(const Duration(minutes: 1)));
       replies.add(http.ClientException('offline'));
