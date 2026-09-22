@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import ctypes
+import logging
 import os
 import subprocess
 import sys
@@ -174,6 +175,46 @@ def _log(msg: str) -> None:
         pass
 
 
+_LOGGING_HANDLER_TAG = "like_spotify.startup_log"
+
+
+def _attach_logging_to_startup_log() -> None:
+    """Point the stdlib `logging` root at the same `startup.log` (best effort).
+
+    Nothing in `like_spotify/` configured `logging` at all, so every
+    `logger.warning` in the pipeline and the extensions went nowhere under
+    `pythonw.exe` — there is no console to fall back to. That includes the
+    one message telling a user their counter sheet has grown a second row
+    for a track and which rows to add up (#202): without this handler it is
+    written to a logger with no destination and the user never sees it.
+
+    `startup.log` is the log the tray's "Open log" opens, so it is the only
+    file worth writing to. Idempotent — a settings-driven rebuild must not
+    stack a second handler — and never raises, same contract as `_log`.
+    """
+    try:
+        root = logging.getLogger()
+        for existing in root.handlers:
+            if getattr(existing, "name", None) == _LOGGING_HANDLER_TAG:
+                return
+        log_file = _common.CONFIG_FILE.parent / "startup.log"
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        handler = logging.FileHandler(log_file, encoding="utf-8", delay=True)
+        handler.name = _LOGGING_HANDLER_TAG
+        handler.setLevel(logging.WARNING)
+        handler.setFormatter(
+            logging.Formatter(
+                f"%(asctime)s [pid {os.getpid()}] %(name)s: %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            )
+        )
+        root.addHandler(handler)
+        if root.level > logging.WARNING or root.level == logging.NOTSET:
+            root.setLevel(logging.WARNING)
+    except Exception:
+        pass
+
+
 def _taskbar_present() -> bool:
     """True when the shell notification area window exists.
 
@@ -249,6 +290,9 @@ def main(argv: list[str] | None = None) -> int:
         f"frozen={getattr(sys, 'frozen', False)} argv={sys.argv[1:]} "
         f"{_console_state()}"
     )
+    # Everything the pipeline and the extensions report through `logging`
+    # lands in that same file from here on; without this it lands nowhere.
+    _attach_logging_to_startup_log()
     try:
         return _run_resident_host()
     except SystemExit:

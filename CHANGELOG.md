@@ -126,6 +126,25 @@ still the only option for the desktop half.
 
 ### Fixed
 
+- **Desktop: the shared counter sheet no longer grows a second row for a track
+  instead of counting on the first (#202).** The desktop half carried the same
+  fault the Android half was just fixed for, and one more besides. A tray icon
+  left running holds a picture of the sheet from its first like of the session
+  and never looked again, so a row your phone (or a second PC) added in the
+  meantime was invisible and it added one of its own — splitting that track's
+  count across two rows for good. A track the desktop believes is new is now
+  looked up on the sheet again before any row is added, which costs one extra
+  read on the first like of a track and nothing after it. Two likes pressed
+  close enough together to overlap are counted one at a time, so they can no
+  longer both find "no row yet". Sheets that already carry a duplicate now
+  count on the **topmost** of the rows — the same one the phone picks, so the
+  two halves stop drifting further apart — and say so once per track, naming
+  the rows to add up; the spare row is never deleted for you. Finally, the
+  desktop's own log now actually receives these messages: warnings from the
+  counter and the like pipeline used to go nowhere at all when the tray was
+  started at login, and now land in the same `startup.log` the tray's *Open
+  log* opens.
+
 - **Android: the shared counter sheet no longer grows a second row for a track
   instead of counting on the first.** The row *is* the counter, so once a
   track had two of them its count was split for good — every later like went
