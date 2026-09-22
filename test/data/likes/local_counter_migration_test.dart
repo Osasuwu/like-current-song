@@ -93,12 +93,12 @@ void main() {
     expect(await readFlag(), isTrue);
   });
 
-  test('finishes even when the native side had nothing left to write',
+  test('finishes even when the native side had already folded the counters in',
       () async {
-    // False is what the native side answers when it already holds a count at
-    // least as large for every key — an earlier run that merged and then died
-    // before clearing, say. Treating that as a failure would leave the old
-    // maps behind and retry the migration on every launch, forever.
+    // False is what the native side answers when an earlier call already did
+    // the folding — a run that merged and then died before clearing, say.
+    // Treating that as a failure would leave the old maps behind and retry the
+    // migration on every launch, forever.
     givenPrefs(storedCounters());
     stubMerge(() async => false);
 

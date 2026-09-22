@@ -30,9 +30,10 @@ class LocalCounterMigration {
   ///
   /// Nothing is thrown away before the native side has taken the counters,
   /// and the flag is only set once it has; a merge that threw leaves both
-  /// sides exactly as they were, so the next launch simply tries again. The
-  /// merge itself takes the larger of the two values per key, which is what
-  /// makes that retry harmless.
+  /// sides exactly as they were, so the next launch simply tries again. What
+  /// makes that retry harmless is on the native side: it folds the counters in
+  /// once and refuses to do it a second time, so a crash between the two
+  /// writes below cannot count the same likes twice.
   Future<void> run() async {
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getBool(migratedFlagKey) ?? false) return;
@@ -49,11 +50,11 @@ class LocalCounterMigration {
       return;
     }
 
-    // The reply tells us whether the native side had to write anything, which
-    // is not the same question as whether the counters are across: it comes
-    // back false when the native store already held a value at least as large
-    // for every key handed over, and that is as finished as a write. Only a
-    // throw means they did not make it.
+    // The reply tells us whether this call was the one that did the folding,
+    // which is not the same question as whether the counters are across: it
+    // comes back false when an earlier call already folded them in — an
+    // attempt that merged and then died before clearing, say — and that is as
+    // finished as a write. Only a throw means they did not make it.
     try {
       await _destination.mergeLocalCounters(
         tracks: tracks,

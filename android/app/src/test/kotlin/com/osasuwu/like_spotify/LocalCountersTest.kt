@@ -84,21 +84,40 @@ class LocalCountersTest {
         assertEquals(emptyMap<String, Long>(), LocalCounters.parseTimestamps("not json at all"))
     }
 
-    // ---- merged -------------------------------------------------
+    // ---- summed -------------------------------------------------
 
     @Test
-    fun `merging keeps the larger count per id`() {
+    fun `likes counted in the two old stores add up`() {
+        // The whole point of the migration: three likes in the app and two on
+        // the media button were five likes, counted into stores that could not
+        // see each other. Keeping the larger would throw two of them away.
         assertEquals(
-            mapOf("t1" to 7, "t2" to 4, "t3" to 2),
-            LocalCounters.merged(
-                existing = mapOf("t1" to 7, "t2" to 1),
-                incoming = mapOf("t1" to 3, "t2" to 4, "t3" to 2),
-            ),
+            mapOf("t1" to 5),
+            LocalCounters.summed(existing = mapOf("t1" to 2), incoming = mapOf("t1" to 3)),
         )
     }
 
     @Test
+    fun `an id only one store ever saw arrives at its own count`() {
+        assertEquals(
+            mapOf("t1" to 7, "t2" to 4),
+            LocalCounters.summed(existing = mapOf("t1" to 7), incoming = mapOf("t2" to 4)),
+        )
+    }
+
+    @Test
+    fun `nothing to fold in leaves the stored counts untouched`() {
+        val existing = mapOf("t1" to 7)
+        assertEquals(existing, LocalCounters.summed(existing, emptyMap()))
+        assertEquals(existing, LocalCounters.summed(emptyMap(), existing))
+    }
+
+    // ---- merged -------------------------------------------------
+
+    @Test
     fun `merging timestamps keeps the later like`() {
+        // A track has only ever been last liked once, so these take the later
+        // rather than adding -- the one map the fold does not sum.
         assertEquals(
             mapOf("t1" to 200L, "t2" to 500L),
             LocalCounters.merged(
@@ -109,18 +128,8 @@ class LocalCountersTest {
     }
 
     @Test
-    fun `merging the same counters twice changes nothing the second time`() {
-        val existing = mapOf("t1" to 7, "t2" to 1)
-        val incoming = mapOf("t1" to 3, "t2" to 4, "t3" to 2)
-        val once = LocalCounters.merged(existing, incoming)
-        // What makes the one-time migration safe to re-run: the merge is what
-        // decides whether anything gets written, and a repeat decides "no".
-        assertEquals(once, LocalCounters.merged(once, incoming))
-    }
-
-    @Test
-    fun `merging nothing in leaves the stored counters untouched`() {
-        val existing = mapOf("t1" to 7)
+    fun `merging no timestamps in leaves the stored ones untouched`() {
+        val existing = mapOf("t1" to 200L)
         assertEquals(existing, LocalCounters.merged(existing, emptyMap()))
     }
 

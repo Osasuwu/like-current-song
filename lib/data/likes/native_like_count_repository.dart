@@ -62,16 +62,17 @@ class NativeLikeCountRepository implements LikeCountRepository {
     });
   }
 
-  /// Folds counters recorded elsewhere into the native store, keeping the
-  /// larger of the two values for every key in all three maps.
+  /// Folds counters recorded elsewhere into the native store: counts are added
+  /// to what is there, last-liked times take the later of the two.
   ///
-  /// Merging by `max` rather than adding is what makes the call safe to
-  /// repeat: a migration that got as far as the merge and then failed to clear
-  /// its source runs again on the next launch without inflating anything.
+  /// Adding is the honest arithmetic, because the two stores never shared a
+  /// like — but it is right exactly once. The native side records that the
+  /// fold happened, in the same commit as the counts, and answers every later
+  /// call with false, so this is safe to call whenever we are unsure.
   ///
-  /// False means the native side had nothing to write because it already held
-  /// a value at least as large for every key — a finished merge, not a refused
-  /// one. Only a thrown [PlatformException] means the counters did not arrive.
+  /// False therefore means the counters were already across — a finished
+  /// merge, not a refused one. Only a thrown [PlatformException] means they
+  /// did not arrive.
   Future<bool> mergeLocalCounters({
     required Map<String, int> tracks,
     required Map<String, int> artists,

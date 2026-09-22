@@ -85,6 +85,13 @@ object AppConstants {
     /** Artists already auto-followed, so the threshold rule fires once per artist. */
     const val KEY_FOLLOWED_ARTISTS = "followed_artists"
 
+    /**
+     * Set once the counters Dart kept in its own store before #197 have been
+     * folded in. The fold adds the two stores together, which is right exactly
+     * once, so this is what stops a second call from counting them twice.
+     */
+    const val KEY_COUNTERS_MERGED = "local_counters_merged_v1"
+
     const val KEY_PLAYLIST_CACHE = "playlist_cache"
     const val KEY_PLAYLIST_CACHE_TIMESTAMP = "playlist_cache_timestamp"
 

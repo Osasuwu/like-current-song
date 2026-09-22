@@ -59,12 +59,29 @@ object LocalCounters {
     }
 
     /**
-     * [existing] with [incoming] folded in, keeping the larger value per key.
+     * [existing] with [incoming] added on per key.
      *
-     * Max, not sum, is what makes the one-time migration of the Dart-side maps
-     * safely repeatable: the two stores overlap wherever a like was counted
-     * before the split was noticed, and re-running the merge has to leave that
-     * key alone. For timestamps the same rule reads as "the later like wins".
+     * The two stores this folds together never shared a like: before #197 a
+     * like counted into the Dart store *or* into this one, never both, so a
+     * track liked three times in the app and twice with the media button is
+     * genuinely five likes and has to migrate as five. Keeping the larger of
+     * the two would throw the smaller half away -- and it is the users who
+     * used both halves, the ones this fixes, who would lose the most.
+     *
+     * Adding is only right once, which is why [merge] will not do it twice.
+     */
+    fun summed(existing: Map<String, Int>, incoming: Map<String, Int>): Map<String, Int> {
+        val out = LinkedHashMap(existing)
+        incoming.forEach { (id, value) -> out[id] = (out[id] ?: 0) + value }
+        return out
+    }
+
+    /**
+     * [existing] with [incoming] folded in, keeping the larger value per key --
+     * for the last-liked map, where that reads as "the later like wins".
+     *
+     * Counts use [summed] instead: two likes are two likes, but a track has
+     * only ever been last liked once.
      */
     fun <T : Comparable<T>> merged(existing: Map<String, T>, incoming: Map<String, T>): Map<String, T> {
         val out = LinkedHashMap(existing)
@@ -169,12 +186,16 @@ object LocalCounters {
     // ---- Migration ----------------------------------------------
 
     /**
-     * Folds counters that were counted elsewhere into this store, keeping the
-     * larger value per key, and reports whether anything changed.
+     * Folds the counters Dart kept in its own store before #197 into this one:
+     * counts are added ([summed]), last-liked times take the later ([merged]).
      *
-     * This is how the maps Dart kept in its own store before #197 get here.
-     * It is repeatable by construction (see [merged]), so Dart may call it
-     * whenever it is unsure rather than having to prove it ran exactly once.
+     * Returns false, having done nothing, if that fold already happened. Adding
+     * is the honest arithmetic -- the two stores never shared a like -- but it
+     * is right exactly once, so the flag that records it is written in the same
+     * commit as the counts and guards every later call. Dart may therefore call
+     * this whenever it is unsure rather than having to prove it ran once, which
+     * it cannot: the process can die between this write and Dart clearing its
+     * own copy.
      */
     @Synchronized
     fun merge(
@@ -183,27 +204,19 @@ object LocalCounters {
         artists: Map<String, Int>,
         lastLikedAt: Map<String, Long>,
     ): Boolean {
-        val editor = prefs.edit()
-        var wrote = false
+        if (prefs.getBoolean(AppConstants.KEY_COUNTERS_MERGED, false)) return false
 
+        val editor = prefs.edit()
         mapOf(Kind.TRACK to tracks, Kind.ARTIST to artists).forEach { (kind, incoming) ->
-            val existing = counts(prefs, kind)
-            val next = merged(existing, incoming)
-            if (next != existing) {
-                editor.putString(kind.prefsKey, encode(next))
-                wrote = true
-            }
+            editor.putString(kind.prefsKey, encode(summed(counts(prefs, kind), incoming)))
         }
 
         val existingStamps = parseTimestamps(prefs.getString(AppConstants.KEY_TRACK_LAST_LIKED_AT, null))
-        val nextStamps = merged(existingStamps, lastLikedAt)
-        if (nextStamps != existingStamps) {
-            editor.putString(AppConstants.KEY_TRACK_LAST_LIKED_AT, encode(nextStamps))
-            wrote = true
-        }
+        editor.putString(AppConstants.KEY_TRACK_LAST_LIKED_AT, encode(merged(existingStamps, lastLikedAt)))
 
-        if (wrote) editor.apply()
-        return wrote
+        editor.putBoolean(AppConstants.KEY_COUNTERS_MERGED, true)
+        editor.apply()
+        return true
     }
 
     private fun <T> parse(raw: String?, read: (JSONObject, String) -> T): Map<String, T> {
