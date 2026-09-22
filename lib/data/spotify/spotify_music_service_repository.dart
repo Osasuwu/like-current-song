@@ -4,8 +4,10 @@ import 'package:flutter/foundation.dart';
 
 import '../../core/app_constants.dart';
 import '../../domain/entities/app_log.dart';
+import '../../domain/entities/like_destination.dart';
 import '../../domain/entities/like_result.dart';
 import '../../domain/entities/pending_like.dart';
+import '../../domain/entities/rule_config.dart';
 import '../../domain/entities/spotify_auth_state.dart';
 import '../../domain/entities/track_info.dart';
 import '../../domain/repositories/like_count_repository.dart';
@@ -305,8 +307,8 @@ class SpotifyMusicServiceRepository implements MusicServiceRepository {
       }
     }
 
-    // 1. Like the track
-    await _spotifyClient.likeTrack(trackId: trackInfo.trackId, accessToken: accessToken);
+    // 1. Like the track, wherever the user wants likes to go
+    final legs = await _runLikeLegs(trackInfo, accessToken, ruleConfig);
     await _likeCountRepository.recordLikedAt(trackInfo.trackId, DateTime.now().toUtc());
 
     // 3. Remove from archive playlist (non-blocking)
@@ -396,7 +398,79 @@ class SpotifyMusicServiceRepository implements MusicServiceRepository {
       addedToBest: addedToBest,
       followedArtistNames: followedArtistNames,
       trackLikeCount: trackLikeCount,
+      likedNatively: legs.likedNatively,
+      addedToLikePlaylist: legs.addedToLikePlaylist,
+      partialFailureMessage: legs.partialFailureMessage,
     );
+  }
+
+  /// Sends the like itself, on whichever legs the destination asks for.
+  ///
+  /// A one-leg destination lets a failure propagate: the like did not happen,
+  /// and the caller has to know — an offline retry queue depends on it. With
+  /// `both`, one leg is enough for the song to end up liked, so the like only
+  /// fails when both legs do; a half failure is reported back on
+  /// [LikeResult.partialFailureMessage] for the caller to log.
+  Future<_LikeLegs> _runLikeLegs(
+    TrackInfo trackInfo,
+    String accessToken,
+    RuleConfig ruleConfig,
+  ) async {
+    final playlistName = ruleConfig.likePlaylistName.trim();
+    final destination = LikeDestination.resolve(ruleConfig.likeDestination, playlistName);
+
+    if (!destination.addsToPlaylist) {
+      await _spotifyClient.likeTrack(trackId: trackInfo.trackId, accessToken: accessToken);
+      return const _LikeLegs(likedNatively: true);
+    }
+    if (!destination.likesNatively) {
+      await _addToLikePlaylist(trackInfo, accessToken, playlistName);
+      return const _LikeLegs(addedToLikePlaylist: true);
+    }
+
+    Object? nativeError;
+    try {
+      await _spotifyClient.likeTrack(trackId: trackInfo.trackId, accessToken: accessToken);
+    } catch (e) {
+      debugPrint('Like to liked songs failed: $e');
+      nativeError = e;
+    }
+
+    Object? playlistError;
+    try {
+      await _addToLikePlaylist(trackInfo, accessToken, playlistName);
+    } catch (e) {
+      debugPrint('Like to playlist failed: $e');
+      playlistError = e;
+    }
+
+    if (nativeError != null && playlistError != null) {
+      // Nothing worked. Rethrow the liked-songs error: it is the leg with an
+      // HTTP status the caller can log and act on.
+      throw nativeError;
+    }
+    return _LikeLegs(
+      likedNatively: nativeError == null,
+      addedToLikePlaylist: playlistError == null,
+      partialFailureMessage: nativeError != null
+          ? 'Liked songs failed, so the like only reached "$playlistName": $nativeError'
+          : playlistError != null
+              ? 'Adding to "$playlistName" failed, so the like only reached liked songs: $playlistError'
+              : null,
+    );
+  }
+
+  /// Adds the track to the user's like playlist, creating it if it is missing.
+  Future<void> _addToLikePlaylist(
+    TrackInfo trackInfo,
+    String accessToken,
+    String playlistName,
+  ) async {
+    final playlistId = await _playlistService.ensurePlaylist(accessToken, playlistName);
+    if (playlistId == null) {
+      throw Exception('Could not find or create the playlist "$playlistName"');
+    }
+    await _playlistService.addTrack(accessToken, playlistId, trackInfo.trackUri);
   }
 
   @override
@@ -443,4 +517,18 @@ class SpotifyMusicServiceRepository implements MusicServiceRepository {
       return null;
     }
   }
+}
+
+/// Which halves of a like actually went through, and what to say when one of
+/// them did not.
+class _LikeLegs {
+  const _LikeLegs({
+    this.likedNatively = false,
+    this.addedToLikePlaylist = false,
+    this.partialFailureMessage,
+  });
+
+  final bool likedNatively;
+  final bool addedToLikePlaylist;
+  final String? partialFailureMessage;
 }

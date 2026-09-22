@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/app_constants.dart';
+import '../../domain/entities/like_destination.dart';
 import '../../domain/entities/rule_config.dart';
 import '../../domain/entities/trigger_config.dart';
 import '../state/app_providers.dart';
 import '../widgets/extra_actions_section.dart';
+import '../widgets/like_destination_section.dart';
 import '../widgets/screen_padding.dart';
 
 /// Text for a threshold field: empty while it holds the default, so the field
@@ -33,7 +35,9 @@ class _TriggerConfigScreenState extends ConsumerState<TriggerConfigScreen> {
   late TextEditingController _bestThreshold;
   late TextEditingController _followArtistThreshold;
   late TextEditingController _likeCooldownMinutes;
+  late TextEditingController _likePlaylistName;
 
+  late LikeDestination _likeDestination;
   late bool _archiveRemoveEnabled;
   late bool _bestEnabled;
   late bool _followArtistEnabled;
@@ -62,6 +66,8 @@ class _TriggerConfigScreenState extends ConsumerState<TriggerConfigScreen> {
       ),
     );
     _likeCooldownMinutes = TextEditingController(text: ruleConfig.likeCooldownMinutes.toString());
+    _likePlaylistName = TextEditingController(text: ruleConfig.likePlaylistName);
+    _likeDestination = ruleConfig.likeDestination;
     _archiveRemoveEnabled = ruleConfig.archiveRemoveEnabled;
     _bestEnabled = ruleConfig.bestEnabled;
     _followArtistEnabled = ruleConfig.followArtistEnabled;
@@ -78,6 +84,7 @@ class _TriggerConfigScreenState extends ConsumerState<TriggerConfigScreen> {
     _bestThreshold.dispose();
     _followArtistThreshold.dispose();
     _likeCooldownMinutes.dispose();
+    _likePlaylistName.dispose();
     super.dispose();
   }
 
@@ -124,6 +131,13 @@ class _TriggerConfigScreenState extends ConsumerState<TriggerConfigScreen> {
           ),
           const SizedBox(height: 20),
           const Divider(),
+          LikeDestinationSection(
+            musicProvider: musicProvider,
+            destination: _likeDestination,
+            onDestinationChanged: (value) => setState(() => _likeDestination = value),
+            playlistName: _likePlaylistName,
+          ),
+          const SizedBox(height: 12),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('Like cooldown'),
@@ -180,6 +194,8 @@ class _TriggerConfigScreenState extends ConsumerState<TriggerConfigScreen> {
                 likeCooldownMinutes:
                     int.tryParse(_likeCooldownMinutes.text.trim()) ??
                         AppConstants.defaultLikeCooldownMinutes,
+                likeDestination: _likeDestination,
+                likePlaylistName: _likePlaylistName.text.trim(),
               );
               await controller.saveTriggerConfig(config);
               if (!context.mounted) return;

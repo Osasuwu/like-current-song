@@ -118,25 +118,84 @@ class SpotifyLikeWorker(
             return Result.success()
         }
 
-        // Like the track
-        val likeResult = likeTrack(track.id, token)
-        playFeedbackTone(success = likeResult.success)
-        if (!likeResult.success) {
-            log(
-                "Like failed for track: ${track.id}" + (likeResult.errorBody?.let { ": $it" } ?: ""),
-                actionType = "like_track",
-                targetId = track.id,
-                result = "failure",
-                httpCode = likeResult.statusCode
-            )
-            return Result.success()
-        }
-        log("Liked track: ${track.id}", actionType = "like_track", targetId = track.id, result = "success", httpCode = likeResult.statusCode)
+        // Like the track, wherever the user wants likes to go
+        val liked = runLikeLegs(prefs, token, track, ruleConfig)
+        playFeedbackTone(success = liked)
+        if (!liked) return Result.success()
         recordLikedAt(prefs, track.id)
 
         runRulePipeline(prefs, token, track, ruleConfig)
 
         return Result.success()
+    }
+
+    /**
+     * Sends the like itself, on whichever legs the destination asks for, and
+     * logs each one. Returns whether the like counted as a success -- with
+     * `both`, one leg is enough, so a half failure is logged but still leaves
+     * the song liked.
+     *
+     * The branching lives in [LikeDestination] so this worker, the Dart
+     * Spotify path and the YouTube Music liker cannot drift apart.
+     */
+    private fun runLikeLegs(
+        prefs: SharedPreferences,
+        token: String,
+        track: CurrentTrack,
+        ruleConfig: RuleConfig
+    ): Boolean {
+        var nativeOk = false
+        if (ruleConfig.likeDestination.likesNatively) {
+            val result = likeTrack(track.id, token)
+            nativeOk = result.success
+            if (result.success) {
+                log(
+                    "Liked track: ${track.id}",
+                    actionType = "like_track",
+                    targetId = track.id,
+                    result = "success",
+                    httpCode = result.statusCode
+                )
+            } else {
+                log(
+                    "Like failed for track: ${track.id}" + (result.errorBody?.let { ": $it" } ?: ""),
+                    actionType = "like_track",
+                    targetId = track.id,
+                    result = "failure",
+                    httpCode = result.statusCode
+                )
+            }
+        }
+
+        var playlistOk = false
+        if (ruleConfig.likeDestination.addsToPlaylist) {
+            val name = ruleConfig.likePlaylistName
+            val outcome = runCatching {
+                val playlistId = ensurePlaylist(prefs, name, token)
+                    ?: return@runCatching ApiResult(false, 0)
+                addTrackToPlaylist(playlistId, track.uri, token)
+            }.getOrElse { ApiResult(false, 0) }
+            playlistOk = outcome.success
+            if (outcome.success) {
+                log(
+                    "Added to like playlist: $name",
+                    actionType = "like_playlist_add",
+                    targetId = track.id,
+                    result = "success",
+                    httpCode = outcome.statusCode
+                )
+            } else {
+                log(
+                    "Adding to like playlist failed: $name",
+                    actionType = "like_playlist_add",
+                    targetId = track.id,
+                    result = "failure",
+                    httpCode = outcome.statusCode.takeIf { it > 0 }
+                )
+            }
+        }
+
+        return LikeDestination.succeeded(ruleConfig.likeDestination, nativeOk, playlistOk)
     }
 
     private fun runRulePipeline(prefs: SharedPreferences, token: String, track: CurrentTrack, ruleConfig: RuleConfig) {
@@ -267,7 +326,9 @@ class SpotifyLikeWorker(
             likeCooldownMinutes = prefs.getInt(
                 AppConstants.KEY_RULE_LIKE_COOLDOWN_MINUTES,
                 AppConstants.DEFAULT_LIKE_COOLDOWN_MINUTES
-            ).takeIf { it >= 0 } ?: AppConstants.DEFAULT_LIKE_COOLDOWN_MINUTES
+            ).takeIf { it >= 0 } ?: AppConstants.DEFAULT_LIKE_COOLDOWN_MINUTES,
+            likeDestination = AppConstants.likeRuleDestination(prefs),
+            likePlaylistName = AppConstants.likeRulePlaylistName(prefs)
         )
     }
 
@@ -568,7 +629,9 @@ class SpotifyLikeWorker(
         val followArtistEnabled: Boolean,
         val followArtistThreshold: Int,
         val likeCooldownEnabled: Boolean,
-        val likeCooldownMinutes: Int
+        val likeCooldownMinutes: Int,
+        val likeDestination: LikeDestination,
+        val likePlaylistName: String
     )
 
     data class RefreshedToken(

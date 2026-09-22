@@ -1,6 +1,19 @@
 import '../../core/app_constants.dart';
+import 'like_destination.dart';
 
 class RuleConfig {
+  /// Where a like goes: the service's own like, a playlist, or both.
+  ///
+  /// Global rather than per service, like the playlist names below. The same
+  /// name resolves to a different playlist id on each service, which the
+  /// separate playlist caches already handle.
+  final LikeDestination likeDestination;
+
+  /// Playlist a like is added to when [likeDestination] is not
+  /// [LikeDestination.native]. Matched by name on whichever service is
+  /// selected, and created if it does not exist yet.
+  final String likePlaylistName;
+
   final bool archiveRemoveEnabled;
   final String archivePlaylistName;
   final bool bestEnabled;
@@ -21,6 +34,8 @@ class RuleConfig {
     required this.followArtistThreshold,
     this.likeCooldownEnabled = true,
     this.likeCooldownMinutes = AppConstants.defaultLikeCooldownMinutes,
+    this.likeDestination = LikeDestination.defaultDestination,
+    this.likePlaylistName = '',
   });
 
   /// Defaults for a fresh install.
@@ -39,6 +54,8 @@ class RuleConfig {
       followArtistThreshold: AppConstants.defaultFollowArtistThreshold,
       likeCooldownEnabled: true,
       likeCooldownMinutes: AppConstants.defaultLikeCooldownMinutes,
+      likeDestination: LikeDestination.defaultDestination,
+      likePlaylistName: '',
     );
   }
 
@@ -60,6 +77,10 @@ class RuleConfig {
       followArtistThreshold: AppConstants.defaultFollowArtistThreshold,
       likeCooldownEnabled: true,
       likeCooldownMinutes: AppConstants.defaultLikeCooldownMinutes,
+      // The destination setting is newer than every install this factory
+      // upgrades, so it lands on the behaviour they already had.
+      likeDestination: LikeDestination.defaultDestination,
+      likePlaylistName: '',
     );
   }
 
@@ -73,6 +94,8 @@ class RuleConfig {
     int? followArtistThreshold,
     bool? likeCooldownEnabled,
     int? likeCooldownMinutes,
+    LikeDestination? likeDestination,
+    String? likePlaylistName,
   }) {
     return RuleConfig(
       archiveRemoveEnabled: archiveRemoveEnabled ?? this.archiveRemoveEnabled,
@@ -84,6 +107,8 @@ class RuleConfig {
       followArtistThreshold: followArtistThreshold ?? this.followArtistThreshold,
       likeCooldownEnabled: likeCooldownEnabled ?? this.likeCooldownEnabled,
       likeCooldownMinutes: likeCooldownMinutes ?? this.likeCooldownMinutes,
+      likeDestination: likeDestination ?? this.likeDestination,
+      likePlaylistName: likePlaylistName ?? this.likePlaylistName,
     );
   }
 
@@ -105,6 +130,9 @@ class RuleConfig {
     if (likeCooldownEnabled && likeCooldownMinutes < 1) {
       errors.add('Like cooldown minutes must be at least 1.');
     }
+    if (likeDestination.addsToPlaylist && likePlaylistName.trim().isEmpty) {
+      errors.add('Like playlist name is required when likes go to a playlist.');
+    }
     return errors;
   }
 
@@ -119,6 +147,8 @@ class RuleConfig {
       'followArtistThreshold': followArtistThreshold,
       'likeCooldownEnabled': likeCooldownEnabled,
       'likeCooldownMinutes': likeCooldownMinutes,
+      'likeDestination': likeDestination.id,
+      'likePlaylistName': likePlaylistName,
     };
   }
 
@@ -150,6 +180,10 @@ class RuleConfig {
       followArtistThreshold: json['followArtistThreshold'] as int? ?? defaults.followArtistThreshold,
       likeCooldownEnabled: json['likeCooldownEnabled'] as bool? ?? defaults.likeCooldownEnabled,
       likeCooldownMinutes: json['likeCooldownMinutes'] as int? ?? defaults.likeCooldownMinutes,
+      likeDestination: json['likeDestination'] is String
+          ? LikeDestination.fromId(json['likeDestination'] as String)
+          : defaults.likeDestination,
+      likePlaylistName: json['likePlaylistName'] as String? ?? defaults.likePlaylistName,
     );
   }
 }

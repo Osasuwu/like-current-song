@@ -247,6 +247,12 @@ class YouTubeMusicServiceRepository
     // (not signed in, no shared counter, or the counter did not answer).
     final likeCount = reply['likeCount'];
     final trackLikeCount = likeCount is int ? likeCount : 0;
+    // Which halves of the like went through, and what to say when one of them
+    // did not. Absent on a build of the native side that predates the
+    // destination setting, which only ever liked natively.
+    final likedNatively = reply['likedNatively'] as bool? ?? true;
+    final addedToLikePlaylist = reply['addedToLikePlaylist'] as bool? ?? false;
+    final partialFailureMessage = reply['partialFailure'] as String?;
     switch (reply['outcome']) {
       case 'liked':
         return LikeResult(
@@ -254,6 +260,9 @@ class YouTubeMusicServiceRepository
           trackName: trackName,
           trackLiked: true,
           trackLikeCount: trackLikeCount,
+          likedNatively: likedNatively,
+          addedToLikePlaylist: addedToLikePlaylist,
+          partialFailureMessage: partialFailureMessage,
         );
       case 'already_liked':
         return LikeResult(
@@ -262,6 +271,9 @@ class YouTubeMusicServiceRepository
           trackLiked: true,
           alreadyLiked: true,
           trackLikeCount: trackLikeCount,
+          likedNatively: likedNatively,
+          addedToLikePlaylist: addedToLikePlaylist,
+          partialFailureMessage: partialFailureMessage,
         );
       case 'cooldown':
         return LikeResult(

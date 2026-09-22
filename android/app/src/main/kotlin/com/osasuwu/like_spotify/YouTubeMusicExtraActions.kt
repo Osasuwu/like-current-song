@@ -99,8 +99,19 @@ class YouTubeMusicExtraActions(
         log("Removed from archive playlist: $name", ARCHIVE_ACTION, "success", null)
     }
 
-    private fun promoteToBest(name: String, videoId: String) {
-        val playlistId = ensurePlaylist(name) ?: return
+    /**
+     * Adds [videoId] to the user's playlist called [name], creating it if they
+     * have none, and logs it as [actionType] saying [what] — or, when [what]
+     * is null, logs nothing because the caller reports the result itself.
+     *
+     * Shared with the like path: a like whose destination is a playlist adds
+     * the song exactly the way the best-playlist rule does, so there is one
+     * implementation of "put this song in that playlist of mine" rather than
+     * two that can drift. Throws [ApiFailure] when the API refuses; returns
+     * false when the playlist could neither be found nor created.
+     */
+    fun addToPlaylist(name: String, videoId: String, actionType: String, what: String?): Boolean {
+        val playlistId = ensurePlaylist(name, actionType) ?: return false
         val body = JSONObject().put(
             "snippet",
             JSONObject()
@@ -111,7 +122,12 @@ class YouTubeMusicExtraActions(
                 ),
         ).toString()
         apiCall("POST", "${YouTubeDataApi.API_BASE}/playlistItems?part=snippet", body)
-        log("Added to best playlist: $name", BEST_ACTION, "success", null)
+        if (what != null) log("$what: $name", actionType, "success", null)
+        return true
+    }
+
+    private fun promoteToBest(name: String, videoId: String) {
+        addToPlaylist(name, videoId, BEST_ACTION, "Added to best playlist")
     }
 
     private fun followChannel(channelId: String) {
@@ -163,7 +179,7 @@ class YouTubeMusicExtraActions(
         }
     }
 
-    private fun ensurePlaylist(name: String): String? {
+    private fun ensurePlaylist(name: String, actionType: String): String? {
         findPlaylist(name)?.let { return it }
 
         val body = JSONObject()
@@ -176,7 +192,7 @@ class YouTubeMusicExtraActions(
             apiCall("POST", "${YouTubeDataApi.API_BASE}/playlists?part=snippet,status", body)
         ) ?: return null
         savePlaylistCache(loadPlaylistCache().put(name, id))
-        log("Created playlist: $name", BEST_ACTION, "success", null)
+        log("Created playlist: $name", actionType, "success", null)
         return id
     }
 
@@ -256,6 +272,12 @@ class YouTubeMusicExtraActions(
         private const val ARCHIVE_ACTION = "archive_remove"
         private const val BEST_ACTION = "best_add"
         private const val FOLLOW_ACTION = "follow_artist"
+
+        /**
+         * The like's own playlist leg. Public because the liker runs that leg
+         * itself — it is part of the like, not an action that follows one.
+         */
+        const val LIKE_PLAYLIST_ACTION = "like_playlist_add"
 
         /**
          * A threshold action fires the once, exactly when the count reaches it

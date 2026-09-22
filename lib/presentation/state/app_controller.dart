@@ -383,6 +383,7 @@ class AppController extends StateNotifier<AppState> {
     final normalized = config.copyWith(
       archivePlaylistName: config.archivePlaylistName.trim(),
       bestPlaylistName: config.bestPlaylistName.trim(),
+      likePlaylistName: config.likePlaylistName.trim(),
     );
     final errors = normalized.validate();
     if (errors.isNotEmpty) {
@@ -469,6 +470,24 @@ class AppController extends StateNotifier<AppState> {
           actionType: 'archive_remove',
           result: LogResult.success,
           message: 'Removed from archive playlist',
+        );
+      }
+      if (result.addedToLikePlaylist) {
+        await addLog(
+          actionType: 'like_playlist_add',
+          targetId: result.trackName,
+          result: LogResult.success,
+          message: 'Added to like playlist',
+        );
+      }
+      if (result.partialFailureMessage != null) {
+        // Half of a "both" like did not go through. The like still counted,
+        // so this is a separate line rather than a failed like.
+        await addLog(
+          actionType: 'like_playlist_add',
+          targetId: result.trackName,
+          result: LogResult.failure,
+          message: result.partialFailureMessage!,
         );
       }
       if (result.addedToBest) {
@@ -752,6 +771,24 @@ class AppController extends StateNotifier<AppState> {
           actionType: 'archive_remove',
           result: LogResult.success,
           message: 'Removed from archive playlist',
+        );
+      }
+      if (result.addedToLikePlaylist) {
+        await addLog(
+          actionType: 'like_playlist_add',
+          targetId: result.trackName,
+          result: LogResult.success,
+          message: 'Added to like playlist',
+        );
+      }
+      if (result.partialFailureMessage != null) {
+        // Half of a "both" like did not go through. The like still counted,
+        // so this is a separate line rather than a failed like.
+        await addLog(
+          actionType: 'like_playlist_add',
+          targetId: result.trackName,
+          result: LogResult.failure,
+          message: result.partialFailureMessage!,
         );
       }
       if (result.addedToBest) {

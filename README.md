@@ -32,7 +32,7 @@ Yes. The app watches Spotify's playback state rather than one specific button, s
 Yes. The Windows tray host binds `Ctrl+Shift+Alt+W` (configurable) to "save current track to Liked Songs", and it works while Spotify is minimized or in the background. On macOS and Linux, bind `like-current-song like-once` to a shortcut in your OS settings, Raycast, skhd, or similar.
 
 ### Can it add the song to a playlist too, not only Liked Songs?
-Yes, through the rule engine: it can promote a track to a "best" playlist after N likes and remove it from an archive playlist. New actions are small Python plugins.
+Yes. On Android, **Trigger configuration → Where likes go** sends every like to the service's own likes (the default), to a playlist of yours, or to both. The playlist is matched by name on whichever service played the song, and created if it isn't there yet. It is the only way to keep a songs-only list on YouTube Music, where the native like drops the song in with every video you have ever liked. On top of that, the rule engine can promote a track to a "best" playlist after N likes and remove it from an archive playlist. New actions are small Python plugins.
 
 ### Does it work with YouTube Music?
 Yes, on both halves. On Android it is built in and needs **no Google sign-in**: the trigger gives the playing song a thumbs-up through YT Music's own media session. On Windows it is in beta — pick `ytmusic` during `--setup` and connect your own free Google OAuth client. If you use both services, Android can send each like to whichever one is currently playing.
@@ -51,7 +51,8 @@ No. iOS doesn't let third-party apps observe another app's playback in the backg
 
 1. **Trigger** — pause-play your headset (Android) or press a hotkey (desktop)
 2. **Like** — the current track is saved: Liked Songs on Spotify, a thumbs-up
-   on YouTube Music
+   on YouTube Music — or a playlist of your own instead, or both
+   (**Trigger configuration → Where likes go** on Android)
 3. **Archive cleanup** — if the track is in your archive playlist, it gets removed
 4. **Best promotion** — like a track 3 times across devices and it's added to your best playlist
 5. **Artist follow** — like 5+ tracks from an artist and they get auto-followed
@@ -284,9 +285,10 @@ promote-to-best and follow-artist act on your ordinary YouTube playlists and
 channel subscriptions. Each one spends about 50 units of the 10,000-unit daily
 pool — the pool the song lookup above does *not* draw on — so a like with all
 three enabled costs a couple of hundred units out of 10,000, and you would need
-hundreds of likes in a day to exhaust it. A plain like costs none. The
-`youtube` scope above already covers them, so there is nothing more to
-authorise.
+hundreds of likes in a day to exhaust it. A plain like costs none — but
+pointing **Where likes go** at a playlist makes every like a playlist write,
+at the same ~50 units. The `youtube` scope above already covers all of this,
+so there is nothing more to authorise.
 
 ### 3. Desktop
 
@@ -613,8 +615,8 @@ settings window (`like-current-song --settings`, or **Settings…** in the tray 
 |---------|---------|---------|
 | Trigger pattern / hotkey | In-app UI | `~/.like_spotify/config.json` → `trigger.hotkey` (default `Ctrl+Shift+Alt+W`) |
 | Discard hotkey (dislike + un-archive + un-like) | n/a (one trigger on headphones) | `~/.like_spotify/config.json` → `trigger.remove_hotkey` (default `Ctrl+Shift+Alt+Q`) |
-| Where a like goes | n/a (always the service's own like) | `~/.like_spotify/config.json` → `like.destination` (`native` / `playlist` / `both`, default `native`) |
-| Like destination playlist | n/a | `~/.like_spotify/config.json` → `like.playlist_name` (required by `playlist` / `both`; created on first use, and the discard hotkey removes from it) |
+| Where a like goes | In-app UI (*Trigger configuration* → *Where likes go*) | `~/.like_spotify/config.json` → `like.destination` (`native` / `playlist` / `both`, default `native`) |
+| Like destination playlist | In-app UI, matched by name on whichever service played the song | `~/.like_spotify/config.json` → `like.playlist_name` (required by `playlist` / `both`; created on first use, and the discard hotkey removes from it) |
 | Archive playlist name | In-app UI | `~/.like_spotify/config.json` → `actions.archive_remove.playlist_name` (blank = the discard hotkey only dislikes) |
 | Music service | In-app UI (Spotify / YouTube Music / Automatic) | `~/.like_spotify/config.json` → `music.provider` (`spotify` / `ytmusic`, default `spotify`) |
 | YouTube Music client ID / secret | In-app UI (*Connected services*), stored in `FlutterSecureStorage`; `.env` (`YTMUSIC_CLIENT_ID`, `YTMUSIC_CLIENT_SECRET`) seeds a build | `like-current-song --setup` → `~/.like_spotify/config.json` |

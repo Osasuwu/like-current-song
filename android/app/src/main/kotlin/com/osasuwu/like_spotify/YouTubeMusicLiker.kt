@@ -71,6 +71,18 @@ class YouTubeMusicLiker(context: Context) {
         val nowPlaying: NowPlaying? = null,
         /** The shared counter's new value; null when the like was not counted. */
         val likeCount: Int? = null,
+        /**
+         * Which legs of the like went through. With the `both` destination a
+         * like can half succeed, so [kind] says whether the like counted at
+         * all and these say what actually happened; see [LikeDestination].
+         */
+        val likedNatively: Boolean = false,
+        val addedToLikePlaylist: Boolean = false,
+        /**
+         * The leg that failed while the other one carried the like, phrased
+         * for a log line. Null when nothing failed.
+         */
+        val partialFailure: String? = null,
     ) {
         /** Whether the user should hear the success tone. */
         val positive: Boolean get() = kind != Kind.FAILED
@@ -78,13 +90,16 @@ class YouTubeMusicLiker(context: Context) {
         /** The final log line when no Flutter UI is attached to log it. */
         fun logLine(): String {
             val name = trackName ?: "YouTube Music"
-            return when (kind) {
+            val line = when (kind) {
                 // "(xN)" matches the Dart log line (AppController._likedMessage).
                 Kind.LIKED -> if (likeCount != null) "Liked: $name (x$likeCount)" else "Liked: $name"
                 Kind.ALREADY_LIKED -> "Already liked: $name"
                 Kind.COOLDOWN -> "Like skipped (cooldown): $name"
                 Kind.FAILED -> "Like failed: ${error ?: "unknown error"}"
             }
+            // Detached, this is the only line the user gets, so the half of a
+            // "both" like that did not go through has to ride along with it.
+            return if (partialFailure != null) "$line — $partialFailure" else line
         }
 
         /** Shape returned over the `likeYouTubeMusic` method channel. */
@@ -99,8 +114,17 @@ class YouTubeMusicLiker(context: Context) {
             "message" to error,
             "httpCode" to httpCode,
             "likeCount" to likeCount,
+            "likedNatively" to likedNatively,
+            "addedToLikePlaylist" to addedToLikePlaylist,
+            "partialFailure" to partialFailure,
         )
     }
+
+    /**
+     * What one run of the like playlist leg did. Public, like [combine], so
+     * the JUnit test can drive the destination branching.
+     */
+    data class PlaylistLeg(val added: Boolean, val error: String? = null, val httpCode: Int? = null)
 
     /** Title and (cleaned) artist read from the YouTube Music session. */
     data class NowPlaying(val title: String, val artist: String) {
@@ -136,13 +160,7 @@ class YouTubeMusicLiker(context: Context) {
         val nowPlaying = outcome.nowPlaying ?: return
         if (outcome.kind != Kind.LIKED && outcome.kind != Kind.ALREADY_LIKED) return
 
-        val actions = YouTubeMusicExtraActions(
-            prefs,
-            apiCall = ::apiCall,
-            log = { message, actionType, result, httpCode ->
-                log(message, result = result, httpCode = httpCode, actionType = actionType)
-            },
-        )
+        val actions = extraActionRunner()
         if (!actions.anyEnabled()) return
 
         val match = try {
@@ -160,6 +178,19 @@ class YouTubeMusicLiker(context: Context) {
         }
         actions.run(match, outcome.likeCount)
     }
+
+    /**
+     * A runner bound to this liker's API call and log. Cheap to build — it
+     * only reads the rules out of prefs — so both the like's playlist leg and
+     * the extra actions make their own.
+     */
+    private fun extraActionRunner() = YouTubeMusicExtraActions(
+        prefs,
+        apiCall = ::apiCall,
+        log = { message, actionType, result, httpCode ->
+            log(message, result = result, httpCode = httpCode, actionType = actionType)
+        },
+    )
 
     private fun countLocked(outcome: Outcome): Outcome {
         val nowPlaying = outcome.nowPlaying ?: return outcome
@@ -206,13 +237,52 @@ class YouTubeMusicLiker(context: Context) {
             return Outcome(Kind.COOLDOWN, nowPlaying.display, nowPlaying = nowPlaying)
         }
 
-        val outcome = when (sessionLike(controller)) {
+        // Where the user wants likes to go. The native leg runs first: it is
+        // the cheap one (no search, no quota) and the one they see in the
+        // YouTube Music app.
+        val destination = AppConstants.likeRuleDestination(prefs)
+        val playlistName = AppConstants.likeRulePlaylistName(prefs)
+        val native = if (destination.likesNatively) nativeLike(controller, nowPlaying) else null
+        val playlist = if (destination.addsToPlaylist) addToLikePlaylist(nowPlaying, playlistName) else null
+
+        val outcome = combine(destination, nowPlaying, playlistName, native, playlist)
+        if (outcome.positive) recordLikedAt(key)
+        return outcome
+    }
+
+    /** The service's own like: the media session, falling back to the Data API. */
+    private fun nativeLike(controller: MediaController, nowPlaying: NowPlaying): Outcome =
+        when (sessionLike(controller)) {
             SessionResult.ALREADY_LIKED -> Outcome(Kind.ALREADY_LIKED, nowPlaying.display)
             SessionResult.LIKED -> Outcome(Kind.LIKED, nowPlaying.display)
             SessionResult.UNSUPPORTED, SessionResult.DID_NOT_STICK -> apiLike(nowPlaying)
-        }.copy(nowPlaying = nowPlaying)
-        if (outcome.positive) recordLikedAt(key)
-        return outcome
+        }
+
+    /**
+     * Adds the song to the user's like playlist, creating it the first time.
+     *
+     * Costs a `playlistItems.insert` (50 units) per like, plus the search the
+     * song's videoId needs — cached per song, so a repeat like is one write.
+     * The result is reported by the caller, not logged here: the leg is part
+     * of the like, so it belongs in the like's own line.
+     */
+    private fun addToLikePlaylist(nowPlaying: NowPlaying, playlistName: String): PlaylistLeg = try {
+        val match = resolveMatch(nowPlaying)
+        if (match == null) {
+            PlaylistLeg(false, "no YouTube match for this song")
+        } else {
+            val added = extraActionRunner().addToPlaylist(
+                playlistName,
+                match.videoId,
+                YouTubeMusicExtraActions.LIKE_PLAYLIST_ACTION,
+                what = null,
+            )
+            if (added) PlaylistLeg(true) else PlaylistLeg(false, "could not find or create \"$playlistName\"")
+        }
+    } catch (failure: ApiFailure) {
+        PlaylistLeg(false, failure.outcomeError, failure.httpCode)
+    } catch (e: Exception) {
+        PlaylistLeg(false, "network error: ${e.message}")
     }
 
     // ---- Session like -------------------------------------------------
@@ -504,6 +574,50 @@ class YouTubeMusicLiker(context: Context) {
         private const val HTTP_TIMEOUT_MS = 10_000
         private const val REAUTH_REQUEST_CODE = 6
         private const val RESOLVED_CACHE_SIZE = 64
+
+        /**
+         * The one outcome of the legs that ran. A one-leg destination is exactly
+         * its leg; `both` only fails when both legs do, and then reports the
+         * native failure, which is the one the user can act on.
+         */
+        fun combine(
+            destination: LikeDestination,
+            nowPlaying: NowPlaying,
+            playlistName: String,
+            native: Outcome?,
+            playlist: PlaylistLeg?,
+        ): Outcome {
+            val nativeOk = native?.positive == true
+            val playlistOk = playlist?.added == true
+            if (!LikeDestination.succeeded(destination, nativeOk, playlistOk)) {
+                return Outcome(
+                    Kind.FAILED,
+                    nowPlaying.display,
+                    error = native?.error ?: playlist?.error,
+                    httpCode = native?.httpCode ?: playlist?.httpCode,
+                    nowPlaying = nowPlaying,
+                )
+            }
+            val partialFailure = when {
+                native != null && !nativeOk ->
+                    "Liked songs failed, so the like only reached \"$playlistName\": " +
+                        (native.error ?: "unknown error")
+                playlist != null && !playlistOk ->
+                    "Adding to \"$playlistName\" failed, so the like only reached liked songs: " +
+                        (playlist.error ?: "unknown error")
+                else -> null
+            }
+            return Outcome(
+                // Nothing changed only when the service already had the song liked
+                // and no playlist add came with it.
+                kind = if (native?.kind == Kind.ALREADY_LIKED && !playlistOk) Kind.ALREADY_LIKED else Kind.LIKED,
+                trackName = nowPlaying.display,
+                nowPlaying = nowPlaying,
+                likedNatively = nativeOk,
+                addedToLikePlaylist = playlistOk,
+                partialFailure = partialFailure,
+            )
+        }
 
         /** Log action type for the shared-counter step. */
         private const val COUNT_ACTION = "like_count"
