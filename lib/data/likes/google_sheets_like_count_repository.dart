@@ -34,6 +34,25 @@ class SheetsCallException implements Exception {
 /// The tab is read once and kept as an in-memory `(user_id, track_id) -> row`
 /// map plus a count cache; after that a like is one targeted `values.update`
 /// per cell, or a single `values.append` for a pair the sheet has not seen.
+///
+/// One pair, one row — the row *is* the counter, so a second row for a pair
+/// splits its count in two for good (#193). Three rules keep that from
+/// happening:
+///
+/// * Increments run one at a time ([_queue]). Two presses in flight together
+///   would otherwise both read "no row yet" and both append.
+/// * The cache is never trusted to say a pair is *absent*: a pair missing
+///   from it means re-read the tab, and only append if it is still missing.
+///   The background half (`LikeCounter.kt`) appends rows this instance can
+///   never hear about, so the only safe answer is to look. It costs one extra
+///   `values.get` on the append path, which is the first like of a track and
+///   nothing else; every later like still updates two cells and reads nothing.
+/// * When the tab already holds two rows for one pair — sheets that went
+///   wrong before those rules existed — the **topmost** one wins, which is
+///   the row `LikeCounter.findRow` picks too, so both halves add to the same
+///   one. The extra rows are left exactly as they are; deleting a user's data
+///   is not this counter's business. Their existence is reported once per
+///   load on the Logs screen so it does not diverge silently.
 class GoogleSheetsLikeCountRepository implements LikeCountRepository {
   GoogleSheetsLikeCountRepository({
     required this.readSpreadsheetId,
@@ -96,6 +115,15 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
   Map<String, int>? _rows;
   Map<String, int> _counts = <String, int>{};
 
+  /// Pairs already reported as duplicated on this sheet, so the Logs screen
+  /// gets one line per pair rather than one per like.
+  final Set<String> _reportedDuplicates = <String>{};
+
+  /// The tail of the chain every remote increment is linked onto: the sheet
+  /// round trip is read-then-write, and two of them interleaved both see a
+  /// pair with no row and both append it (#193).
+  Future<void> _queue = Future<void>.value();
+
   /// [wasAlreadyLiked] marks a song the service already had liked before this
   /// press. On the sheet's first sight of the pair that seeds the count at 2
   /// and flags `backfilled`, exactly as the desktop half does; afterwards it
@@ -106,9 +134,26 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
     String trackId, {
     bool wasAlreadyLiked = false,
   }) async {
-    final count = await _remoteIncrement(trackId, wasAlreadyLiked);
+    final count = await _serialized(
+      () => _remoteIncrement(trackId, wasAlreadyLiked),
+    );
     if (count != null) return count;
     return _local.incrementTrackLikeCount(trackId);
+  }
+
+  /// Runs [action] after every increment already queued on this repository.
+  ///
+  /// A sheet increment is read-then-write, and nothing outside this process
+  /// locks the tab; two presses overlapping would each read "this pair has no
+  /// row" and each append one, splitting the count across two rows for good
+  /// (#193). One at a time is the whole fix: presses arrive seconds apart in
+  /// practice, and each one is two small calls.
+  Future<T> _serialized<T>(Future<T> Function() action) {
+    final result = _queue.then((_) => action());
+    // The next caller waits for this one to finish, not to *succeed* — and it
+    // must never inherit its error, which belongs to the caller above.
+    _queue = result.then<void>((_) {}, onError: (Object _) {});
+    return result;
   }
 
   Future<int?> _remoteIncrement(String trackId, bool wasAlreadyLiked) async {
@@ -166,10 +211,25 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
     }
 
     try {
-      final rows = await _ensureLoaded(spreadsheetId, token);
       final key = _key(userId, trackId);
       final now = _nowIso();
-      final row = rows[key];
+
+      // A read this call made is as fresh as the sheet gets; a cache left
+      // over from an earlier like is not.
+      final wasCached = _rows != null && _loadedFor == spreadsheetId;
+      var rows = await _ensureLoaded(spreadsheetId, token);
+      var row = rows[key];
+
+      // The cache may say a pair is on the sheet, but it can never be trusted
+      // to say one is *not*: the background half appends rows straight to the
+      // tab, and this instance has no way to hear about them (#193). So a
+      // miss means look again before appending — one extra read on the first
+      // like of a track, against a wrong row that never merges back.
+      if (row == null && wasCached) {
+        _invalidate();
+        rows = await _ensureLoaded(spreadsheetId, token);
+        row = rows[key];
+      }
 
       if (row != null) {
         final newCount = (_counts[key] ?? 0) + 1;
@@ -205,8 +265,14 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
         wasAlreadyLiked ? 'TRUE' : 'FALSE',
         now,
       ]);
-      rows[key] = appendedRow;
-      _counts[key] = newCount;
+      // A range that could not be read is no row at all, so it is not cached:
+      // the next like re-reads the tab, finds the row this call really did
+      // append, and adds to it — rather than writing to `C0` and, worse,
+      // believing the pair is absent all over again.
+      if (appendedRow > 0) {
+        rows[key] = appendedRow;
+        _counts[key] = newCount;
+      }
       return newCount;
     } catch (error) {
       // Anything unexpected and the cache may no longer match the sheet, so
@@ -276,12 +342,26 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
     final values = decoded is Map<String, dynamic> ? decoded['values'] : null;
     final rows = <String, int>{};
     final counts = <String, int>{};
+    final duplicates = <String, ({int at, String trackId})>{};
     if (values is List) {
       // Row 1 is the header; data starts at row 2.
       for (var offset = 1; offset < values.length; offset++) {
         final row = values[offset];
         if (row is! List || row.length < 3) continue;
         final key = _key('${row[0]}', '${row[1]}');
+        // The topmost row for a pair wins, and the ones below it are left
+        // alone. `LikeCounter.findRow` returns its first match too, so both
+        // halves keep adding to the same row of a sheet that already has
+        // duplicates on it — which is what stops the two counts drifting
+        // further apart (#193). Merging them is the user's call: this counter
+        // does not get to delete rows off their sheet.
+        if (rows.containsKey(key)) {
+          duplicates.putIfAbsent(
+            key,
+            () => (at: offset + 1, trackId: '${row[1]}'),
+          );
+          continue;
+        }
         rows[key] = offset + 1;
         counts[key] = int.tryParse('${row[2]}') ?? 0;
       }
@@ -289,7 +369,47 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
     _loadedFor = spreadsheetId;
     _rows = rows;
     _counts = counts;
+    for (final entry in duplicates.entries) {
+      await _reportDuplicate(
+        entry.key,
+        entry.value.trackId,
+        rows[entry.key]!,
+        entry.value.at,
+      );
+    }
     return rows;
+  }
+
+  /// Says, once per pair, that the sheet holds more than one row for it.
+  ///
+  /// A duplicate is permanent damage to a count and nothing else would ever
+  /// mention it — the counter would just keep adding to one of the two rows
+  /// and showing a number lower than the likes (#193). It cannot be repaired
+  /// from here without deleting a row of someone's spreadsheet, so it is
+  /// named instead, with the rows to merge.
+  Future<void> _reportDuplicate(
+    String key,
+    String trackId,
+    int kept,
+    int extra,
+  ) async {
+    if (!_reportedDuplicates.add(key)) return;
+    final message =
+        'The shared counter sheet has more than one row for this track '
+        '(rows $kept and $extra). Counting on row $kept; add the counts up '
+        'and delete the spare row to see the real total.';
+    debugPrint(message);
+    try {
+      await appendLog(AppLog(
+        at: DateTime.now().toUtc(),
+        actionType: logActionType,
+        targetId: trackId,
+        result: LogResult.info,
+        message: message,
+      ));
+    } catch (error) {
+      debugPrint('Duplicate counter row could not be logged: $error');
+    }
   }
 
   void _invalidate() {

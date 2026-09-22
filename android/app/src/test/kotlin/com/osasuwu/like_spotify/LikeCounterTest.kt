@@ -67,6 +67,21 @@ class LikeCounterTest {
     }
 
     @Test
+    fun `a pair with two rows resolves to the topmost one`() {
+        // Sheets damaged before #193 carry duplicates. Whichever half counts
+        // the next like has to pick the same row, or the two counts drift
+        // further apart every press; the rule is "topmost wins".
+        val body = """
+            {"values":[
+              ["user_id","track_id","count","backfilled","updated_at"],
+              ["u","t",1,"FALSE","2026-01-01T00:00:00Z"],
+              ["u","t",1,"FALSE","2026-01-02T00:00:00Z"]
+            ]}
+        """.trimIndent()
+        assertEquals(2 to 1, LikeCounter.findRow(body, "u", "t"))
+    }
+
+    @Test
     fun `a row whose count is missing or junk counts as zero`() {
         val body = """{"values":[["user_id","track_id","count"],["u","t",""],["x","y","nope"]]}"""
         assertEquals(2 to 0, LikeCounter.findRow(body, "u", "t"))

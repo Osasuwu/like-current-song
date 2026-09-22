@@ -76,6 +76,13 @@ object LikeCounter {
      * The row index of (user id, track id) in a `values.get` body, and the
      * count currently on it. Row 1 is the header, so data starts at row 2.
      * Null when the pair has no row yet.
+     *
+     * A pair with more than one row — damage from before #193, which a sheet
+     * cannot be repaired of from here — resolves to the **topmost** of them.
+     * The Dart half applies the same rule
+     * (`google_sheets_like_count_repository.dart`), so both keep adding to
+     * one row instead of drifting further apart; do not change this to the
+     * last match without changing that too.
      */
     fun findRow(body: String?, userId: String, trackId: String): Pair<Int, Int>? {
         val values = runCatching { JSONObject(body.orEmpty()).optJSONArray("values") }.getOrNull()

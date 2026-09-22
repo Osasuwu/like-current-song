@@ -126,6 +126,21 @@ still the only option for the desktop half.
 
 ### Fixed
 
+- **Android: the shared counter sheet no longer grows a second row for a track
+  instead of counting on the first.** The row *is* the counter, so once a
+  track had two of them its count was split for good — every later like went
+  to one row or the other, and the total you saw stayed permanently below the
+  number of likes, with nothing saying so. Two ways in: two likes of the same
+  track close enough together both found "no row yet" and both added one; and
+  the app's in-memory picture of the sheet, once loaded, never learned about
+  rows the background half had added since, so it added a row of its own on
+  top. Likes are now counted one at a time, and a track the app believes is
+  new is looked up on the sheet again before any row is added. Sheets that
+  already carry a duplicate keep counting on the topmost of the two rows —
+  the same one the background half picks, so the two stop drifting further
+  apart — and the Logs screen now names the rows to merge, once per track.
+  The spare row is never deleted for you; adding the two counts up and
+  removing one row by hand restores the real total.
 - **Android: likes made in the app and likes made with the media button now
   count towards the same total.** The two halves of the app kept their own
   copies of every per-device counter, in two stores that never met, so anyone
