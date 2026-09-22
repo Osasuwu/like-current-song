@@ -112,6 +112,17 @@ still the only option for the desktop half.
 
 ### Fixed
 
+- **Android: a like with the app closed no longer fails in silence.** If a
+  Spotify request fell over mid-flight — a dropped connection, a reply that
+  wasn't the JSON we expected — the background job died on the spot. You got
+  no buzz and no log line, which looks exactly like the headset pattern never
+  registering, so the only clue was the song not being liked. The job now
+  reports what went wrong, buzzes the failure tone and stops. It deliberately
+  does **not** retry later: it likes whatever is playing when it runs, so a
+  retry minutes on would like the wrong song. Press again. The token refresh
+  also got the same ten-second timeout the other calls already had, so a
+  stalled refresh can't leave the job hanging.
+
 - **Android: the headset pattern works again after you swipe the app out of
   recents.** Closing the app from the recents screen left the listener running
   and the notification in place, but every press of the pattern did nothing —

@@ -33,7 +33,33 @@ class SpotifyLikeWorker(
     params: WorkerParameters
 ) : Worker(appContext, params) {
 
+    /**
+     * Every HTTP call below can throw -- a dropped connection, a truncated
+     * body, a non-JSON error page. Unguarded, that killed the whole job: no
+     * log line, no failure tone, nothing the user could tell apart from the
+     * trigger never firing. A retry is not the answer either, because
+     * [currentTrack] resolves at run time, so a job that runs minutes later
+     * would like whatever is playing by then. So: report, buzz, give up.
+     */
     override fun doWork(): Result {
+        return try {
+            runLike()
+        } catch (t: Throwable) {
+            // Guarded in turn: a tone generator that throws on some OEM would
+            // otherwise put us right back where we started.
+            runCatching {
+                log(
+                    "Like failed: ${t.javaClass.simpleName}: ${t.message ?: "no message"}",
+                    actionType = "like_track",
+                    result = "failure"
+                )
+            }
+            runCatching { playFeedbackTone(success = false) }
+            Result.success()
+        }
+    }
+
+    private fun runLike(): Result {
         // The service the trigger resolved to, carried from enqueue time: the
         // job honours the decision that was made (and logged) rather than
         // resolving again against state that has since moved on. A job queued
@@ -537,6 +563,10 @@ class SpotifyLikeWorker(
         connection.requestMethod = "POST"
         connection.doOutput = true
         connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+        // Same budget as [api]: without it a stalled refresh holds the worker
+        // open until WorkManager's own 10-minute ceiling kills it.
+        connection.connectTimeout = 10000
+        connection.readTimeout = 10000
 
         val body = buildString {
             append("grant_type=refresh_token")
