@@ -19,11 +19,29 @@ OAuth is owner-managed: the constructor takes a `token_provider`
 callable that returns a fresh access token at call time. The host
 wires that to whatever refresh strategy it likes (the `--setup`
 integration lands separately in #28).
+
+One pair, one row (#202). The row *is* the counter, so a second row for a
+`(user_id, track_id)` pair splits its count in two for good and the total
+the user sees stays below the number of likes. Three rules keep that from
+happening, and they are the same three the Android half runs (#193/#201):
+
+* The `(user, track) -> row` cache may say a pair is *present*, but it is
+  never trusted to say one is *absent*: a miss on a cache loaded earlier
+  means re-read the tab, and only append if the pair is still missing.
+  The phone and a second desktop instance append rows this process can
+  never hear about. It costs one extra `values.get` on the append path —
+  the first like of a track and nothing else.
+* Read-then-write is serialized on `_lock`, so two likes in flight cannot
+  both read "no row yet" and both append one.
+* A tab that already holds two rows for one pair resolves to the
+  **topmost** of them, and the spare is reported, never deleted.
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
+import threading
 import time
 from collections.abc import Callable
 
@@ -54,6 +72,8 @@ DOMAIN = "google_sheets"
 
 API_BASE = "https://sheets.googleapis.com/v4/spreadsheets"
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "ARTIST_HEADER_ROW",
     "API_BASE",
@@ -76,6 +96,7 @@ __all__ = [
 
 
 TokenProvider = Callable[[], str]
+Notice = Callable[[str], None]
 
 
 class GoogleSheetsStorage(Storage):
@@ -86,6 +107,7 @@ class GoogleSheetsStorage(Storage):
         sheet_name: str = DEFAULT_SHEET,
         artist_sheet_name: str = DEFAULT_ARTIST_SHEET,
         timeout: float = 5.0,
+        notice: Notice | None = None,
     ) -> None:
         if not spreadsheet_id:
             raise ValueError("spreadsheet_id is required")
@@ -96,12 +118,36 @@ class GoogleSheetsStorage(Storage):
         self._sheet = sheet_name
         self._artist_sheet = artist_sheet_name
         self._timeout = timeout
+        # Where a message about the *sheet* goes, as opposed to an error a
+        # caller can act on. The default reaches the user through the
+        # resident host's `startup.log` — the one log the tray can open.
+        # A `notice` runs with `_lock` held, so it must not call back in.
+        self._notice: Notice = notice if notice is not None else logger.warning
         # Filled on first access. Row index is 1-based and INCLUDES the
         # header row, so the first data row is index 2.
         self._row_index: dict[tuple[str, str], int] | None = None
         self._count_cache: dict[tuple[str, str], int] = {}
         # #26 — distinct (user, artist, track) triples seen.
         self._artist_seen: set[tuple[str, str, str]] | None = None
+        # Pairs already named as duplicated, so a sheet that carries one is
+        # reported once and not on every press (#202).
+        self._reported_duplicates: set[tuple[str, str]] = set()
+        # The read-then-write round trip is serialized here, and the caches
+        # above are only touched under it.
+        #
+        # Two increments really can overlap: `TrayHotkeyTrigger._on_hotkey`
+        # fires on the `keyboard` library's worker thread and schedules the
+        # emit with `asyncio.run_coroutine_threadsafe(...)` *without waiting
+        # on the future*, so each press starts an independent
+        # `pipeline.run_once()`; those coroutines interleave at every await,
+        # and `increment` dispatches through `asyncio.to_thread`, which puts
+        # two `_increment_sync` bodies on two OS threads at once. Both would
+        # read "this pair has no row" and both would append one (#202).
+        #
+        # A plain `Lock` rather than an `RLock`: it is taken once, at the top
+        # of each public `_sync` entry point, and every internal below
+        # assumes it is already held. Nothing re-enters.
+        self._lock = threading.Lock()
 
     async def increment(
         self,
@@ -133,7 +179,30 @@ class GoogleSheetsStorage(Storage):
             "Content-Type": "application/json",
         }
 
+    def _invalidate(self) -> None:
+        """Throw the row/count picture away so the next use re-reads the tab.
+
+        Caller holds `_lock`.
+        """
+        self._row_index = None
+        self._count_cache = {}
+
     def _ensure_loaded(self) -> None:
+        """Load `(user, track) -> row` and the counts, once, until invalidated.
+
+        The **topmost** row for a pair wins and the ones below it are left
+        exactly where they are. That rule is shared by all three halves —
+        `LikeCounter.findRow` (Kotlin) returns its first match and
+        `_ensureLoaded` (Dart) keeps the first row it sees — so a sheet that
+        already carries a duplicate has every half adding to the same row of
+        it, instead of the counts drifting further apart with every like
+        (#202). The spare rows are never deleted: it is the user's
+        spreadsheet, and merging two counts is their call, not a counter's.
+        They are reported once per pair instead, since nothing else would
+        ever mention a split count.
+
+        Caller holds `_lock`.
+        """
         if self._row_index is not None:
             return
         r = requests.get(
@@ -149,11 +218,17 @@ class GoogleSheetsStorage(Storage):
         rows = r.json().get("values", []) or []
         index: dict[tuple[str, str], int] = {}
         counts: dict[tuple[str, str], int] = {}
+        duplicates: dict[tuple[str, str], list[int]] = {}
         # Row 1 is the header; data starts at row 2.
         for offset, row in enumerate(rows[1:], start=2):
             if len(row) < 3:
                 continue
             key = (row[0], row[1])
+            if key in index:
+                # Topmost already taken — this one is a spare. Remember it
+                # so the user can be told, and never overwrite the index.
+                duplicates.setdefault(key, []).append(offset)
+                continue
             index[key] = offset
             try:
                 counts[key] = int(row[2])
@@ -161,13 +236,65 @@ class GoogleSheetsStorage(Storage):
                 counts[key] = 0
         self._row_index = index
         self._count_cache = counts
+        for key, spares in duplicates.items():
+            self._report_duplicate(key, index[key], spares)
+
+    def _report_duplicate(
+        self, key: tuple[str, str], kept: int, spares: list[int]
+    ) -> None:
+        """Say, once per pair, that the sheet holds more than one row for it.
+
+        A duplicate is permanent damage to a count that cannot be repaired
+        from here without deleting a row off someone's spreadsheet, so it is
+        named instead, with the rows to add up. Not an exception: the
+        pipeline treats anything `increment` raises as "the counter failed"
+        and drops the count to `None`, which would cost the user the number
+        over a sheet that is merely untidy.
+
+        Caller holds `_lock`.
+        """
+        if key in self._reported_duplicates:
+            return
+        self._reported_duplicates.add(key)
+        spare_word = "row" if len(spares) == 1 else "rows"
+        try:
+            self._notice(
+                f"The shared counter sheet has more than one row for track "
+                f"{key[1]} (rows {_and_list([kept, *spares])}). Counting on "
+                f"row {kept}; add the counts up and delete the spare "
+                f"{spare_word} to see the real total."
+            )
+        except Exception:
+            # A notice sink that throws must not cost the user their like.
+            pass
 
     def _increment_sync(
         self, user_id: str, track_id: str, was_already_liked: bool
     ) -> int:
+        with self._lock:
+            return self._increment_locked(user_id, track_id, was_already_liked)
+
+    def _increment_locked(
+        self, user_id: str, track_id: str, was_already_liked: bool
+    ) -> int:
+        # A read this call made is as fresh as the sheet gets; a picture left
+        # over from an earlier like is not. The cache may say a pair is on
+        # the sheet, but it can never be trusted to say one is *absent*: the
+        # phone and a second desktop instance append rows straight to the tab
+        # and this process has no way to hear about them (#202). So a miss on
+        # a warm cache means look again before appending — one extra read on
+        # the first like of a track, against a second row that never merges
+        # back. A cold cache is about to read anyway, so it pays nothing.
+        was_cached = self._row_index is not None
         self._ensure_loaded()
         assert self._row_index is not None  # for type checker
         key = (user_id, track_id)
+
+        if key not in self._row_index and was_cached:
+            self._invalidate()
+            self._ensure_loaded()
+            assert self._row_index is not None
+
         now = _now_iso()
 
         if key in self._row_index:
@@ -190,15 +317,31 @@ class GoogleSheetsStorage(Storage):
         new_count = 2 if was_already_liked else 1
         row = [user_id, track_id, new_count, "TRUE" if was_already_liked else "FALSE", now]
         appended_index = self._values_append(row)
-        self._row_index[key] = appended_index
-        self._count_cache[key] = new_count
+        # A range that could not be read is no row at all, so it is not
+        # cached: row 0 would send the next like to `C0`. Leaving the pair
+        # out means the next like re-reads the tab, finds the row this call
+        # really did append, and adds to it (#202, as Dart does in #201).
+        if appended_index > 0:
+            self._row_index[key] = appended_index
+            self._count_cache[key] = new_count
         return new_count
 
     def _get_count_sync(self, user_id: str, track_id: str) -> int:
-        self._ensure_loaded()
-        return self._count_cache.get((user_id, track_id), 0)
+        with self._lock:
+            self._ensure_loaded()
+            return self._count_cache.get((user_id, track_id), 0)
 
     def _ensure_artist_loaded(self) -> None:
+        """Load the distinct `(user, artist, track)` triples, once.
+
+        No warm-cache re-read here, unlike `_ensure_loaded`. This tab has no
+        counter in it: it is a *set*, the per-artist number is recounted from
+        the set in memory, and a reload collapses any repeated triple. A
+        stale cache can therefore only cost a redundant row, never a split
+        count — not worth a GET on the first like of every track (#202).
+
+        Caller holds `_lock`.
+        """
         if self._artist_seen is not None:
             return
         r = requests.get(
@@ -227,19 +370,22 @@ class GoogleSheetsStorage(Storage):
     def _record_artist_track_sync(
         self, user_id: str, artist_id: str, track_id: str
     ) -> int:
-        self._ensure_artist_loaded()
-        assert self._artist_seen is not None
-        triple = (user_id, artist_id, track_id)
-        if triple not in self._artist_seen:
-            self._values_append_to(
-                self._artist_sheet,
-                [user_id, artist_id, track_id, _now_iso()],
+        with self._lock:
+            self._ensure_artist_loaded()
+            assert self._artist_seen is not None
+            triple = (user_id, artist_id, track_id)
+            if triple not in self._artist_seen:
+                self._values_append_to(
+                    self._artist_sheet,
+                    [user_id, artist_id, track_id, _now_iso()],
+                )
+                self._artist_seen.add(triple)
+            # Count distinct tracks for this (user, artist).
+            return sum(
+                1
+                for (u, a, _t) in self._artist_seen
+                if u == user_id and a == artist_id
             )
-            self._artist_seen.add(triple)
-        # Count distinct tracks for this (user, artist).
-        return sum(
-            1 for (u, a, _t) in self._artist_seen if u == user_id and a == artist_id
-        )
 
     def _values_update(self, range_a1: str, values: list[list]) -> None:
         r = requests.put(
@@ -300,11 +446,19 @@ def _now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
+def _and_list(numbers: list[int]) -> str:
+    """'2', '2 and 5', '2, 5 and 9' — for a sentence the user reads."""
+    if len(numbers) == 1:
+        return str(numbers[0])
+    head = ", ".join(str(n) for n in numbers[:-1])
+    return f"{head} and {numbers[-1]}"
+
+
 def _row_from_a1_range(a1: str) -> int:
     """Extract the row number from an A1 range like 'Likes!A7:E7' → 7.
 
-    Falls back to a large number on parse failure so the index stays
-    consistent enough for in-memory use (a refresh re-syncs anyway).
+    Returns 0 when there is no row number to read. Callers treat that as
+    "no row", not as row 0 — see the append branch of `_increment_locked`.
     """
     # Find the last numeric run in the string.
     digits = ""

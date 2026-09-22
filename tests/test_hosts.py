@@ -9,6 +9,7 @@ behind an integration / manual-test boundary.
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Iterator
 from pathlib import Path
@@ -96,6 +97,69 @@ def test_log_never_raises_on_bad_path(monkeypatch) -> None:
         "like_spotify.hosts._common.CONFIG_FILE", Path("\x00bad") / "c.json"
     )
     resident._log("should be swallowed")  # must not raise
+
+
+# ── `logging` reaches the same file the tray can open (#202) ───────────
+
+
+@pytest.fixture
+def root_logger_restored() -> Iterator[None]:
+    root = logging.getLogger()
+    before, level = list(root.handlers), root.level
+    try:
+        yield
+    finally:
+        for handler in list(root.handlers):
+            if handler not in before:
+                root.removeHandler(handler)
+                handler.close()
+        root.setLevel(level)
+
+
+def test_logging_warnings_reach_startup_log(
+    tmp_path, monkeypatch, root_logger_restored
+) -> None:
+    """Nothing in `like_spotify/` configures `logging`, so under pythonw a
+    `logger.warning` — the duplicate-counter-row notice among them — went
+    nowhere until the resident host attached this handler."""
+    monkeypatch.setattr(
+        "like_spotify.hosts._common.CONFIG_FILE", tmp_path / "config.json"
+    )
+    resident._attach_logging_to_startup_log()
+
+    logging.getLogger("like_spotify.extensions.google_sheets_storage").warning(
+        "more than one row for this track"
+    )
+
+    log = tmp_path / "startup.log"
+    assert log.exists()
+    assert "more than one row for this track" in log.read_text(encoding="utf-8")
+
+
+def test_logging_handler_is_not_attached_twice(
+    tmp_path, monkeypatch, root_logger_restored
+) -> None:
+    monkeypatch.setattr(
+        "like_spotify.hosts._common.CONFIG_FILE", tmp_path / "config.json"
+    )
+    resident._attach_logging_to_startup_log()
+    resident._attach_logging_to_startup_log()
+
+    ours = [
+        h
+        for h in logging.getLogger().handlers
+        if getattr(h, "name", None) == resident._LOGGING_HANDLER_TAG
+    ]
+    assert len(ours) == 1
+
+
+def test_logging_handler_never_raises_on_bad_path(
+    monkeypatch, root_logger_restored
+) -> None:
+    monkeypatch.setattr(
+        "like_spotify.hosts._common.CONFIG_FILE", Path("\x00bad") / "c.json"
+    )
+    resident._attach_logging_to_startup_log()  # must not raise
 
 
 # ── Autostart hidden-launch wrapper ────────────────────────────────────

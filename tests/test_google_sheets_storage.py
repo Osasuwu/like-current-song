@@ -10,6 +10,8 @@ this module — the contract-level invariants live in
 
 from __future__ import annotations
 
+import asyncio
+import threading
 from dataclasses import dataclass
 from typing import Any
 
@@ -224,3 +226,180 @@ async def test_token_provider_invoked_per_call(sim_and_storage) -> None:
     await storage.increment("user-1", _track())
     # GET (load) + POST (append) → 2 token calls minimum.
     assert len(calls) >= 2
+
+
+# ── One pair, one row (#202) ─────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_warm_cache_miss_rereads_before_appending(sim_and_storage) -> None:
+    """A row another device added after the cache loaded is UPDATEd.
+
+    This is how the second row appeared: a tray host up for hours held a
+    picture of the sheet from its first like and never looked again.
+    """
+    sim, storage = sim_and_storage
+
+    # Load the cache with a like of a *different* track.
+    await storage.increment("user-1", _track("other"))
+    # Meanwhile, the phone appends a row for trk-a straight to the tab.
+    sim.rows.append(["user-1", "trk-a", 4, "FALSE", "2026-01-01T00:00:00Z"])
+    before = len(sim.calls)
+
+    count = await storage.increment("user-1", _track("trk-a"))
+
+    assert count == 5  # counted onto the row that was already there
+    after = sim.calls[before:]
+    assert [c[0] for c in after].count("GET") == 1  # the extra re-read
+    assert not [c for c in after if c[0] == "POST"]  # and no second row
+    rows = [r for r in sim.rows[1:] if r[1] == "trk-a"]
+    assert len(rows) == 1
+    assert rows[0][2] == 5
+
+
+@pytest.mark.asyncio
+async def test_cold_cache_does_not_read_twice(sim_and_storage) -> None:
+    """The re-read is warm-cache only — a first like still costs one GET."""
+    sim, storage = sim_and_storage
+
+    await storage.increment("user-1", _track("trk-a"))
+
+    methods = [c[0] for c in sim.calls]
+    assert methods.count("GET") == 1
+    assert methods.count("POST") == 1
+
+
+@pytest.mark.asyncio
+async def test_duplicate_rows_resolve_to_the_topmost(sim_and_storage) -> None:
+    """`LikeCounter.findRow` (Kotlin) and `_ensureLoaded` (Dart) both take
+    the first match; desktop has to take the same one or the counts drift."""
+    sim, storage = sim_and_storage
+    sim.rows.append(["user-1", "trk-a", 10, "FALSE", "2026-01-01T00:00:00Z"])  # row 2
+    sim.rows.append(["user-1", "trk-a", 3, "FALSE", "2026-01-01T00:00:00Z"])  # row 3
+
+    count = await storage.increment("user-1", _track("trk-a"))
+
+    assert count == 11  # 10 + 1, i.e. the topmost row
+    assert sim.rows[1][2] == 11
+    assert sim.rows[2][2] == 3  # the spare is left exactly as it was
+
+
+@pytest.mark.asyncio
+async def test_duplicate_reported_once_and_nothing_deleted(sim_and_storage) -> None:
+    sim, _unused = sim_and_storage
+    notices: list[str] = []
+    storage = GoogleSheetsStorage(
+        spreadsheet_id="sheet-1",
+        token_provider=lambda: "tok",
+        sheet_name="Likes",
+        notice=notices.append,
+    )
+    sim.rows.append(["user-1", "trk-a", 1, "FALSE", "2026-01-01T00:00:00Z"])
+    sim.rows.append(["user-1", "trk-a", 1, "FALSE", "2026-01-01T00:00:00Z"])
+
+    await storage.increment("user-1", _track("trk-a"))
+    await storage.increment("user-1", _track("trk-a"))
+    await storage.increment("user-1", _track("trk-a"))
+
+    assert len(notices) == 1
+    assert "rows 2 and 3" in notices[0]
+    assert "trk-a" in notices[0]
+    assert "add the counts up and delete the spare row" in notices[0]
+    # No row is removed for the user — it is their spreadsheet.
+    assert not [c for c in sim.calls if c[0] == "DELETE"]
+    assert len(sim.rows) == 3
+
+
+@pytest.mark.asyncio
+async def test_duplicate_notice_defaults_to_the_logger(
+    sim_and_storage, caplog
+) -> None:
+    sim, storage = sim_and_storage
+    sim.rows.append(["user-1", "trk-a", 1, "FALSE", "2026-01-01T00:00:00Z"])
+    sim.rows.append(["user-1", "trk-a", 1, "FALSE", "2026-01-01T00:00:00Z"])
+
+    with caplog.at_level("WARNING"):
+        await storage.increment("user-1", _track("trk-a"))
+
+    assert any("more than one row" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_two_racing_increments_make_one_row(sim_and_storage, monkeypatch) -> None:
+    """Two likes of the same track, genuinely overlapping on two threads.
+
+    `TrayHotkeyTrigger._on_hotkey` never waits on the future it schedules,
+    so each press runs its own `run_once()`, and `increment` dispatches
+    through `asyncio.to_thread` — two `_increment_sync` bodies on two OS
+    threads. Here the first thread's GET is held until the second thread has
+    genuinely entered `_increment_sync`, so the interleaving is forced
+    rather than waited for: without the lock both bodies read "no row" and
+    both append.
+    """
+    sim, storage = sim_and_storage
+
+    both_entered = threading.Event()
+    entered = 0
+    entered_lock = threading.Lock()
+    real_increment_sync = GoogleSheetsStorage._increment_sync
+
+    def counting_increment_sync(self, *args):
+        nonlocal entered
+        with entered_lock:
+            entered += 1
+            if entered == 2:
+                both_entered.set()
+        return real_increment_sync(self, *args)
+
+    monkeypatch.setattr(
+        GoogleSheetsStorage, "_increment_sync", counting_increment_sync
+    )
+
+    def held_get(url: str, **kw):
+        response = sim.handle_get(url, **kw)
+        # Both presses are in flight by now, or the whole premise is wrong.
+        assert both_entered.wait(timeout=10)
+        return response
+
+    monkeypatch.setattr(
+        "like_spotify.extensions.google_sheets_storage.requests.get", held_get
+    )
+
+    results = await asyncio.gather(
+        storage.increment("user-1", _track("trk-a")),
+        storage.increment("user-1", _track("trk-a")),
+    )
+
+    data_rows = [r for r in sim.rows[1:] if r[1] == "trk-a"]
+    assert len(data_rows) == 1  # not two
+    assert data_rows[0][2] == 2
+    assert sorted(results) == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_unparseable_append_range_is_not_cached_as_row_zero(
+    sim_and_storage, monkeypatch
+) -> None:
+    """Row 0 would send the next like to `C0`; a re-read finds the real row."""
+    sim, storage = sim_and_storage
+
+    def post_without_range(url: str, **kw) -> FakeResponse:
+        sim.handle_post(url, **kw)
+        return FakeResponse(status_code=200, json_body={"updates": {}})
+
+    monkeypatch.setattr(
+        "like_spotify.extensions.google_sheets_storage.requests.post",
+        post_without_range,
+    )
+
+    assert await storage.increment("user-1", _track("trk-a")) == 1
+    assert ("user-1", "trk-a") not in (storage._row_index or {})
+
+    # The next like re-reads, finds the row the append really made, and
+    # updates it instead of writing to C0.
+    assert await storage.increment("user-1", _track("trk-a")) == 2
+    puts = [c for c in sim.calls if c[0] == "PUT"]
+    assert puts and all("!C0" not in c[1] for c in puts)
+    data_rows = [r for r in sim.rows[1:] if r[1] == "trk-a"]
+    assert len(data_rows) == 1
+    assert data_rows[0][2] == 2
