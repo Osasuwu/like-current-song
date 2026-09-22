@@ -126,6 +126,20 @@ still the only option for the desktop half.
 
 ### Fixed
 
+- **Android: "Sign in to YouTube Music again" no longer appears when the
+  problem is the client ID or secret (#204).** Google turns down a wrong,
+  deleted or wrong-type OAuth client with the same flat "no" it uses for a
+  sign-in that has genuinely expired, and the app treated both as expired —
+  so it asked you to sign in again, the new sign-in went out with the same
+  rejected client, and you were back where you started. That notification is
+  now kept for the one case it fixes: a sign-in that really is gone (revoked,
+  password changed, or the weekly expiry a Testing-mode consent screen
+  imposes). A rejected client instead says so in the Logs screen, naming the
+  code Google sent and pointing at the client ID and secret under *Connected
+  services → YouTube Music setup*. The shared like counter has said this
+  since the last release; YouTube Music now says it too, and both halves of
+  the app draw the line in the same place.
+
 - **Desktop: the shared counter sheet no longer grows a second row for a track
   instead of counting on the first (#202).** The desktop half carried the same
   fault the Android half was just fixed for, and one more besides. A tray icon

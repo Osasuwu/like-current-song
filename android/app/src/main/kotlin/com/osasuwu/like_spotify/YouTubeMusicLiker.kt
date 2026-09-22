@@ -475,18 +475,11 @@ class YouTubeMusicLiker(context: Context) {
     private fun freshAccessToken(forceRefresh: Boolean): String = try {
         GoogleTokens.fresh(prefs, GoogleTokens.YTMUSIC, forceRefresh)
     } catch (failure: GoogleTokens.RefreshFailure) {
-        if (failure.needsReauth) {
-            notifyReauth()
-            throw ApiFailure(
-                if (failure.httpCode == null) {
-                    "YouTube Music sign-in incomplete"
-                } else {
-                    "YouTube Music sign-in revoked"
-                },
-                failure.httpCode,
-            )
-        }
-        throw ApiFailure("YouTube token refresh failed", failure.httpCode)
+        // Only a refusal a new sign-in would actually fix is worth the
+        // notification; the rest just say what to check, in the like's own
+        // log line.
+        if (failure.needsReauth) notifyReauth()
+        throw ApiFailure(tokenRefusedMessage(failure), failure.httpCode)
     }
 
     private fun readBody(connection: HttpURLConnection, error: Boolean): String? = try {
@@ -619,6 +612,29 @@ class YouTubeMusicLiker(context: Context) {
                 addedToLikePlaylist = playlistOk,
                 partialFailure = partialFailure,
             )
+        }
+
+        /**
+         * Why a refused token means this like never reached the Data API, in
+         * the Logs screen's words.
+         *
+         * Pure, and the YouTube Music half of the split
+         * `LikeCounter.tokenRefusedMessage` makes for the counter: a revoked
+         * grant is fixed by signing in again, a rejected client ID or secret
+         * never is, and the two sign-ins have their own credentials on their
+         * own screen, so each names its own (#204). The destination is the
+         * *YouTube Music setup* heading on the Connected services screen,
+         * where the client ID and secret are typed.
+         */
+        fun tokenRefusedMessage(failure: GoogleTokens.RefreshFailure): String = when {
+            YouTubeDataApi.isRejectedClient(failure.error) ->
+                "Google rejected YouTube Music's client ID or secret (${failure.error}). " +
+                    "Check both under Connected services → YouTube Music setup"
+            // No status means the request never went out: the client id or
+            // the refresh token is missing, i.e. nobody finished the sign-in.
+            failure.httpCode == null -> "YouTube Music sign-in incomplete"
+            failure.needsReauth -> "YouTube Music sign-in revoked"
+            else -> "YouTube token refresh failed"
         }
 
         /** Log action type for the shared-counter step. */

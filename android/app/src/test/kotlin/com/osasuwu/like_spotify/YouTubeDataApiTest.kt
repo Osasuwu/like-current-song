@@ -228,7 +228,25 @@ class YouTubeDataApiTest {
     @Test
     fun `revoked refresh token needs a new sign-in`() {
         assertEquals(ErrorKind.REAUTH_REQUIRED, YouTubeDataApi.classifyTokenError(400, """{"error": "invalid_grant"}"""))
-        assertEquals(ErrorKind.REAUTH_REQUIRED, YouTubeDataApi.classifyTokenError(401, """{"error": "invalid_client"}"""))
+    }
+
+    /**
+     * The half of #204 the Dart side has to match: `GoogleDeviceFlow.refresh`
+     * in `lib/data/google/google_device_flow.dart` raises
+     * `GoogleSignInRevoked` for `invalid_grant` and for nothing else, pinned
+     * by "a rejected client keeps the stored sign-in" in
+     * `test/data/ytmusic/ytmusic_music_service_repository_test.dart`. Both
+     * halves refresh the same stored tokens, so the two rules have to be the
+     * same rule.
+     */
+    @Test
+    fun `a rejected client is not a re-auth, the way the Dart half has it`() {
+        assertEquals(ErrorKind.FAILED, YouTubeDataApi.classifyTokenError(401, """{"error": "invalid_client"}"""))
+        assertEquals(ErrorKind.FAILED, YouTubeDataApi.classifyTokenError(400, """{"error": "unauthorized_client"}"""))
+        assertTrue(YouTubeDataApi.isRejectedClient("invalid_client"))
+        assertTrue(YouTubeDataApi.isRejectedClient("unauthorized_client"))
+        assertFalse(YouTubeDataApi.isRejectedClient("invalid_grant"))
+        assertFalse(YouTubeDataApi.isRejectedClient(null))
     }
 
     @Test
