@@ -13,8 +13,7 @@ import '../entities/trigger_config.dart';
 /// The two must stay in step: a change to one is a change to both, and to both
 /// test files — `test/domain/services/signal_pattern_matcher_test.dart` and
 /// `android/app/src/test/kotlin/com/osasuwu/like_spotify/MediaEventPatternDetectorTest.kt`,
-/// which mirror each other on purpose. Folding the two harnesses into one is
-/// issue #117; until that lands, both suites are load-bearing.
+/// which mirror each other on purpose. Both suites are load-bearing.
 class SignalPatternMatcher {
   final List<_StampedEvent> _events = <_StampedEvent>[];
   DateTime? _lastTriggerAt;

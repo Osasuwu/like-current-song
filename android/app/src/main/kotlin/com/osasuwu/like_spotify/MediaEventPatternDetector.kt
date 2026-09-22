@@ -10,7 +10,7 @@ package com.osasuwu.like_spotify
  * The two must stay in step, as must their test files
  * (`MediaEventPatternDetectorTest.kt` and
  * `test/domain/services/signal_pattern_matcher_test.dart`), which mirror each
- * other on purpose. Folding the two harnesses into one is issue #117.
+ * other on purpose.
  */
 class MediaEventPatternDetector(
     private val windowMsProvider: () -> Long,
