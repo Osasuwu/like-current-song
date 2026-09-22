@@ -126,6 +126,17 @@ still the only option for the desktop half.
 
 ### Fixed
 
+- **The shared counter no longer writes some like counts as text.** Whether a
+  count landed in your sheet as a number or as text depended on something you
+  had no reason to think about: whether the app happened to be open when the
+  like fired. Both halves write the same column, and the background one sent
+  the number as a string, which Google Sheets stores as typed — so a column of
+  counts came out half numbers, half text. The app read either without
+  complaint, which is exactly why this went unnoticed: it only showed up in
+  your own sheet, where `SUM` and sorting skip text cells and quietly give you
+  a total that is too low. Counts now go out as numbers from both halves, and
+  a text cell already on a sheet turns into a number the next time that track
+  is liked.
 - **A like stopped reaching a playlist you had deleted and recreated.** The
   app remembers a playlist's id under its name so it doesn't re-list every
   playlist you own on every like. Delete that playlist and the remembered id

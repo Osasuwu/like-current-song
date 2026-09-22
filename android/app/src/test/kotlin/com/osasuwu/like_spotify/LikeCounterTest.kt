@@ -88,6 +88,31 @@ class LikeCounterTest {
         assertNull(LikeCounter.rowFromA1Range("Likes"))
     }
 
+    // ---- writeBody -------------------------------------------------
+
+    @Test
+    fun `a count goes out as a number, not as text`() {
+        // Every write is RAW, so a count sent as "1" lands on the sheet as
+        // text beside the numbers the Dart half writes into the same column.
+        assertEquals("""{"values":[[3]]}""", LikeCounter.writeBody(listOf(3)))
+    }
+
+    @Test
+    fun `an appended row keeps a number a number and text text`() {
+        val body = LikeCounter.writeBody(
+            listOf("google-sub", "dQw4w9WgXcQ", 1, "FALSE", "2026-01-02T00:00:00Z"),
+        )
+        assertEquals(
+            """{"values":[["google-sub","dQw4w9WgXcQ",1,"FALSE","2026-01-02T00:00:00Z"]]}""",
+            body,
+        )
+    }
+
+    @Test
+    fun `a timestamp is still written as text`() {
+        assertEquals("""{"values":[["2026-01-02T00:00:00Z"]]}""", LikeCounter.writeBody(listOf("2026-01-02T00:00:00Z")))
+    }
+
     // ---- nowIso -------------------------------------------------
 
     @Test
