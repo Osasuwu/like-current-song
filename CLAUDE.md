@@ -51,7 +51,7 @@ lib/
 ├── core/              # Constants, shared utilities
 ├── domain/            # Business logic (pure, no deps)
 │   ├── entities/      # TriggerConfig, SpotifyAuthState, AppLog
-│   ├── services/      # SignalPatternMatcher
+│   ├── services/      # SignalPatternMatcher (spec only — see below)
 │   └── repositories/  # Interface contracts
 ├── data/              # Implementations
 │   ├── spotify/       # SpotifyClient, token store, music service repo
@@ -79,7 +79,7 @@ like_spotify/
 
 android/app/src/main/kotlin/.../
 ├── MediaButtonForegroundService.kt  # Background service
-├── MediaEventPatternDetector.kt     # Pattern matching (Kotlin mirror)
+├── MediaEventPatternDetector.kt     # Pattern matching — the live one
 ├── SpotifyLikeWorker.kt             # WorkManager job
 ├── PlaybackNotificationListenerService.kt
 ├── MediaButtonReceiver.kt
@@ -109,7 +109,8 @@ like-current-song --setup # Desktop: interactive config wizard
 |------|-------|
 | Entry point | `lib/main.dart` |
 | State machine | `lib/presentation/state/app_controller.dart` |
-| Core algorithm | `lib/domain/services/signal_pattern_matcher.dart` |
+| Core algorithm (the one that runs) | `android/.../MediaEventPatternDetector.kt` |
+| Core algorithm, executable spec (Dart twin, not run at trigger time) | `lib/domain/services/signal_pattern_matcher.dart` |
 | Spotify OAuth | `lib/data/spotify/spotify_client.dart` |
 | Repository interfaces | `lib/domain/repositories/` |
 | Android service | `android/.../MediaButtonForegroundService.kt` |

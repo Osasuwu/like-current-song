@@ -16,7 +16,6 @@ import '../../domain/repositories/music_routing_repository.dart';
 import '../../domain/repositories/music_service_repository.dart';
 import '../../domain/repositories/platform_service_repository.dart';
 import '../../domain/repositories/settings_repository.dart';
-import '../../domain/services/signal_pattern_matcher.dart';
 import 'app_controller.dart';
 import 'app_state.dart';
 import 'service_credentials_controller.dart';
@@ -85,10 +84,6 @@ final musicRoutingRepositoryProvider = Provider<MusicRoutingRepository>(
 );
 
 final appLinksProvider = Provider<AppLinks>((ref) => AppLinks());
-
-final signalPatternMatcherProvider = Provider<SignalPatternMatcher>(
-  (ref) => SignalPatternMatcher(),
-);
 
 final appControllerProvider =
     StateNotifierProvider<AppController, AppState>((ref) {
