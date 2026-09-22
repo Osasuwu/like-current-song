@@ -34,6 +34,14 @@ class SpotifyLikeWorker(
 ) : Worker(appContext, params) {
 
     /**
+     * How far [runLike] had got. Read by the one catch in [doWork], which
+     * otherwise has no way of telling a refused token from a playlist that
+     * could not be read, and used to file both as a failed like (#191).
+     */
+    @Volatile
+    private var stage = LikeJobStage.STARTING
+
+    /**
      * Every HTTP call below can throw -- a dropped connection, a truncated
      * body, a non-JSON error page. Unguarded, that killed the whole job: no
      * log line, no failure tone, nothing the user could tell apart from the
@@ -47,14 +55,17 @@ class SpotifyLikeWorker(
         } catch (t: Throwable) {
             // Guarded in turn: a tone generator that throws on some OEM would
             // otherwise put us right back where we started.
+            val failed = stage
             runCatching {
                 log(
-                    "Like failed: ${t.javaClass.simpleName}: ${t.message ?: "no message"}",
-                    actionType = "like_track",
+                    failed.failureLine(t),
+                    actionType = failed.actionType,
                     result = "failure"
                 )
             }
-            runCatching { playFeedbackTone(success = false) }
+            // A stage past the like has the song liked already, so the buzz
+            // that says "that did not work" would be a lie.
+            runCatching { playFeedbackTone(success = failed.likeAlreadyDone) }
             Result.success()
         }
     }
@@ -88,6 +99,7 @@ class SpotifyLikeWorker(
         val expiresAt = prefs.getLong(AppConstants.KEY_SPOTIFY_EXPIRES_AT, 0L)
         val nowSec = System.currentTimeMillis() / 1000L
         if (expiresAt > 0 && (expiresAt - nowSec) < 300 && !refreshToken.isNullOrBlank() && !clientId.isNullOrBlank()) {
+            stage = LikeJobStage.REFRESHING_TOKEN
             log("Token expires in ${expiresAt - nowSec}s, refreshing...")
             val refreshed = refreshAccessToken(refreshToken, clientId)
             if (refreshed != null && refreshed.accessToken.isNotBlank()) {
@@ -105,6 +117,7 @@ class SpotifyLikeWorker(
         }
 
         // Get current track
+        stage = LikeJobStage.READING_TRACK
         var track = currentTrack(accessToken)
         if (track == null && !refreshToken.isNullOrBlank() && !clientId.isNullOrBlank()) {
             // 401 retry
@@ -147,11 +160,14 @@ class SpotifyLikeWorker(
         }
 
         // Like the track, wherever the user wants likes to go
+        stage = LikeJobStage.LIKING
         val liked = runLikeLegs(prefs, token, track, ruleConfig)
+        if (liked) stage = LikeJobStage.RECORDING_LIKE
         playFeedbackTone(success = liked)
         if (!liked) return Result.success()
         recordLikedAt(prefs, track.id)
 
+        stage = LikeJobStage.EXTRA_ACTIONS
         runRulePipeline(prefs, token, track, ruleConfig)
 
         return Result.success()
@@ -423,7 +439,18 @@ class SpotifyLikeWorker(
         // the user's sheet stayed empty with nothing to say why.
         getCurrentUserId(prefs, token)
         LikeCounter.target(prefs, MusicProvider.SPOTIFY)?.let { target ->
-            LikeCounter.increment(prefs, target, trackId)?.let { return it }
+            val outcome = LikeCounter.increment(prefs, target, trackId)
+            outcome.count?.let { return it }
+            // The like itself went through; only the shared count did not. Say
+            // which, because "counted here only" with no reason sent users
+            // looking for a sign-in problem they did not have (#200).
+            log(
+                "Like counted on this device only: ${outcome.failure}",
+                actionType = "like_count",
+                targetId = trackId,
+                result = "failure",
+                httpCode = outcome.httpCode
+            )
         }
         return LocalCounters.increment(prefs, LocalCounters.Kind.TRACK, trackId)
     }

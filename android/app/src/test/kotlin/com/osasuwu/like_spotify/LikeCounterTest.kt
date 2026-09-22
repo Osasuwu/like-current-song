@@ -1,6 +1,7 @@
 package com.osasuwu.like_spotify
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -133,5 +134,65 @@ class LikeCounterTest {
     @Test
     fun `timestamps match the shape the desktop writes`() {
         assertTrue(LikeCounter.nowIso().matches(Regex("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z")))
+    }
+
+    // ---- tokenRefusedMessage -------------------------------------------------
+
+    private fun refused(error: String?, httpCode: Int?, needsReauth: Boolean = true) =
+        LikeCounter.tokenRefusedMessage(
+            GoogleTokens.RefreshFailure("refused", httpCode, needsReauth, error),
+        )
+
+    @Test
+    fun `a rejected client is not a sign-in problem`() {
+        // #200: `invalid_client` needs the credentials fixing under Connected
+        // services. Telling the user to sign in again sends them round a loop
+        // that cannot end, because signing in uses the same rejected client.
+        val message = refused("invalid_client", httpCode = 401)
+        assertTrue(message.contains("invalid_client"))
+        assertTrue(message.contains("client ID or secret"))
+        assertFalse(message.contains("Sign in again"))
+    }
+
+    @Test
+    fun `an unauthorized client reads the same way`() {
+        assertTrue(refused("unauthorized_client", httpCode = 401).contains("client ID or secret"))
+    }
+
+    @Test
+    fun `a revoked sign-in does say to sign in again`() {
+        val message = refused("invalid_grant", httpCode = 400)
+        assertTrue(message.contains("Sign in again"))
+        assertFalse(message.contains("client ID or secret"))
+    }
+
+    @Test
+    fun `a refused scope names the scope`() {
+        assertTrue(refused("invalid_scope", httpCode = 400).contains("invalid_scope"))
+    }
+
+    @Test
+    fun `a request that never went out means nobody signed the counter in`() {
+        // No status: `refresh` threw before opening a connection, because the
+        // client id or the refresh token is missing.
+        val message = refused(null, httpCode = null)
+        assertTrue(message.contains("not signed in to Google"))
+    }
+
+    @Test
+    fun `a refusal google did not explain still carries its status`() {
+        assertTrue(refused(null, httpCode = 503, needsReauth = false).contains("503"))
+    }
+
+    @Test
+    fun `no two refusals read the same`() {
+        val messages = listOf(
+            refused("invalid_client", 401),
+            refused("invalid_grant", 400),
+            refused("invalid_scope", 400),
+            refused(null, null),
+            refused(null, 503, needsReauth = false),
+        )
+        assertEquals(messages.size, messages.toSet().size)
     }
 }

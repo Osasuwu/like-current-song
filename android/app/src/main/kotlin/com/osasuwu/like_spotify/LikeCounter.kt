@@ -36,6 +36,23 @@ object LikeCounter {
     data class Target(val spreadsheetId: String, val userId: String)
 
     /**
+     * What one counted like did: [count] when the sheet took it, otherwise
+     * [failure] — a sentence for the Logs screen — and the status behind it.
+     *
+     * The counter used to answer a bare null, so a like that was not counted
+     * reached the user as "the shared counter did not answer" whatever had
+     * happened, or as nothing at all on the Spotify path (#200).
+     */
+    data class CountOutcome(val count: Int?, val failure: String?, val httpCode: Int?) {
+        companion object {
+            fun counted(count: Int) = CountOutcome(count, null, null)
+
+            fun failed(reason: String, httpCode: Int? = null) =
+                CountOutcome(null, reason, httpCode)
+        }
+    }
+
+    /**
      * The account id that keys the counter for a like made through [provider]:
      * the Spotify user id, or the Google account's id_token `sub` for YouTube
      * Music (the key desktop YouTube Music uses). Null when that service has
@@ -103,9 +120,9 @@ object LikeCounter {
     }
 
     /**
-     * Increments the count for [trackId] and returns the new count, or null on
-     * any failure (no access token, non-2xx, network, unreadable reply).
-     * Blocking.
+     * Increments the count for [trackId], as a [CountOutcome]: the new count,
+     * or why the sheet did not take it (no usable token, non-2xx, network,
+     * unreadable reply). Blocking.
      *
      * A pair with no row yet is appended: count 1 normally, or count 2 with
      * `backfilled` TRUE when the track was already liked before this press —
@@ -117,13 +134,20 @@ object LikeCounter {
         target: Target,
         trackId: String,
         wasAlreadyLiked: Boolean = false,
-    ): Int? {
-        val token = GoogleTokens.freshOrNull(prefs, GoogleTokens.COUNTER) ?: return null
+    ): CountOutcome {
+        val token = try {
+            GoogleTokens.fresh(prefs, GoogleTokens.COUNTER)
+        } catch (failure: GoogleTokens.RefreshFailure) {
+            return CountOutcome.failed(tokenRefusedMessage(failure), failure.httpCode)
+        } catch (e: Exception) {
+            return CountOutcome.failed(unreachable(e))
+        }
         return try {
             // A read that failed is not the same as a pair with no row: append
             // on a failed read would duplicate the row and restart its count.
-            val body = get(token, "$API_BASE/${target.spreadsheetId}/values/${encode(SHEET)}")
-                ?: return null
+            val read = get(token, "$API_BASE/${target.spreadsheetId}/values/${encode(SHEET)}")
+            val body = read.body
+                ?: return CountOutcome.failed("the counter sheet could not be read", read.status)
             val existing = findRow(body, target.userId, trackId)
             val now = nowIso()
             if (existing != null) {
@@ -131,14 +155,17 @@ object LikeCounter {
                 val next = current + 1
                 val base = "$API_BASE/${target.spreadsheetId}/values"
                 val countCell = encode("$SHEET!${CounterSheetSchema.COUNT_COLUMN}$row")
-                if (!update(token, "$base/$countCell", next)) return null
+                val written = update(token, "$base/$countCell", next)
+                if (written !in 200..299) {
+                    return CountOutcome.failed("the counter sheet refused the new count", written)
+                }
                 // `backfilled` is left alone: it records how the row started,
                 // not how it was last touched.
                 // The count is already on the sheet at this point, so a failed
                 // timestamp write is reported as the success it mostly is.
                 val stampCell = encode("$SHEET!${CounterSheetSchema.UPDATED_AT_COLUMN}$row")
                 update(token, "$base/$stampCell", now)
-                next
+                CountOutcome.counted(next)
             } else {
                 val next = if (wasAlreadyLiked) 2 else 1
                 val row = listOf(
@@ -148,18 +175,59 @@ object LikeCounter {
                     if (wasAlreadyLiked) "TRUE" else "FALSE",
                     now,
                 )
-                append(token, target.spreadsheetId, row) ?: return null
-                next
+                val (status, _) = append(token, target.spreadsheetId, row)
+                if (status !in 200..299) {
+                    return CountOutcome.failed("the counter sheet refused a new row", status)
+                }
+                CountOutcome.counted(next)
             }
-        } catch (_: Exception) {
-            null
+        } catch (e: Exception) {
+            CountOutcome.failed(unreachable(e))
         }
     }
 
-    private fun get(token: String, url: String): String? {
+    /**
+     * Why a refused token means this like was not counted, in the Logs
+     * screen's words.
+     *
+     * Pure, and the twin of `likeCounterRefreshFailureMessage` in
+     * `lib/data/likes/like_counter_token_error.dart` — the two halves like the
+     * same songs into the same sheet, so they had better explain a refusal the
+     * same way. Note what the codes mean: a revoked grant really is fixed by
+     * signing in again, a rejected client never is, and telling a user with a
+     * wrong client secret to sign in again is what #200 was about.
+     */
+    fun tokenRefusedMessage(failure: GoogleTokens.RefreshFailure): String = when {
+        failure.error == "invalid_client" || failure.error == "unauthorized_client" ->
+            "Google rejected the counter's client ID or secret (${failure.error}). " +
+                "Check both under Connected services → Shared like counter"
+        failure.error == "invalid_grant" ->
+            "the counter's Google sign-in is no longer valid. Sign in again " +
+                "under Connected services → Shared like counter"
+        failure.error == "invalid_scope" ->
+            "Google refused the spreadsheet scope the counter needs " +
+                "(invalid_scope). Sign the counter in again under Connected " +
+                "services → Shared like counter"
+        // No status means the request never went out: the client id or the
+        // refresh token is missing, i.e. nobody ever signed the counter in.
+        failure.httpCode == null ->
+            "the counter is not signed in to Google. Sign in under Connected " +
+                "services → Shared like counter"
+        else ->
+            "Google would not renew the counter's token " +
+                "(${failure.error ?: "HTTP ${failure.httpCode}"})"
+    }
+
+    private fun unreachable(e: Exception): String =
+        "the counter sheet could not be reached: ${e.javaClass.simpleName}"
+
+    /** One call's answer: the status, and the body when it was a success. */
+    private class Answer(val status: Int, val body: String?)
+
+    private fun get(token: String, url: String): Answer {
         val connection = open(token, url, "GET")
-        if (connection.responseCode !in 200..299) return null
-        return readBody(connection)
+        val status = connection.responseCode
+        return Answer(status, if (status in 200..299) readBody(connection) else null)
     }
 
     /**
@@ -173,30 +241,34 @@ object LikeCounter {
     fun writeBody(cells: List<Any>): String =
         JSONObject().put("values", JSONArray().put(JSONArray(cells))).toString()
 
-    /** One cell write. False when the sheet refused it. */
-    private fun update(token: String, url: String, value: Any): Boolean {
+    /** One cell write; answers the status the sheet gave it. */
+    private fun update(token: String, url: String, value: Any): Int {
         val connection = open(token, "$url?valueInputOption=RAW", "PUT")
         connection.doOutput = true
         connection.setRequestProperty("Content-Type", "application/json")
         OutputStreamWriter(connection.outputStream).use { it.write(writeBody(listOf(value))) }
-        return connection.responseCode in 200..299
+        return connection.responseCode
     }
 
-    /** Appends [row] to the tab. Returns null when the sheet refused it. */
-    private fun append(token: String, spreadsheetId: String, row: List<Any>): Int? {
+    /**
+     * Appends [row] to the tab: the status, and the row it landed on when the
+     * sheet said where.
+     */
+    private fun append(token: String, spreadsheetId: String, row: List<Any>): Pair<Int, Int?> {
         val url = "$API_BASE/$spreadsheetId/values/${encode(SHEET)}:append" +
             "?valueInputOption=RAW&insertDataOption=INSERT_ROWS"
         val connection = open(token, url, "POST")
         connection.doOutput = true
         connection.setRequestProperty("Content-Type", "application/json")
         OutputStreamWriter(connection.outputStream).use { it.write(writeBody(row)) }
-        if (connection.responseCode !in 200..299) return null
+        val status = connection.responseCode
+        if (status !in 200..299) return status to null
         val updated = runCatching {
             JSONObject(readBody(connection).orEmpty())
                 .optJSONObject("updates")
                 ?.optString("updatedRange")
         }.getOrNull()
-        return rowFromA1Range(updated) ?: 0
+        return status to rowFromA1Range(updated)
     }
 
     private fun open(token: String, url: String, method: String): HttpURLConnection {

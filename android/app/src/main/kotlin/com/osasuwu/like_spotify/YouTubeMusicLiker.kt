@@ -209,14 +209,22 @@ class YouTubeMusicLiker(context: Context) {
             log("Like not counted: no YouTube match for this song", actionType = COUNT_ACTION)
             return outcome
         }
-        val newCount = LikeCounter.increment(
+        val counted = LikeCounter.increment(
             prefs,
             target,
             trackId = videoId,
             wasAlreadyLiked = outcome.kind == Kind.ALREADY_LIKED,
         )
+        val newCount = counted.count
         if (newCount == null) {
-            log("Like not counted: the shared counter did not answer", actionType = COUNT_ACTION)
+            // Used to be "the shared counter did not answer" whatever had
+            // happened — including a Google that answered, at length, with the
+            // reason (#200).
+            log(
+                "Like not counted: ${counted.failure}",
+                actionType = COUNT_ACTION,
+                httpCode = counted.httpCode,
+            )
             return outcome
         }
         return outcome.copy(likeCount = newCount)
