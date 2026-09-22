@@ -348,11 +348,12 @@ class SpotifyMusicServiceRepository implements MusicServiceRepository {
         trackLikeCount == ruleConfig.bestThreshold &&
         ruleConfig.bestPlaylistName.isNotEmpty) {
       try {
-        final bestId = await _playlistService.ensurePlaylist(accessToken, ruleConfig.bestPlaylistName);
-        if (bestId != null) {
-          await _playlistService.addTrack(accessToken, bestId, trackInfo.trackUri);
-          addedToBest = true;
-        }
+        await _playlistService.addTrackToNamedPlaylist(
+          accessToken,
+          ruleConfig.bestPlaylistName,
+          trackInfo.trackUri,
+        );
+        addedToBest = true;
       } catch (e) {
         debugPrint('Best add failed: $e');
         await _settingsRepository.appendLog(AppLog(
@@ -466,11 +467,11 @@ class SpotifyMusicServiceRepository implements MusicServiceRepository {
     String accessToken,
     String playlistName,
   ) async {
-    final playlistId = await _playlistService.ensurePlaylist(accessToken, playlistName);
-    if (playlistId == null) {
-      throw Exception('Could not find or create the playlist "$playlistName"');
-    }
-    await _playlistService.addTrack(accessToken, playlistId, trackInfo.trackUri);
+    await _playlistService.addTrackToNamedPlaylist(
+      accessToken,
+      playlistName,
+      trackInfo.trackUri,
+    );
   }
 
   @override
