@@ -24,6 +24,10 @@ still the only option for the desktop half.
   actually happened rather than the time you opened it. Only events that found
   no open app are kept, so nothing is listed twice; the last 200 are held, and
   anything that looks like a credential is redacted before it is written.
+- **Android: every log entry now says when it happened.** The Logs screen
+  never showed a time, which was survivable while everything on it had just
+  happened in front of you. Now that a line can be days old, each one carries
+  its own clock time — plus the date once it is not from today.
 - **Desktop: choose where a like goes.** A like used to mean exactly one
   thing — the music service's own like. It now has three settings: *Like on
   the music service* (the default, unchanged), *Add to a playlist* of your

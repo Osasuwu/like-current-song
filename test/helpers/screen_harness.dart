@@ -38,6 +38,9 @@ const _triggerConfig = TriggerConfig(
 /// [notificationAccess] is the grant the trigger runs on — the default stands
 /// for a phone where it was given, `false` for one where it was not and the
 /// trigger therefore cannot fire at all.
+///
+/// [logs] is what the log store already holds, newest first, as
+/// `SettingsRepository.loadLogs` hands it over.
 Widget hostScreen(
   Widget screen, {
   MusicProvider provider = MusicProvider.spotify,
@@ -46,6 +49,7 @@ Widget hostScreen(
   LikeCounterConfig counter = LikeCounterConfig.empty,
   bool notificationAccess = true,
   bool serviceEnabled = false,
+  List<AppLog> logs = const <AppLog>[],
 }) {
   FlutterSecureStorage.setMockInitialValues(<String, String>{
     if (spotifyClientId.isNotEmpty) 'spotify_client_id': spotifyClientId,
@@ -86,7 +90,7 @@ Widget hostScreen(
       .thenAnswer((_) async => <MusicProvider>{provider});
   when(() => settings.loadRuleConfig())
       .thenAnswer((_) async => RuleConfig.defaults());
-  when(() => settings.loadLogs()).thenAnswer((_) async => <AppLog>[]);
+  when(() => settings.loadLogs()).thenAnswer((_) async => logs);
   when(() => settings.loadPendingLikes()).thenAnswer(
     (_) async => List<PendingLike>.generate(
       pendingLikes,
