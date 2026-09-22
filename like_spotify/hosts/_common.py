@@ -486,31 +486,54 @@ def run_one_shot(pipeline, feedback) -> int:
 
 
 def build_discard_pipeline(
-    cfg: dict, provider, feedback: FeedbackFn
+    cfg: dict,
+    provider,
+    feedback: FeedbackFn,
+    destination: LikeDestination | None = None,
 ) -> DiscardPipeline | None:
     """Build the discard pipeline, or None when the press could do nothing.
 
-    Two independent reasons to wire it, and *either* is enough (#172):
+    Three independent reasons to wire it, and *any one* is enough:
 
-      * an archive playlist name is set, so the playlist leg has a target
+      * an archive playlist name is set, so the archive leg has a target
         (the same playlist the like-flow archive action curates — see
         `resolve_archive_playlist_name`), or
-      * the provider is `DislikeCapableProvider`, so the dislike leg can
-        speak to the service even with no playlist configured.
+      * a like lands in a playlist (`like.destination` is `playlist` or
+        `both`, #177), so the discard leg that undoes such a like has a
+        target, or
+      * the provider is `DislikeCapableProvider` (#172), so the dislike
+        leg can speak to the service even with no playlist configured.
 
-    Only when neither holds is there nothing a press could accomplish, and
+    Only when none holds is there nothing a press could accomplish, and
     the second hotkey stays dark rather than failing every time. Note this
     gate is deliberately coarser than `DiscardPipeline`'s own per-leg
-    checks: the playlist leg additionally needs a playlist-capable
-    provider, but a configured archive name with a provider that cannot do
-    playlists is a misconfiguration worth a clear message on press, not a
-    silently missing hotkey.
+    checks: the playlist legs additionally need a playlist-capable
+    provider, but a configured playlist name with a provider that cannot
+    do playlists is a misconfiguration worth a clear message on press, not
+    a silently missing hotkey.
+
+    `destination` lets a host pass the `LikeDestination` it already
+    resolved (the tray does, once per reload) so a malformed `like` block
+    isn't reported twice; omit it and it is resolved here. It is resolved
+    *without* the provider either way: a destination the provider can't
+    serve is the like flow's error to raise, and must not take the discard
+    hotkey down with it.
     """
     archive_name = resolve_archive_playlist_name(cfg)
-    if not archive_name and not isinstance(provider, DislikeCapableProvider):
+    if destination is None:
+        destination = resolve_like_destination(cfg)
+    destination_name = destination.playlist_name if destination.wants_playlist else ""
+    if (
+        not archive_name
+        and not destination_name
+        and not isinstance(provider, DislikeCapableProvider)
+    ):
         return None
     return DiscardPipeline(
-        provider=provider, feedback=feedback, playlist_name=archive_name
+        provider=provider,
+        feedback=feedback,
+        playlist_name=archive_name,
+        destination_playlist_name=destination_name,
     )
 
 

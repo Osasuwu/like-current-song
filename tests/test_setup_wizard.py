@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from like_spotify.core.pipeline import LikeDestination
 from like_spotify.extensions.google_sheets_storage.create import CreatedSpreadsheet
 from like_spotify.extensions.google_sheets_storage.errors import (
     SheetsApiDisabledError,
@@ -661,6 +662,87 @@ def test_build_discard_pipeline_built_for_a_dislike_capable_provider() -> None:
     assert pipe is not None
     assert pipe._playlist_name == ""
     assert pipe.label == "Dislike current track"
+
+
+# ── the like destination feeds the discard press too (#177) ────────────
+
+
+class _Playlists:
+    """Playlist- and dislike-capable stand-in (what Spotify / YT Music are)."""
+
+    async def find_playlist_by_name(self, name):  # pragma: no cover - never run
+        return None
+
+    async def find_or_create_playlist(self, name):  # pragma: no cover
+        return ""
+
+    async def get_playlist_track_ids(self, playlist_id):  # pragma: no cover
+        return set()
+
+    async def add_track_to_playlist(self, track_id, playlist_id):  # pragma: no cover
+        pass
+
+    async def remove_track_from_playlist(
+        self, track_id, playlist_id
+    ):  # pragma: no cover
+        pass
+
+    async def follow_artist(self, artist_id):  # pragma: no cover
+        pass
+
+    async def dislike(self, track):  # pragma: no cover
+        pass
+
+
+def test_build_discard_pipeline_takes_the_like_destination_playlist() -> None:
+    cfg = {
+        "actions": {"archive_remove": {"playlist_name": "Arch"}},
+        "like": {"destination": "both", "playlist_name": "My Songs"},
+    }
+    pipe = _common.build_discard_pipeline(cfg, _Playlists(), lambda *a, **k: None)
+    assert pipe is not None
+    assert pipe._playlist_name == "Arch"
+    assert pipe._destination_playlist_name == "My Songs"
+    assert pipe.label == "Dislike, remove from Arch and remove from My Songs"
+
+
+def test_build_discard_pipeline_ignores_a_native_destination() -> None:
+    """`native` is the default and changes nothing about the press."""
+    cfg = {
+        "actions": {"archive_remove": {"playlist_name": "Arch"}},
+        # A playlist name left behind by an earlier `playlist` config is not
+        # a target while the destination is `native` — no like goes there.
+        "like": {"destination": "native", "playlist_name": "My Songs"},
+    }
+    pipe = _common.build_discard_pipeline(cfg, _Playlists(), lambda *a, **k: None)
+    assert pipe is not None
+    assert pipe._destination_playlist_name == ""
+    assert pipe.label == "Dislike and remove from Arch"
+
+
+def test_build_discard_pipeline_wired_by_the_destination_alone() -> None:
+    """No archive, no dislike — a like destination is reason enough."""
+
+    class _PlaylistsOnly(_Playlists):
+        dislike = None  # not a DislikeCapableProvider
+
+    cfg = {"like": {"destination": "playlist", "playlist_name": "My Songs"}}
+    pipe = _common.build_discard_pipeline(cfg, _PlaylistsOnly(), lambda *a, **k: None)
+    assert pipe is not None
+    assert pipe.label == "Remove from My Songs"
+
+
+def test_build_discard_pipeline_accepts_a_preresolved_destination() -> None:
+    """Hosts that already resolved the destination hand it over, so a
+    malformed `like` block isn't reported twice per reload."""
+    pipe = _common.build_discard_pipeline(
+        {},
+        _Playlists(),
+        lambda *a, **k: None,
+        LikeDestination(mode="playlist", playlist_name="My Songs"),
+    )
+    assert pipe is not None
+    assert pipe._destination_playlist_name == "My Songs"
 
 
 def test_resolve_remove_hotkey_default_and_override() -> None:

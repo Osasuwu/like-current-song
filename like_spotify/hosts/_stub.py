@@ -125,11 +125,12 @@ def _run_discard_once() -> int:
     feedback = CliFeedback()
     pipeline = _common.build_discard_pipeline(cfg, provider, feedback)
     if pipeline is None:
-        # Both legs are out: no archive playlist to remove from, and a
-        # music service that can't be told "not this one" either.
+        # Every leg is out: no playlist to remove from (neither an archive
+        # nor a like destination), and a music service that can't be told
+        # "not this one" either.
         _common.msgbox(
             "Nothing to discard with: this music service has no dislike, and "
-            "no archive playlist is configured. Run:\n\n"
+            "no archive or like-destination playlist is configured. Run:\n\n"
             "    like-current-song --setup\n",
             title="Like Current Song — setup required",
         )

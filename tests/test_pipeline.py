@@ -7,6 +7,8 @@ Slices:
     #24 — backfill probe (is_liked → was_already_liked → Storage.increment).
     #168 — a storage failure is logged, and a user-fixable one is shown.
     #43 / #172 — DiscardPipeline: the two independent "not this one" legs.
+    #177 — DiscardPipeline's third leg: the like-destination playlist, so a
+           press can undo a like that never touched the service's library.
 
 Network / keyboard / tray are not exercised — we mock MusicProvider +
 Storage and verify the core composition flows the way the host depends on.
@@ -28,6 +30,8 @@ from like_spotify.core.pipeline import (
     DiscardPipeline,
     LikeDestination,
     Pipeline,
+    _and,
+    _unique_names,
 )
 from like_spotify.core.storage import Storage
 from like_spotify.core.types import CurrentTrack, LikeContext
@@ -910,6 +914,345 @@ async def test_discard_lookup_failure_does_not_cache() -> None:
     assert provider.find_calls == ["My Archive", "My Archive"]
     assert provider.remove_calls == []
     assert "Playlist lookup failed: net" in fb.calls[0][2]
+
+
+# ── #177: the discard press also empties the like destination ───────────
+#
+# A like that went to a playlist can only be undone by taking it back out
+# of that playlist, so the press grows a third leg — subject to the same
+# independence, caching and reporting rules as the other two. The fake
+# below keeps ids and failures *per playlist*, which the older two-leg
+# fakes (one id, one failure) cannot express.
+
+
+class FakeDiscardProvider(MusicProvider):
+    """Dislike- and playlist-capable, with per-playlist ids and failures."""
+
+    def __init__(
+        self,
+        track: CurrentTrack | None,
+        *,
+        playlists: dict[str, str | None] | None = None,
+        dislike_raises: Exception | None = None,
+        find_raises: dict[str, Exception] | None = None,
+        remove_raises: dict[str, Exception] | None = None,
+        fail_removes_once: bool = False,
+    ):
+        self._track = track
+        # Keyed casefolded: `find_playlist_by_name` is case-insensitive.
+        self._playlists = {k.casefold(): v for k, v in (playlists or {}).items()}
+        self._dislike_raises = dislike_raises
+        self._find_raises = find_raises or {}
+        self._remove_raises = remove_raises or {}
+        self._fail_removes_once = fail_removes_once
+        self.find_calls: list[str] = []
+        self.remove_calls: list[tuple[str, str]] = []
+        self.dislike_calls: list[str] = []
+
+    async def get_currently_playing(self) -> CurrentTrack | None:
+        return self._track
+
+    async def like(self, track: CurrentTrack) -> None:  # pragma: no cover
+        raise AssertionError("discard flow must not like")
+
+    async def is_liked(self, track: CurrentTrack) -> bool:  # pragma: no cover
+        raise AssertionError("discard flow must not probe is_liked")
+
+    async def user_id(self) -> str:  # pragma: no cover
+        return "user-id"
+
+    async def dislike(self, track: CurrentTrack) -> None:
+        self.dislike_calls.append(track.provider_track_id)
+        if self._dislike_raises is not None:
+            raise self._dislike_raises
+
+    async def find_playlist_by_name(self, name: str) -> str | None:
+        self.find_calls.append(name)
+        raises = self._find_raises.get(name)
+        if raises is not None:
+            raise raises
+        return self._playlists.get(name.casefold())
+
+    async def remove_track_from_playlist(
+        self, track_id: str, playlist_id: str
+    ) -> None:
+        self.remove_calls.append((track_id, playlist_id))
+        raises = self._remove_raises.get(playlist_id)
+        if raises is not None and (
+            not self._fail_removes_once
+            or sum(1 for _t, p in self.remove_calls if p == playlist_id) == 1
+        ):
+            raise raises
+
+    async def get_playlist_track_ids(
+        self, playlist_id: str
+    ) -> set[str]:  # pragma: no cover
+        raise AssertionError("discard flow does not need track-id membership")
+
+    async def find_or_create_playlist(self, name: str) -> str:  # pragma: no cover
+        raise AssertionError("discard flow must not create playlists")
+
+    async def add_track_to_playlist(
+        self, track_id: str, playlist_id: str
+    ) -> None:  # pragma: no cover
+        raise AssertionError("discard flow must not add tracks")
+
+    async def follow_artist(self, artist_id: str) -> None:  # pragma: no cover
+        raise AssertionError("discard flow does not follow artists")
+
+
+def _three_leg_pipe(provider, fb, **kwargs) -> DiscardPipeline:
+    return DiscardPipeline(
+        provider=provider,
+        feedback=fb,
+        playlist_name="My Archive",
+        destination_playlist_name="My Songs",
+        **kwargs,
+    )
+
+
+@pytest.mark.asyncio
+async def test_discard_removes_from_the_like_destination_too() -> None:
+    """AC: a like that went to `like.playlist_name` is undone by a press."""
+    provider = FakeDiscardProvider(
+        track=_track("trk1"), playlists={"My Archive": "pl-arch", "My Songs": "pl-dest"}
+    )
+    fb = Feedback()
+
+    await _three_leg_pipe(provider, fb).run_once()
+
+    assert provider.dislike_calls == ["trk1"]
+    assert provider.remove_calls == [("trk1", "pl-arch"), ("trk1", "pl-dest")]
+    ok, title, _message = fb.calls[0][:3]
+    assert ok is True
+    assert title == "Disliked, removed from My Archive and removed from My Songs"
+    assert fb.kinds == ["remove"]
+
+
+@pytest.mark.asyncio
+async def test_discard_destination_only_no_archive() -> None:
+    """The `playlist` destination with archiving switched off: two legs."""
+    provider = FakeDiscardProvider(
+        track=_track("trk1"), playlists={"My Songs": "pl-dest"}
+    )
+    fb = Feedback()
+    pipe = DiscardPipeline(
+        provider=provider, feedback=fb, destination_playlist_name="My Songs"
+    )
+
+    assert pipe.label == "Dislike and remove from My Songs"
+    await pipe.run_once()
+
+    assert provider.remove_calls == [("trk1", "pl-dest")]
+    assert fb.calls[0][:2] == (True, "Disliked and removed from My Songs")
+
+
+@pytest.mark.asyncio
+async def test_discard_native_destination_adds_no_leg() -> None:
+    """AC: `native` (the default) changes nothing — no extra playlist call,
+    no extra feedback text. A `native` config resolves to a blank
+    destination name, which is what the host hands over."""
+    provider = FakeDiscardProvider(
+        track=_track("trk1"), playlists={"My Archive": "pl-arch"}
+    )
+    fb = Feedback()
+    pipe = DiscardPipeline(
+        provider=provider,
+        feedback=fb,
+        playlist_name="My Archive",
+        destination_playlist_name="",
+    )
+
+    assert pipe.label == "Dislike and remove from My Archive"
+    await pipe.run_once()
+
+    assert provider.find_calls == ["My Archive"]
+    assert provider.remove_calls == [("trk1", "pl-arch")]
+    assert fb.calls[0][:2] == (True, "Disliked and removed from My Archive")
+
+
+@pytest.mark.asyncio
+async def test_discard_deduplicates_archive_and_destination_by_name() -> None:
+    """AC: archive name equal to destination name removes once, reports once.
+    Case and surrounding space don't make it two playlists — the provider
+    matches names case-insensitively and trimmed."""
+    provider = FakeDiscardProvider(
+        track=_track("trk1"), playlists={"My Songs": "pl-one"}
+    )
+    fb = Feedback()
+    pipe = DiscardPipeline(
+        provider=provider,
+        feedback=fb,
+        playlist_name="My Songs",
+        destination_playlist_name="  my songs  ",
+    )
+
+    assert pipe.label == "Dislike and remove from My Songs"
+    await pipe.run_once()
+
+    assert provider.find_calls == ["My Songs"]
+    assert provider.remove_calls == [("trk1", "pl-one")]
+    assert fb.calls[0][:2] == (True, "Disliked and removed from My Songs")
+
+
+@pytest.mark.asyncio
+async def test_discard_destination_failure_costs_neither_other_leg() -> None:
+    """AC: a destination-leg failure costs neither the dislike nor the
+    archive removal."""
+    provider = FakeDiscardProvider(
+        track=_track("trk1"),
+        playlists={"My Archive": "pl-arch", "My Songs": "pl-dest"},
+        remove_raises={"pl-dest": RuntimeError("boom")},
+    )
+    fb = Feedback()
+
+    await _three_leg_pipe(provider, fb).run_once()
+
+    assert provider.dislike_calls == ["trk1"]
+    assert provider.remove_calls == [("trk1", "pl-arch"), ("trk1", "pl-dest")]
+    ok, title, message = fb.calls[0][:3]
+    assert ok is False
+    assert title == "Disliked and removed from My Archive — not removed from My Songs"
+    assert "boom" in message
+
+
+@pytest.mark.asyncio
+async def test_discard_archive_failure_costs_neither_other_leg() -> None:
+    """AC, the other way round: the destination removal and the dislike
+    both still land when the archive leg fails."""
+    provider = FakeDiscardProvider(
+        track=_track("trk1"),
+        playlists={"My Archive": "pl-arch", "My Songs": "pl-dest"},
+        remove_raises={"pl-arch": RuntimeError("archive gone")},
+    )
+    fb = Feedback()
+
+    await _three_leg_pipe(provider, fb).run_once()
+
+    assert provider.dislike_calls == ["trk1"]
+    assert ("trk1", "pl-dest") in provider.remove_calls
+    ok, title, message = fb.calls[0][:3]
+    assert ok is False
+    assert title == "Disliked and removed from My Songs — not removed from My Archive"
+    assert "archive gone" in message
+
+
+@pytest.mark.asyncio
+async def test_discard_dislike_failure_costs_neither_playlist_leg() -> None:
+    provider = FakeDiscardProvider(
+        track=_track("trk1"),
+        playlists={"My Archive": "pl-arch", "My Songs": "pl-dest"},
+        dislike_raises=RuntimeError("rate limited"),
+    )
+    fb = Feedback()
+
+    await _three_leg_pipe(provider, fb).run_once()
+
+    assert provider.remove_calls == [("trk1", "pl-arch"), ("trk1", "pl-dest")]
+    ok, title, message = fb.calls[0][:3]
+    assert ok is False
+    assert title == (
+        "Removed from My Archive and removed from My Songs — not disliked"
+    )
+    assert "rate limited" in message
+
+
+@pytest.mark.asyncio
+async def test_discard_destination_id_caches_after_success() -> None:
+    """AC: the destination playlist id caches after a successful resolve."""
+    provider = FakeDiscardProvider(
+        track=_track("trk1"), playlists={"My Archive": "pl-arch", "My Songs": "pl-dest"}
+    )
+    pipe = _three_leg_pipe(provider, Feedback())
+
+    await pipe.run_once()
+    await pipe.run_once()
+
+    assert provider.find_calls == ["My Archive", "My Songs"]  # resolved once each
+    assert provider.remove_calls == [
+        ("trk1", "pl-arch"),
+        ("trk1", "pl-dest"),
+        ("trk1", "pl-arch"),
+        ("trk1", "pl-dest"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_discard_destination_id_dropped_on_failure() -> None:
+    """AC: … and is dropped on failure, so the next press re-resolves —
+    while the archive leg keeps the id it already resolved."""
+    provider = FakeDiscardProvider(
+        track=_track("trk1"),
+        playlists={"My Archive": "pl-arch", "My Songs": "pl-dest"},
+        remove_raises={"pl-dest": RuntimeError("gone")},
+        fail_removes_once=True,
+    )
+    fb = Feedback()
+    pipe = _three_leg_pipe(provider, fb)
+
+    await pipe.run_once()  # destination remove raises → only its cache drops
+    await pipe.run_once()  # re-resolves the destination, then succeeds
+
+    assert provider.find_calls == ["My Archive", "My Songs", "My Songs"]
+    assert fb.calls[0][0] is False
+    assert fb.calls[1][0] is True
+    assert fb.calls[1][1] == (
+        "Disliked, removed from My Archive and removed from My Songs"
+    )
+
+
+@pytest.mark.asyncio
+async def test_discard_destination_not_found_does_not_cache() -> None:
+    provider = FakeDiscardProvider(
+        track=_track("trk1"), playlists={"My Archive": "pl-arch", "My Songs": None}
+    )
+    fb = Feedback()
+    pipe = _three_leg_pipe(provider, fb)
+
+    await pipe.run_once()
+    await pipe.run_once()
+
+    assert provider.find_calls == ["My Archive", "My Songs", "My Songs"]
+    assert "Playlist not found: My Songs" in fb.calls[0][2]
+
+
+@pytest.mark.asyncio
+async def test_discard_destination_skipped_when_provider_has_no_playlists() -> None:
+    """AC-adjacent: a provider without the playlist capability skips the leg
+    silently — it is not counted as a failure."""
+    provider = FakeDislikeProvider(track=_track("trk1"))
+    fb = Feedback()
+    pipe = DiscardPipeline(
+        provider=provider, feedback=fb, destination_playlist_name="My Songs"
+    )
+
+    assert pipe.label == "Dislike current track"
+    await pipe.run_once()
+
+    assert fb.calls[0][:2] == (True, "Disliked")
+
+
+def test_discard_label_names_three_legs() -> None:
+    """AC: `label` reads well with three legs."""
+    pipe = _three_leg_pipe(FakeDiscardProvider(track=None), Feedback())
+    assert pipe.label == "Dislike, remove from My Archive and remove from My Songs"
+
+
+def test_and_joins_one_two_and_three_parts() -> None:
+    """The wording decision (#177): two legs keep the original "a and b";
+    three take commas, with "and" before the last."""
+    assert _and(["disliked"]) == "disliked"
+    assert _and(["disliked", "removed from A"]) == "disliked and removed from A"
+    assert _and(["disliked", "removed from A", "removed from B"]) == (
+        "disliked, removed from A and removed from B"
+    )
+
+
+def test_unique_names_drops_blanks_and_case_insensitive_repeats() -> None:
+    assert _unique_names("My Archive", "My Songs") == ["My Archive", "My Songs"]
+    assert _unique_names("My Songs", "my songs") == ["My Songs"]
+    assert _unique_names("", "My Songs") == ["My Songs"]
+    assert _unique_names("", "") == []
 
 
 # ── #173: where a like goes (native / playlist / both) ──────────────────
