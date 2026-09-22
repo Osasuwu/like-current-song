@@ -352,7 +352,7 @@ The wizard is re-runnable; existing tokens are kept unless you pass
 ```bash
 like-current-song             # Windows: tray host with the hotkey (default Ctrl+Shift+Alt+W)
 like-current-song like-once   # any OS: like the currently-playing track and exit
-like-current-song discard-once # any OS: dislike the current track and/or un-archive it (no like)
+like-current-song discard-once # any OS: dislike the current track and take it out of your playlists (no like)
 like-current-song --config    # print config + token paths
 like-current-song --settings  # open the settings window
 ```
@@ -395,10 +395,9 @@ need `like-current-song`, since they read from the terminal.)
 
 On Windows the tray host also binds a **second** global hotkey (default
 `Ctrl+Shift+Alt+Q`) — the *discard* key, for tracks you want gone rather
-than liked. One press does two independent things, **without liking**:
+than liked. One press does up to three independent things, **without
+liking**:
 
-- **Un-archive** — removes the track from your Discover-Weekly archive
-  playlist, if you set an archive playlist name.
 - **Dislike** — tells the music service itself “not this one”. What that
   means differs per service, and the app does not pretend otherwise. On
   **YouTube Music** it is a real thumbs-down, which also clears any like you
@@ -406,11 +405,22 @@ than liked. One press does two independent things, **without liking**:
   has no such endpoint, and the “Hide this song” control in the official
   clients is not available to third-party apps — so the press removes the
   track from your Liked Songs instead.
+- **Un-archive** — removes the track from your Discover-Weekly archive
+  playlist, if you set an archive playlist name.
+- **Take it back out of your like destination** — if a like goes to a
+  playlist of yours (`like.destination` = `playlist` or `both`), the press
+  removes the track from that playlist too. Without this the discard key
+  could not undo the like it exists to undo: on Spotify the like never
+  touched your Liked Songs, so there was nothing for the dislike to remove.
+  If the archive playlist and the like destination are the same playlist,
+  the track is removed once and reported once.
 
-Either half is enough to earn the hotkey: with no archive playlist set you
-still get the dislike. Neither half can cost you the other — if one fails,
-the other still goes through, and the notification says what actually
-happened. If the combo collides with the like hotkey it's skipped. Audio
+Any one of the three is enough to earn the hotkey: with no playlists set
+you still get the dislike. None of them can cost you another — if one
+fails, the rest still go through, and the notification says what actually
+happened (“Disliked, removed from Archive and removed from My Songs”,
+“Disliked and removed from Archive — not removed from My Songs”, “Nothing
+changed”). If the combo collides with the like hotkey it's skipped. Audio
 feedback is audible through the default sound device and distinct per action
 (like / discard / error).
 
@@ -602,9 +612,9 @@ settings window (`like-current-song --settings`, or **Settings…** in the tray 
 | Setting | Android | Desktop |
 |---------|---------|---------|
 | Trigger pattern / hotkey | In-app UI | `~/.like_spotify/config.json` → `trigger.hotkey` (default `Ctrl+Shift+Alt+W`) |
-| Discard hotkey (dislike + un-archive) | n/a (one trigger on headphones) | `~/.like_spotify/config.json` → `trigger.remove_hotkey` (default `Ctrl+Shift+Alt+Q`) |
+| Discard hotkey (dislike + un-archive + un-like) | n/a (one trigger on headphones) | `~/.like_spotify/config.json` → `trigger.remove_hotkey` (default `Ctrl+Shift+Alt+Q`) |
 | Where a like goes | n/a (always the service's own like) | `~/.like_spotify/config.json` → `like.destination` (`native` / `playlist` / `both`, default `native`) |
-| Like destination playlist | n/a | `~/.like_spotify/config.json` → `like.playlist_name` (required by `playlist` / `both`; created on first use) |
+| Like destination playlist | n/a | `~/.like_spotify/config.json` → `like.playlist_name` (required by `playlist` / `both`; created on first use, and the discard hotkey removes from it) |
 | Archive playlist name | In-app UI | `~/.like_spotify/config.json` → `actions.archive_remove.playlist_name` (blank = the discard hotkey only dislikes) |
 | Music service | In-app UI (Spotify / YouTube Music / Automatic) | `~/.like_spotify/config.json` → `music.provider` (`spotify` / `ytmusic`, default `spotify`) |
 | YouTube Music client ID / secret | In-app UI (*Connected services*), stored in `FlutterSecureStorage`; `.env` (`YTMUSIC_CLIENT_ID`, `YTMUSIC_CLIENT_SECRET`) seeds a build | `like-current-song --setup` → `~/.like_spotify/config.json` |

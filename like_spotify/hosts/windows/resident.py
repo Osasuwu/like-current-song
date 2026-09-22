@@ -127,11 +127,13 @@ def _run_discard_once() -> int:
     feedback = CliFeedback()
     pipeline = _common.build_discard_pipeline(cfg, provider, feedback)
     if pipeline is None:
-        # Both legs are out: no archive playlist to remove from, and a
-        # music service that can't be told "not this one" either.
+        # Every leg is out: no playlist to remove from (neither an archive
+        # nor a like destination), and a music service that can't be told
+        # "not this one" either.
         _msgbox(
             "Nothing to discard with: this music service has no dislike, "
-            "and no archive playlist is configured. Run from a terminal:\n\n"
+            "and no archive or like-destination playlist is configured. "
+            "Run from a terminal:\n\n"
             "    like-current-song --setup\n",
             title="Like Current Song — setup required",
         )
@@ -310,14 +312,19 @@ def _build_wiring(cfg: dict, feedback, *, make_trigger=make_tray_hotkey_trigger)
     )
 
     # ── Second hotkey: discard-without-like ───────────────────────────────
-    # Skipped only when a press could do nothing at all — no archive
-    # playlist *and* a provider with no dislike (`build_discard_pipeline`
+    # Skipped only when a press could do nothing at all — no playlist to
+    # remove from *and* a provider with no dislike (`build_discard_pipeline`
     # owns that call) — or when the discard hotkey collides with the like
     # hotkey, since registering two handlers on one combo would fire both
     # pipelines per press. Note a dislike-capable provider now earns the
     # hotkey on its own, so a user who never archives still gets it (#172).
+    # The destination resolved above is handed over so the press can also
+    # undo a like that landed in a playlist (#177) — and so a malformed
+    # `like` block is only reported once per reload.
     remove_hotkey = _common.resolve_remove_hotkey(cfg)
-    discard_pipeline = _common.build_discard_pipeline(cfg, provider, feedback)
+    discard_pipeline = _common.build_discard_pipeline(
+        cfg, provider, feedback, destination
+    )
     discard_enabled = discard_pipeline is not None and remove_hotkey != hotkey
     return _Wiring(
         hotkey=hotkey,

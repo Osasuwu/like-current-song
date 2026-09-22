@@ -387,25 +387,34 @@ Existing impls: `archive_remove`, `promote_to_best`, `follow_artist`.
 disables it (and `build_action_chains` drops the action). The same name
 feeds the standalone **discard** flow: `DiscardPipeline` (in
 `core/pipeline.py`) says “not this one” about the playing track *without*
-a like. It has two legs — remove from that playlist, and dislike through
-the provider — and runs whichever are available, independently: one leg
-raising never costs the other, and the feedback line names what actually
-happened. The Windows tray host binds it to a second global hotkey,
-`trigger.remove_hotkey` (default `Ctrl+Shift+Alt+Q`), and every host
-exposes it as `like-current-song discard-once` (`remove-once` is kept as a
-deprecated alias). The hotkey is skipped only if it equals
-`trigger.hotkey`, or if there is neither an archive name **nor** a
-dislike-capable provider — either one on its own is enough to wire it.
-`resolve_archive_playlist_name` in `hosts/_common.py` is the single
-source of truth both flows read, and `DiscardPipeline.label` is the single
-source of truth for how a press is described (tray menu, startup balloon).
+a like. It has three legs — dislike through the provider, remove from the
+archive playlist, and remove from the like destination playlist (when
+`like.destination` is `playlist` or `both`) — and runs whichever are
+available, independently: one leg raising never costs the others, and the
+feedback line names what actually happened. The two playlist legs are
+de-duplicated by name (casefolded, like `find_playlist_by_name`), so an
+archive that *is* the like destination is removed once and reported once,
+and each leg caches its own resolved playlist id, so a failure invalidates
+only that leg's id. The Windows tray host binds it to a second global
+hotkey, `trigger.remove_hotkey` (default `Ctrl+Shift+Alt+Q`), and every
+host exposes it as `like-current-song discard-once` (`remove-once` is kept
+as a deprecated alias). The hotkey is skipped only if it equals
+`trigger.hotkey`, or if there is no archive name, **no** like-destination
+playlist and **no** dislike-capable provider — any one of the three on its
+own is enough to wire it. `resolve_archive_playlist_name` and
+`resolve_like_destination` in `hosts/_common.py` are the single sources of
+truth the flows read (`build_discard_pipeline` takes an already-resolved
+`LikeDestination` when a host has one, so a malformed `like` block is not
+reported twice), and `DiscardPipeline.label` is the single source of truth
+for how a press is described (tray menu, startup balloon).
 
 **Where a like goes** is a property of the like itself, not an action:
 `like.destination` in `config.json` is `native` (the provider's own like),
 `playlist` (add to `like.playlist_name`) or `both`. Hosts resolve it once
 with `resolve_like_destination` in `hosts/_common.py` and hand the
-resulting `LikeDestination` to `Pipeline`. Three rules to keep if you
-touch it:
+resulting `LikeDestination` to `Pipeline` — and to
+`build_discard_pipeline`, which turns the same playlist into the discard
+press's third leg. Three rules to keep if you touch it:
 
 - A config with no `like` block resolves to `native` with no notice —
   that is the upgrade path, and it must stay byte-identical to the old

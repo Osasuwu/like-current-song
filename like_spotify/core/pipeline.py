@@ -326,45 +326,72 @@ class Pipeline:
         return self._provider  # type: ignore[return-value]
 
 
+@dataclass
+class _PlaylistLeg:
+    """One playlist a discard press takes the playing track out of.
+
+    Each leg keeps its *own* resolved id, so a playlist that was deleted
+    invalidates only its own cache — the other legs keep the ids they
+    already resolved.
+    """
+
+    name: str
+    playlist_id: str | None = None
+
+
 class DiscardPipeline:
-    """"I don't want this one" — no like. Two independent legs, one press.
+    """"I don't want this one" — no like. Independent legs, one press.
 
     Powers the second desktop hotkey (`trigger.remove_hotkey`, default
     Ctrl+Shift+Alt+Q). The like flow's `ArchiveRemoveAction` only fires
     *after* a like, so it can't help with a track the user is rejecting;
-    this is the opposite intent, and it says so in the two ways a service
+    this is the opposite intent, and it says so in every way a service
     understands:
 
-        1. **Playlist leg** — take the track out of the archive playlist
-           (`playlist_name`), for the "keep my Discover Weekly archive
-           clean" job this class shipped with in #43. Needs
-           `PlaylistCapableProvider`.
-        2. **Dislike leg** — tell the service itself (#172). Needs
+        1. **Dislike leg** — tell the service itself (#172). Needs
            `DislikeCapableProvider`, whose docstring covers how far that
            reaches per service: a real thumbs-down on YouTube Music, a
            library removal on Spotify, whose Web API has no dislike.
+        2. **Archive leg** — take the track out of the archive playlist
+           (`playlist_name`), for the "keep my Discover Weekly archive
+           clean" job this class shipped with in #43. Needs
+           `PlaylistCapableProvider`.
+        3. **Destination leg** — take it out of the playlist a *like*
+           would have put it in (`destination_playlist_name`, i.e.
+           `like.playlist_name` when `like.destination` is `playlist` or
+           `both`, #177). Without it, a discard could not undo the like it
+           exists to undo: on Spotify the like never touched the library,
+           so a dislike had nothing to remove and the press was a no-op
+           for the track the user had just liked.
 
-    Both legs run on every press, and **neither can cost the user the
-    other**: each soft-fails on its own and the feedback reports what
+    Every available leg runs on every press, and **none can cost the user
+    another**: each soft-fails on its own and the feedback reports what
     actually happened, so a deleted archive playlist doesn't silently
     swallow the dislike. A leg whose capability the provider lacks is not
     attempted at all rather than counted as a failure — that is how a
-    dislike-only user (no archive configured) and a playlist-only provider
-    both get a useful press. When *neither* leg applies there is nothing
-    honest to do, and the press says so instead of raising, keeping `core`
-    free of any extension import.
+    dislike-only user (no playlists configured) and a playlist-only
+    provider both get a useful press. When *no* leg applies there is
+    nothing honest to do, and the press says so instead of raising,
+    keeping `core` free of any extension import.
 
-    `playlist_name` may be blank: that is the dislike-only wiring, not an
-    error. Hosts decide whether a press is worth offering at all — see
-    `build_discard_pipeline` in `hosts/_common.py`.
+    Both playlist names may be blank: that is the dislike-only wiring, not
+    an error. Nothing stops a user pointing the archive and the like
+    destination at the *same* playlist either, so the two names are
+    de-duplicated case-insensitively (`find_playlist_by_name` matches that
+    way) — one press then removes once and reports once, instead of
+    claiming a second, phantom removal. Hosts decide whether a press is
+    worth offering at all — see `build_discard_pipeline` in
+    `hosts/_common.py`.
 
-    The resolved playlist id is cached after the first successful lookup.
-    A miss (playlist not found, or a lookup error) is *not* cached, and a
-    cached id is dropped again if the remove call later fails (the playlist
-    may have been deleted/renamed) — so a later press re-resolves. Useful in
-    a long-lived tray when the user creates the playlist after launch.
+    Each playlist's resolved id is cached after its first successful
+    lookup. A miss (playlist not found, or a lookup error) is *not*
+    cached, and a cached id is dropped again if the remove call later
+    fails (the playlist may have been deleted/renamed) — so a later press
+    re-resolves. Useful in a long-lived tray when the user creates the
+    playlist after launch.
 
-    Slices: #43 (remove-without-like hotkey), #172 (dislike leg).
+    Slices: #43 (remove-without-like hotkey), #172 (dislike leg),
+    #177 (like-destination leg).
     """
 
     def __init__(
@@ -372,11 +399,18 @@ class DiscardPipeline:
         provider: MusicProvider,
         feedback: FeedbackFn,
         playlist_name: str = "",
+        destination_playlist_name: str = "",
     ) -> None:
         self._provider = provider
         self._feedback = feedback
         self._playlist_name = (playlist_name or "").strip()
-        self._playlist_id: str | None = None
+        self._destination_playlist_name = (destination_playlist_name or "").strip()
+        self._legs = tuple(
+            _PlaylistLeg(name)
+            for name in _unique_names(
+                self._playlist_name, self._destination_playlist_name
+            )
+        )
 
     @property
     def label(self) -> str:
@@ -385,20 +419,24 @@ class DiscardPipeline:
         Lives here rather than in the tray so the menu item, the CLI help
         and the feedback all describe the same press from one place.
         """
-        if self._can_remove() and self._can_dislike():
-            return f"Dislike and remove from {self._playlist_name}"
-        if self._can_remove():
-            return f"Remove from {self._playlist_name}"
+        parts: list[str] = []
         if self._can_dislike():
+            parts.append("dislike")
+        if self._can_remove():
+            parts.extend(f"remove from {leg.name}" for leg in self._legs)
+        if not parts:
+            # No leg is available. The host still wires the press when
+            # *something* was asked for (an archive playlist, say) but the
+            # provider cannot honour it, so stay generic rather than
+            # promise a leg that would only report "unsupported" on press.
+            return "Discard current track"
+        if parts == ["dislike"]:
+            # Alone, the verb needs an object to be a sentence.
             return "Dislike current track"
-        # Neither leg is available. The host still wires the press when
-        # *something* was asked for (an archive playlist, say) but the
-        # provider cannot honour it, so stay generic rather than promise
-        # a leg that would only report "unsupported" on press.
-        return "Discard current track"
+        return _capitalize(_and(parts))
 
     def _can_remove(self) -> bool:
-        return bool(self._playlist_name) and isinstance(
+        return bool(self._legs) and isinstance(
             self._provider, PlaylistCapableProvider
         )
 
@@ -442,12 +480,13 @@ class DiscardPipeline:
                 reasons.append(reason)
 
         if self._can_remove():
-            reason = await self._remove(track)
-            if reason is None:
-                done.append(f"removed from {self._playlist_name}")
-            else:
-                failed.append(f"not removed from {self._playlist_name}")
-                reasons.append(reason)
+            for leg in self._legs:
+                reason = await self._remove(track, leg)
+                if reason is None:
+                    done.append(f"removed from {leg.name}")
+                else:
+                    failed.append(f"not removed from {leg.name}")
+                    reasons.append(reason)
 
         if done and not failed:
             title = _capitalize(_and(done))
@@ -469,36 +508,70 @@ class DiscardPipeline:
             return f"Dislike failed: {e}"
         return None
 
-    async def _remove(self, track: CurrentTrack) -> str | None:
-        """Run the playlist leg. None on success, else the reason to show."""
-        if self._playlist_id is None:
+    async def _remove(self, track: CurrentTrack, leg: _PlaylistLeg) -> str | None:
+        """Run one playlist leg. None on success, else the reason to show.
+
+        Every failure path is contained in the leg that hit it — the
+        caller keeps going through the remaining legs either way.
+        """
+        if leg.playlist_id is None:
             try:
-                self._playlist_id = await self._provider.find_playlist_by_name(
-                    self._playlist_name
-                )
+                leg.playlist_id = await self._provider.find_playlist_by_name(leg.name)
             except Exception as e:
                 # Not cached — next press retries.
                 logger.warning("playlist lookup failed", exc_info=True)
                 return f"Playlist lookup failed: {e}"
-            if not self._playlist_id:
-                return f"Playlist not found: {self._playlist_name}"
+            if not leg.playlist_id:
+                return f"Playlist not found: {leg.name}"
 
         try:
             await self._provider.remove_track_from_playlist(
-                track.provider_track_id, self._playlist_id
+                track.provider_track_id, leg.playlist_id
             )
         except Exception as e:
             # The cached id may be stale (playlist deleted/renamed since the
             # last resolve) — drop it so the next press re-resolves instead
             # of failing forever against a dead id.
-            self._playlist_id = None
+            leg.playlist_id = None
             logger.warning("playlist remove failed", exc_info=True)
             return f"Remove failed: {e}"
         return None
 
 
+def _unique_names(*names: str) -> list[str]:
+    """Drop blanks and repeats, keeping the first spelling of each name.
+
+    Nothing stops a user pointing `actions.archive_remove.playlist_name`
+    and `like.playlist_name` at the same playlist (#177). Matching is
+    case-insensitive because `find_playlist_by_name` is: two spellings
+    that resolve to one playlist must not become two legs, or a press
+    would remove twice and report a removal that never happened.
+    """
+    seen: set[str] = set()
+    unique: list[str] = []
+    for name in names:
+        key = name.casefold()
+        if not name or key in seen:
+            continue
+        seen.add(key)
+        unique.append(name)
+    return unique
+
+
 def _and(parts: list[str]) -> str:
-    return " and ".join(parts)
+    """Join leg phrases into the one clause a press is reported as.
+
+    Two legs read best as "a and b" — the #43/#172 wording, kept
+    verbatim. A third (#177) would stack conjunctions
+    ("disliked and removed from A and removed from B", which parses as
+    though the second removal were part of the first), so from three on
+    the list takes commas and keeps "and" for the final pair:
+    "disliked, removed from A and removed from B". No serial comma,
+    matching the prose style of the rest of the UI strings.
+    """
+    if len(parts) <= 2:
+        return " and ".join(parts)
+    return f"{', '.join(parts[:-1])} and {parts[-1]}"
 
 
 def _capitalize(text: str) -> str:

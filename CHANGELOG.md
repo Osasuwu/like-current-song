@@ -73,6 +73,25 @@ still the only option for the desktop half.
   old `remove-once` keeps working as an alias so existing AutoHotkey / Stream
   Deck bindings are unaffected.
 
+- **Desktop: the discard hotkey now also empties your like destination.** If
+  your likes go to a playlist of your own (`like.destination` = `playlist` or
+  `both`, new above), changing your mind used to be half a job:
+  `Ctrl+Shift+Alt+Q` disliked the track and took it out of your archive
+  playlist, but left it sitting in the very playlist the like had just put it
+  in, and the only way to take it out was to open your music service and do it
+  by hand. The same press now removes it from that playlist too, as a third
+  independent leg: any one of the three failing never costs the other two, and
+  the notification names each one — *“Disliked, removed from Archive and
+  removed from My Songs”*, or *“Disliked and removed from Archive — not
+  removed from My Songs”* when only the last one failed. If your archive
+  playlist and your like destination are **the same playlist**, the track is
+  removed once and reported once, rather than twice. A `native` destination —
+  the default, and what every config without a `like` block resolves to —
+  changes nothing whatsoever, and because a destination playlist is by itself
+  a reason for the hotkey to exist, it is now wired even on a service with no
+  dislike and no archive playlist configured. **No new key combination, no new
+  setting**: it follows the like destination you already chose.
+
 ### Fixed
 
 - **Android: the listener survives a reboot again on Android 15 and newer.**
