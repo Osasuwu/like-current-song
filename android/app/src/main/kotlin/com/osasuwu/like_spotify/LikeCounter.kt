@@ -124,7 +124,7 @@ object LikeCounter {
                 val next = current + 1
                 val base = "$API_BASE/${target.spreadsheetId}/values"
                 val countCell = encode("$SHEET!${CounterSheetSchema.COUNT_COLUMN}$row")
-                if (!update(token, "$base/$countCell", next.toString())) return null
+                if (!update(token, "$base/$countCell", next)) return null
                 // `backfilled` is left alone: it records how the row started,
                 // not how it was last touched.
                 // The count is already on the sheet at this point, so a failed
@@ -134,14 +134,12 @@ object LikeCounter {
                 next
             } else {
                 val next = if (wasAlreadyLiked) 2 else 1
-                val row = JSONArray(
-                    listOf(
-                        target.userId,
-                        trackId,
-                        next.toString(),
-                        if (wasAlreadyLiked) "TRUE" else "FALSE",
-                        now,
-                    ),
+                val row = listOf(
+                    target.userId,
+                    trackId,
+                    next,
+                    if (wasAlreadyLiked) "TRUE" else "FALSE",
+                    now,
                 )
                 append(token, target.spreadsheetId, row) ?: return null
                 next
@@ -157,25 +155,34 @@ object LikeCounter {
         return readBody(connection)
     }
 
+    /**
+     * The `values` body of a write, one row of [cells].
+     *
+     * Every write goes out with `valueInputOption=RAW`, so the sheet stores
+     * each cell as the JSON type it arrives in — a count sent as `"1"` lands
+     * as text next to the number the Dart half writes for the same column.
+     * Pass an `Int` for a number and a `String` for text.
+     */
+    fun writeBody(cells: List<Any>): String =
+        JSONObject().put("values", JSONArray().put(JSONArray(cells))).toString()
+
     /** One cell write. False when the sheet refused it. */
-    private fun update(token: String, url: String, value: String): Boolean {
+    private fun update(token: String, url: String, value: Any): Boolean {
         val connection = open(token, "$url?valueInputOption=RAW", "PUT")
         connection.doOutput = true
         connection.setRequestProperty("Content-Type", "application/json")
-        val body = JSONObject().put("values", JSONArray().put(JSONArray().put(value)))
-        OutputStreamWriter(connection.outputStream).use { it.write(body.toString()) }
+        OutputStreamWriter(connection.outputStream).use { it.write(writeBody(listOf(value))) }
         return connection.responseCode in 200..299
     }
 
     /** Appends [row] to the tab. Returns null when the sheet refused it. */
-    private fun append(token: String, spreadsheetId: String, row: JSONArray): Int? {
+    private fun append(token: String, spreadsheetId: String, row: List<Any>): Int? {
         val url = "$API_BASE/$spreadsheetId/values/${encode(SHEET)}:append" +
             "?valueInputOption=RAW&insertDataOption=INSERT_ROWS"
         val connection = open(token, url, "POST")
         connection.doOutput = true
         connection.setRequestProperty("Content-Type", "application/json")
-        val body = JSONObject().put("values", JSONArray().put(row))
-        OutputStreamWriter(connection.outputStream).use { it.write(body.toString()) }
+        OutputStreamWriter(connection.outputStream).use { it.write(writeBody(row)) }
         if (connection.responseCode !in 200..299) return null
         val updated = runCatching {
             JSONObject(readBody(connection).orEmpty())
