@@ -16,7 +16,6 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
-import org.json.JSONObject
 import java.io.BufferedReader
 import java.net.HttpURLConnection
 import java.net.URL
@@ -537,19 +536,13 @@ class YouTubeMusicLiker(context: Context) {
         return if (minutes >= 0) minutes else AppConstants.DEFAULT_LIKE_COOLDOWN_MINUTES
     }
 
-    private fun lastLikedMap(): JSONObject {
-        val raw = prefs.getString(AppConstants.KEY_TRACK_LAST_LIKED_AT, null) ?: return JSONObject()
-        return runCatching { JSONObject(raw) }.getOrDefault(JSONObject())
-    }
-
     private fun isWithinCooldown(key: String, minutes: Int): Boolean {
-        val last = lastLikedMap().optLong(key, 0L)
-        return last > 0L && System.currentTimeMillis() - last < minutes * 60_000L
+        val last = LocalCounters.lastLikedAt(prefs, key) ?: return false
+        return System.currentTimeMillis() - last < minutes * 60_000L
     }
 
     private fun recordLikedAt(key: String) {
-        val map = lastLikedMap().put(key, System.currentTimeMillis())
-        prefs.edit().putString(AppConstants.KEY_TRACK_LAST_LIKED_AT, map.toString()).apply()
+        LocalCounters.recordLikedAt(prefs, key, System.currentTimeMillis())
     }
 
     // ---- Logging -------------------------------------------------

@@ -34,6 +34,9 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 		 * activity) so a like in flight survives an activity recreate.
 		 */
 		private val ytmLikeExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+
+		/** Error code for a channel call whose arguments make no sense. */
+		private const val INVALID_ARGS = "invalid_args"
 	}
 
 	override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -348,6 +351,98 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 							if (wakeLock.isHeld) wakeLock.release()
 						}
 					}
+				}
+
+				// ---- Local like bookkeeping ----------------------------------
+				//
+				// The counters live in this process's SharedPreferences and
+				// nowhere else (see [LocalCounters]). Dart used to keep its own
+				// copies in the `shared_preferences` store, so a like made in the
+				// app and a like made with the media button counted into two maps
+				// that never met (#197). These calls are how Dart reaches the one
+				// that counts.
+				"incrementLocalCount" -> {
+					val kind = LocalCounters.Kind.fromId(call.argument<String>("kind"))
+					val id = call.argument<String>("id")?.takeIf { it.isNotBlank() }
+					if (kind == null || id == null) {
+						result.error(INVALID_ARGS, "incrementLocalCount needs kind \"track\" or \"artist\" and a non-blank id", null)
+					} else {
+						result.success(LocalCounters.increment(prefs(), kind, id))
+					}
+				}
+
+				"getLocalCount" -> {
+					val kind = LocalCounters.Kind.fromId(call.argument<String>("kind"))
+					val id = call.argument<String>("id")?.takeIf { it.isNotBlank() }
+					if (kind == null || id == null) {
+						result.error(INVALID_ARGS, "getLocalCount needs kind \"track\" or \"artist\" and a non-blank id", null)
+					} else {
+						result.success(LocalCounters.count(prefs(), kind, id))
+					}
+				}
+
+				"loadLocalCounts" -> {
+					val kind = LocalCounters.Kind.fromId(call.argument<String>("kind"))
+					if (kind == null) {
+						result.error(INVALID_ARGS, "loadLocalCounts needs kind \"track\" or \"artist\"", null)
+					} else {
+						result.success(LocalCounters.counts(prefs(), kind))
+					}
+				}
+
+				// Null means the track has never been liked, which is not an
+				// error: the cooldown rule asks this before every like.
+				"getLastLikedAt" -> {
+					val id = call.argument<String>("id")?.takeIf { it.isNotBlank() }
+					if (id == null) {
+						result.error(INVALID_ARGS, "getLastLikedAt needs a non-blank id", null)
+					} else {
+						result.success(LocalCounters.lastLikedAt(prefs(), id))
+					}
+				}
+
+				"recordLikedAt" -> {
+					val id = call.argument<String>("id")?.takeIf { it.isNotBlank() }
+					// Epoch ms exceeds Int range, so read it as Number to accept
+					// whichever width the codec picked.
+					val atEpochMillis = call.argument<Number>("atEpochMillis")?.toLong()
+					if (id == null || atEpochMillis == null) {
+						result.error(INVALID_ARGS, "recordLikedAt needs a non-blank id and atEpochMillis", null)
+					} else {
+						LocalCounters.recordLikedAt(prefs(), id, atEpochMillis)
+						result.success(null)
+					}
+				}
+
+				"loadFollowedArtists" -> {
+					result.success(LocalCounters.followedArtists(prefs()).toList())
+				}
+
+				"markArtistFollowed" -> {
+					val id = call.argument<String>("id")?.takeIf { it.isNotBlank() }
+					if (id == null) {
+						result.error(INVALID_ARGS, "markArtistFollowed needs a non-blank id", null)
+					} else {
+						LocalCounters.markArtistFollowed(prefs(), id)
+						result.success(null)
+					}
+				}
+
+				// The one-time migration of the maps Dart used to own. Merging
+				// keeps the larger value per key, so calling it twice changes
+				// nothing the second time; true means something was written.
+				"mergeLocalCounters" -> {
+					val tracks = LocalCounters.numbersFrom(call.argument<Map<String, Any?>>("tracks"))
+					val artists = LocalCounters.numbersFrom(call.argument<Map<String, Any?>>("artists"))
+					val lastLikedAt = LocalCounters.numbersFrom(call.argument<Map<String, Any?>>("lastLikedAt"))
+					result.success(
+						LocalCounters.merge(
+							prefs(),
+							tracks = tracks.mapValues { it.value.toInt() },
+							artists = artists.mapValues { it.value.toInt() },
+							lastLikedAt = lastLikedAt,
+						)
+					)
 				}
 
 				else -> result.notImplemented()

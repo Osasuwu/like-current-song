@@ -4,6 +4,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../domain/repositories/like_count_repository.dart';
 
+/// The counters this app used to keep in Flutter's own SharedPreferences.
+///
+/// Nothing counts here any more: the native store behind
+/// `NativeLikeCountRepository` is the single one both halves of the app write
+/// to (#197). This class stays as the *source* `LocalCounterMigration` reads
+/// from on first launch after the change, and is emptied once that merge has
+/// landed. Do not wire it up as a counter again — a like recorded here is a
+/// like the foreground service cannot see.
 class SharedPrefsLikeCountRepository implements LikeCountRepository {
   static const _keyTrackCounts = 'track_like_counts';
   static const _keyArtistCounts = 'artist_like_counts';
@@ -44,6 +52,29 @@ class SharedPrefsLikeCountRepository implements LikeCountRepository {
     final map = await _loadMap(_keyTrackLastLikedAt);
     map[trackId] = at.toUtc().millisecondsSinceEpoch;
     await _saveMap(_keyTrackLastLikedAt, map);
+  }
+
+  /// Every cooldown timestamp still stored here, keyed by track id.
+  ///
+  /// The interface only asks about one track at a time, which is all a like
+  /// needs; the migration has to hand the whole map over at once.
+  Future<Map<String, DateTime>> loadAllLastLikedAt() async {
+    final map = await _loadMap(_keyTrackLastLikedAt);
+    return map.map((trackId, epochMillis) => MapEntry(
+          trackId,
+          DateTime.fromMillisecondsSinceEpoch(epochMillis, isUtc: true),
+        ));
+  }
+
+  /// Drops all three maps, leaving no second set of counters behind.
+  ///
+  /// Only for use once the migration has seen the native side take them:
+  /// these numbers exist nowhere else.
+  Future<void> clearAll() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_keyTrackCounts);
+    await prefs.remove(_keyArtistCounts);
+    await prefs.remove(_keyTrackLastLikedAt);
   }
 
   Future<int> _increment(String key, String itemId) async {

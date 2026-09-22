@@ -455,9 +455,15 @@ switching does not sign you out of the other one.
 Everything above works without this. Turning it on buys you two things: the
 same like counts on your phone and your computer, and the two rules that read
 them — **promote-to-best** (add a track to a "best" playlist once you have
-liked it N times) and **follow-artist** (follow an artist after N liked
-tracks). Without a counter those two stay inactive and every other feature is
-unaffected.
+liked it N times) and **follow-artist** (follow an artist once you have liked
+N of their tracks). Every other feature is unaffected.
+
+The two rules do not need the counter equally. Promote-to-best is counted in
+the shared sheet on both halves, so without a counter it stays inactive.
+Follow-artist is counted in the sheet only on the desktop; the phone keeps its
+own count on the device, so the rule works there with no counter configured —
+it just does not carry over to your computer, and it counts likes rather than
+distinct tracks.
 
 The counter is a **Google Sheet you own**. There is no service to sign up for,
 no database to run, and no backend operated by this project — the numbers are
@@ -520,9 +526,9 @@ a second device joins an existing count.
    user_id | track_id | count | backfilled | updated_at
    ```
 
-   For the follow-artist rule, add a second tab named `ArtistTracks` with the
-   header row `user_id | artist_id | track_id`. Then paste its ID at step 2
-   or 3 instead of creating one.
+   For the desktop follow-artist rule, add a second tab named `ArtistTracks`
+   with the header row `user_id | artist_id | track_id | created_at`. Then
+   paste its ID at step 2 or 3 instead of creating one.
 
 Both halves address a row by your own account id — your Spotify user id, or
 the Google account id when the like came from YouTube Music — so two people

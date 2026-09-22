@@ -50,6 +50,18 @@ abstract class PlatformServiceRepository {
   /// those background likes are gone for good.
   Future<List<AppLog>> drainBackgroundLogs();
 
+  /// The artists this device has already auto-followed, by id.
+  ///
+  /// The follow rule fires once a count reaches its threshold and the count
+  /// only ever goes up, so without a record of who has been followed the rule
+  /// would fire again on every later like. It lives on the native side next
+  /// to the counters, for the same reason they do: both halves of the app
+  /// must agree on it.
+  Future<Set<String>> loadFollowedArtists();
+
+  /// Adds [artistId] to that set, after the follow actually went through.
+  Future<void> markArtistFollowed(String artistId);
+
   Stream<Map<String, dynamic>> events();
   Future<void> syncSpotifyTokens({
     required String accessToken,

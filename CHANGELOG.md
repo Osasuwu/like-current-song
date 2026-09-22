@@ -126,6 +126,28 @@ still the only option for the desktop half.
 
 ### Fixed
 
+- **Android: likes made in the app and likes made with the media button now
+  count towards the same total.** The two halves of the app kept their own
+  copies of every per-device counter, in two stores that never met, so anyone
+  who used both input methods had each number split between them. The
+  follow-artist rule was the worst off: it fires when an artist's count
+  *equals* the threshold, and a count split across two stores could pass five
+  without either half ever reaching it — the artist was then never followed at
+  all, not merely followed late. The same split also meant the like cooldown
+  did not apply between the two paths, so a track liked in the app could be
+  liked again by a media button seconds later, and the promote-to-best
+  fallback undercounted when no counter sheet was set up. There is now one
+  store, shared by both halves; the counts you already had are added together
+  on the first launch. Follow-artist also fires at or past its threshold
+  rather than exactly on it, and remembers which artists it has followed so it
+  still only fires once each. Counters kept in a Google Sheet were never
+  affected and are unchanged.
+
+- **Android: a like made with the media button now counts every artist on the
+  track.** Only the first credited artist was counted, so a feature or a
+  collaboration never moved the guest artist's total, while the same like made
+  in the app moved both. The two paths now count alike, and match the desktop.
+
 - **Android: turning on Automatic no longer looks like nothing happened below
   the switch.** Automatic is the absence of an explicit pick, but everything
   under it on *Connected services* — installed, connected, the account, the

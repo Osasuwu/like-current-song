@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:like_spotify_mobile_app/data/likes/google_sheets_like_count_repository.dart';
+import 'package:like_spotify_mobile_app/data/likes/shared_prefs_like_count_repository.dart';
 import 'package:like_spotify_mobile_app/domain/entities/app_log.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -58,6 +59,9 @@ void main() {
         readAccessToken: readAccessToken ?? () async => token,
         userIdGetter: userIdGetter ?? () async => userId,
         appendLog: appendLog ?? ((log) async => logs.add(log)),
+        // The local fallback is the native store in the app; here it is the
+        // preferences-backed one, which a unit test can actually run.
+        localCounts: SharedPrefsLikeCountRepository(),
         httpClient: client,
       );
 

@@ -76,9 +76,22 @@ object AppConstants {
     const val DEFAULT_FOLLOW_ARTIST_THRESHOLD = 5
     const val DEFAULT_LIKE_COOLDOWN_MINUTES = 10
 
+    // The local like bookkeeping, owned by [LocalCounters]. This store is the
+    // only copy: Dart reaches the same maps over the service method channel.
     const val KEY_TRACK_LIKE_COUNTS = "track_like_counts"
     const val KEY_ARTIST_LIKE_COUNTS = "artist_like_counts"
     const val KEY_TRACK_LAST_LIKED_AT = "track_last_liked_at"
+
+    /** Artists already auto-followed, so the threshold rule fires once per artist. */
+    const val KEY_FOLLOWED_ARTISTS = "followed_artists"
+
+    /**
+     * Set once the counters Dart kept in its own store before #197 have been
+     * folded in. The fold adds the two stores together, which is right exactly
+     * once, so this is what stops a second call from counting them twice.
+     */
+    const val KEY_COUNTERS_MERGED = "local_counters_merged_v1"
+
     const val KEY_PLAYLIST_CACHE = "playlist_cache"
     const val KEY_PLAYLIST_CACHE_TIMESTAMP = "playlist_cache_timestamp"
 
