@@ -1,6 +1,7 @@
 package com.osasuwu.like_spotify
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -167,5 +168,44 @@ class LocalCountersTest {
         val followed = LocalCounters.parseIds("""["artist-1"]""") + "artist-1"
         assertEquals(setOf("artist-1"), followed)
         assertTrue("artist-1" in LocalCounters.parseIds(LocalCounters.encodeIds(followed)))
+    }
+
+    // ---- shouldFollow -------------------------------------------------
+
+    @Test
+    fun `an artist short of the threshold is not followed`() {
+        assertFalse(LocalCounters.shouldFollow(4, 5, emptySet(), "artist-1"))
+    }
+
+    @Test
+    fun `an artist exactly on the threshold is followed`() {
+        assertTrue(LocalCounters.shouldFollow(5, 5, emptySet(), "artist-1"))
+    }
+
+    @Test
+    fun `a count that jumped past the threshold still follows`() {
+        // The case `==` could not serve, and the whole of #197: a like counted
+        // in the store this one could not see, or the one-time merge landing a
+        // count past the threshold, left the artist unfollowed forever.
+        assertTrue(LocalCounters.shouldFollow(9, 5, emptySet(), "artist-1"))
+    }
+
+    @Test
+    fun `an artist already followed is not followed again`() {
+        // What keeps `>=` from re-following on every later like.
+        assertFalse(LocalCounters.shouldFollow(9, 5, setOf("artist-1"), "artist-1"))
+    }
+
+    @Test
+    fun `being followed says nothing about the artist beside it`() {
+        assertTrue(LocalCounters.shouldFollow(5, 5, setOf("artist-1"), "artist-2"))
+    }
+
+    @Test
+    fun `the namespaced key a youtube channel is stored under is matched whole`() {
+        // YouTube Music ids share the map with Spotify's under a `ytmusic:`
+        // prefix, so the bare id must not match the namespaced entry.
+        assertFalse(LocalCounters.shouldFollow(5, 5, setOf("ytmusic:UC123"), "ytmusic:UC123"))
+        assertTrue(LocalCounters.shouldFollow(5, 5, setOf("ytmusic:UC123"), "UC123"))
     }
 }

@@ -346,12 +346,13 @@ class SpotifyLikeWorker(
         track.artistIds.forEach { artistId ->
             val artistCount = LocalCounters.increment(prefs, LocalCounters.Kind.ARTIST, artistId)
             if (!ruleConfig.followArtistEnabled) return@forEach
-            // At or past the threshold, and not followed yet. Testing for the
-            // exact count missed the artist whenever a like was counted
-            // somewhere this map did not see; the followed set is what keeps
-            // `>=` from re-following on every like after.
-            if (artistCount < ruleConfig.followArtistThreshold) return@forEach
-            if (artistId in LocalCounters.followedArtists(prefs)) return@forEach
+            val shouldFollow = LocalCounters.shouldFollow(
+                artistCount,
+                ruleConfig.followArtistThreshold,
+                LocalCounters.followedArtists(prefs),
+                artistId,
+            )
+            if (!shouldFollow) return@forEach
             runCatching {
                 val result = followArtist(artistId, token)
                 if (result.success) {

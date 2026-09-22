@@ -223,8 +223,9 @@ class YouTubeMusicExtraActions(
         LocalCounters.increment(prefs, kind, countKey(id))
 
     /**
-     * Whether to subscribe to [followedKey]'s channel now: at or past the
-     * threshold, and not subscribed by this app already.
+     * Whether to subscribe to [followedKey]'s channel now, by the same rule the
+     * Spotify worker follows by -- [LocalCounters.shouldFollow] is where that
+     * rule lives and where it is tested.
      *
      * Deliberately not [reachedThreshold], which the best-playlist rule shares
      * and which fires on the exact count. Follow is the rule #197 broke -- a
@@ -233,7 +234,7 @@ class YouTubeMusicExtraActions(
      * the best rule keeps the behaviour it has.
      */
     private fun shouldFollow(count: Int, threshold: Int, followedKey: String): Boolean =
-        count >= threshold && followedKey !in LocalCounters.followedArtists(prefs)
+        LocalCounters.shouldFollow(count, threshold, LocalCounters.followedArtists(prefs), followedKey)
 
     // ---- Rule config -------------------------------------------------
 

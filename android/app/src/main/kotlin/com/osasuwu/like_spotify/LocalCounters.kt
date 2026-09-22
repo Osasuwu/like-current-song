@@ -145,6 +145,21 @@ object LocalCounters {
     fun followedArtists(prefs: SharedPreferences): Set<String> =
         parseIds(prefs.getString(AppConstants.KEY_FOLLOWED_ARTISTS, null))
 
+    /**
+     * Whether the follow rule should fire for [id] right now: its count is at
+     * or past [threshold], and it is not in [followed] already.
+     *
+     * The one decision both background paths make, kept here so it is made the
+     * same way in both and can be tested without an Android runtime. The test
+     * used to be `count == threshold`, which needed the count to land on the
+     * threshold exactly -- so a like counted in a store this one could not see
+     * meant the artist was never followed at all, not merely followed late
+     * (#197). `>=` also covers a threshold the user lowers below a count they
+     * already have, and the migration pushing a count past it in one jump.
+     */
+    fun shouldFollow(count: Int, threshold: Int, followed: Set<String>, id: String): Boolean =
+        count >= threshold && id !in followed
+
     @Synchronized
     fun markArtistFollowed(prefs: SharedPreferences, id: String) {
         val updated = followedArtists(prefs) + id
