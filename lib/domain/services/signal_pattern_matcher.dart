@@ -1,5 +1,20 @@
 import '../entities/trigger_config.dart';
 
+/// The Dart-side *executable specification* of the media-button pattern rules.
+///
+/// This is deliberately not the code that runs at trigger time. Detection
+/// happens in the Kotlin twin,
+/// `android/app/src/main/kotlin/com/osasuwu/like_spotify/MediaEventPatternDetector.kt`,
+/// inside the foreground service — it has to, because the Dart isolate is not
+/// alive when the screen is off. Nothing in the app calls this class; it exists
+/// because the rules are cheap to state and test here, and expensive to read
+/// out of the service.
+///
+/// The two must stay in step: a change to one is a change to both, and to both
+/// test files — `test/domain/services/signal_pattern_matcher_test.dart` and
+/// `android/app/src/test/kotlin/com/osasuwu/like_spotify/MediaEventPatternDetectorTest.kt`,
+/// which mirror each other on purpose. Folding the two harnesses into one is
+/// issue #117; until that lands, both suites are load-bearing.
 class SignalPatternMatcher {
   final List<_StampedEvent> _events = <_StampedEvent>[];
   DateTime? _lastTriggerAt;

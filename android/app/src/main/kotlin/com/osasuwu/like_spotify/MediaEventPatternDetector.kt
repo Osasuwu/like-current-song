@@ -1,5 +1,17 @@
 package com.osasuwu.like_spotify
 
+/**
+ * The media-button pattern matcher that actually runs. It lives here, in the
+ * foreground service's process, because the Dart isolate is not alive when the
+ * screen is off.
+ *
+ * Its twin is `lib/domain/services/signal_pattern_matcher.dart`, the Dart-side
+ * executable spec of the same rules — that one is never called at trigger time.
+ * The two must stay in step, as must their test files
+ * (`MediaEventPatternDetectorTest.kt` and
+ * `test/domain/services/signal_pattern_matcher_test.dart`), which mirror each
+ * other on purpose. Folding the two harnesses into one is issue #117.
+ */
 class MediaEventPatternDetector(
     private val windowMsProvider: () -> Long,
     private val debounceMsProvider: () -> Long,
