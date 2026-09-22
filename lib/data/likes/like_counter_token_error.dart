@@ -38,8 +38,8 @@ class LikeCounterTokenRefused implements Exception {
 ///
 /// Pure on purpose: the wording is the whole point of #200, so it is testable
 /// without a token, a network or a store. It mirrors
-/// `GoogleTokens.refreshFailureMessage` on the native side, which says the
-/// same things about the same OAuth errors.
+/// `LikeCounter.tokenRefusedMessage` on the native side, which says the same
+/// things about the same OAuth errors.
 String likeCounterRefreshFailureMessage(Object error) {
   if (error is! GoogleOAuthException) {
     return "The counter's Google token could not be renewed: $error";
