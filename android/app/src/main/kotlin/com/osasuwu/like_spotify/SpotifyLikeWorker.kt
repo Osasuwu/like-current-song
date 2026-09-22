@@ -126,6 +126,8 @@ class SpotifyLikeWorker(
 
         val token = accessToken
         if (token.isNullOrBlank()) {
+            // The one failure tone that used to play with nothing logged at all.
+            log("Like skipped: no access token after refresh", actionType = "like_track", result = "failure")
             playFeedbackTone(success = false)
             return Result.success()
         }
@@ -196,11 +198,25 @@ class SpotifyLikeWorker(
         var playlistOk = false
         if (ruleConfig.likeDestination.addsToPlaylist) {
             val name = ruleConfig.likePlaylistName
+            // Three different things used to collapse into one "failed" line:
+            // no playlist name configured, a playlist that could be neither
+            // found nor created, and a throw on the way. Name which one.
+            var reason: String? = null
             val outcome = runCatching {
+                if (name.isBlank()) {
+                    reason = "no playlist name configured"
+                    return@runCatching ApiResult(false, 0)
+                }
                 val playlistId = ensurePlaylist(prefs, name, token)
-                    ?: return@runCatching ApiResult(false, 0)
+                if (playlistId == null) {
+                    reason = "playlist not found and could not be created"
+                    return@runCatching ApiResult(false, 0)
+                }
                 addTrackToPlaylist(playlistId, track.uri, token)
-            }.getOrElse { ApiResult(false, 0) }
+            }.getOrElse {
+                reason = "${it.javaClass.simpleName}: ${it.message ?: "no message"}"
+                ApiResult(false, 0)
+            }
             playlistOk = outcome.success
             if (outcome.success) {
                 log(
@@ -212,7 +228,9 @@ class SpotifyLikeWorker(
                 )
             } else {
                 log(
-                    "Adding to like playlist failed: $name",
+                    "Adding to like playlist failed: ${name.ifBlank { "(unnamed)" }}" +
+                        (reason?.let { " ($it)" } ?: "") +
+                        (outcome.errorBody?.let { ": $it" } ?: ""),
                     actionType = "like_playlist_add",
                     targetId = track.id,
                     result = "failure",
@@ -633,6 +651,7 @@ class SpotifyLikeWorker(
         result: String = "info",
         httpCode: Int? = null
     ) {
+        BackgroundLog.emit(message, actionType, result, targetId, httpCode)
         val intent = android.content.Intent(AppConstants.ACTION_LOG_EVENT)
             .putExtra(AppConstants.EXTRA_LOG, message)
             .putExtra(AppConstants.EXTRA_LOG_ACTION_TYPE, actionType)
