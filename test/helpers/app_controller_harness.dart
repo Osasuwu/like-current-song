@@ -81,6 +81,11 @@ class AppControllerHarness {
   /// What `readMusicSessions` answers; a test that cares sets it before acting.
   MusicSessionSnapshot sessions = const MusicSessionSnapshot();
 
+  /// What the native side hands over from its background buffer at start-up;
+  /// empty by default, which is what an app that was never swiped out looks
+  /// like. Set it before [build].
+  List<AppLog> backgroundLogs = <AppLog>[];
+
   /// What `loadMusicProvider` answers right now: an in-memory stand-in for
   /// SharedPreferences, so a saved choice is visible to the next read — which
   /// is how [ActiveMusicServiceRepository] picks the service to talk to.
@@ -137,6 +142,8 @@ class AppControllerHarness {
         expiresAtEpochMs: any(named: 'expiresAtEpochMs'),
       ),
     ).thenAnswer((_) async {});
+    when(() => platform.drainBackgroundLogs())
+        .thenAnswer((_) async => backgroundLogs);
     when(() => platform.events())
         .thenAnswer((_) => const Stream<Map<String, dynamic>>.empty());
 

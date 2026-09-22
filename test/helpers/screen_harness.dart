@@ -122,6 +122,8 @@ Widget hostScreen(
         refreshToken: any(named: 'refreshToken'),
         expiresAtEpochMs: any(named: 'expiresAtEpochMs'),
       )).thenAnswer((_) async {});
+  when(() => platform.drainBackgroundLogs())
+      .thenAnswer((_) async => <AppLog>[]);
   when(platform.events)
       .thenAnswer((_) => const Stream<Map<String, dynamic>>.empty());
   when(() => music.getAuthState())
