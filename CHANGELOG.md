@@ -141,6 +141,47 @@ still the only option for the desktop half.
   apart — and the Logs screen now names the rows to merge, once per track.
   The spare row is never deleted for you; adding the two counts up and
   removing one row by hand restores the real total.
+
+- **Android: a failed like now says which step failed.** Everything a
+  background like does happens under one safety net, and that net filed every
+  failure the same way: *Like failed*, under `like_track`, whatever had
+  actually gone wrong. A Spotify token Spotify would not renew, a "what's
+  playing" call that never came back, and a playlist the extra actions could
+  not read were three different problems wearing one label, and the Logs
+  screen — the only place you can see any of this — could not tell you which
+  you had. Each step now names itself: the entry says *Like failed while
+  refreshing the Spotify token*, or *while reading the current track*, and is
+  filed under that step rather than under the like. Steps that run **after**
+  the song is already liked say so too — *The track was liked, but running the
+  extra actions failed* — instead of reporting a failed like you can see in
+  Spotify was not one. For the same reason those steps now play the success
+  tone rather than the failure buzz: the like did go through.
+
+- **Android: the shared like counter now tells you why it could not count.**
+  Every refusal from Google came out as "the counter is not signed in to
+  Google. Sign in under Connected services", or on the Spotify path as nothing
+  at all — the reason was written to a debug log that does not exist in a
+  release build. The advice was wrong for most of the refusals, and following
+  it could not help: if Google is rejecting your client ID or secret, signing
+  in again uses the same rejected credentials. The counter now passes on what
+  Google said. A sign-in you revoked still says to sign in again, because that
+  is the one case where signing in again is the fix; a rejected client says so
+  and points at the credentials fields; a refused scope, or a Google that
+  could not be reached at all, each read as themselves. The like is counted on
+  the device either way, as before.
+
+- **Android: the shared like counter no longer hands out a dead Google token
+  for ever.** A stored access token with no expiry recorded beside it was
+  treated as one that never expires, so the background counter kept presenting
+  a token that had died an hour after it was issued, and every like fell
+  through to this device's own tally — with, until now, nothing said about it.
+  A missing expiry now reads as *unknown, so renew it*, which is the reading
+  that cannot silently rot. **This is a behaviour change, not only a wording
+  one**: a counter sign-in in that state is renewed on its next like instead
+  of being trusted indefinitely. Renewals now always record an expiry, falling
+  back to Google's own hour when the reply leaves it out, so the new reading
+  costs at most one renewal an hour rather than one per like.
+
 - **Android: likes made in the app and likes made with the media button now
   count towards the same total.** The two halves of the app kept their own
   copies of every per-device counter, in two stores that never met, so anyone

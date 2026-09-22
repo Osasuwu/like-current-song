@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import '../../domain/entities/app_log.dart';
 import '../../domain/repositories/like_count_repository.dart';
 import 'counter_sheet_schema.dart';
+import 'like_counter_token_error.dart';
 import 'native_like_count_repository.dart';
 import 'sheets_api_error.dart';
 
@@ -194,6 +195,11 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
     final String? token;
     try {
       token = await readAccessToken();
+    } on LikeCounterTokenRefused catch (error) {
+      // Google answered, and said why: pass its words on rather than the
+      // "sign in again" advice that only fits a revoked sign-in (#200).
+      await _reportFallback(trackId, error.message, httpCode: error.statusCode);
+      return null;
     } catch (error) {
       await _reportFallback(
         trackId,

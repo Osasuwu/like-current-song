@@ -22,6 +22,17 @@ object GoogleTokens {
     /** Refresh this long before the access token actually expires. */
     const val REFRESH_MARGIN_MS = 5 * 60_000L
 
+    /**
+     * What a Google access token is worth when the refresh answer leaves
+     * `expires_in` out: Google's own hour, the same figure the Dart half
+     * falls back to (`GoogleTokenResponse.fromJson`).
+     *
+     * Storing an assumed expiry beats storing none: with [needsRefresh]
+     * treating "no expiry" as "refresh now", a missing `expires_in` would
+     * otherwise mean a token exchange on every single like.
+     */
+    const val DEFAULT_EXPIRES_IN_SEC = 3600L
+
     private const val HTTP_TIMEOUT_MS = 10_000
 
     /** Which prefs keys hold one sign-in's client and tokens. */
@@ -52,12 +63,16 @@ object GoogleTokens {
     /**
      * A refresh that did not produce a token. [needsReauth] means the user has
      * to sign in again (revoked grant, missing client); anything else may work
-     * on a later press.
+     * on a later press. [error] is Google's own OAuth error code when it sent
+     * one — `invalid_grant`, `invalid_client`, ... — because "sign in again"
+     * and "your client secret is wrong" are both `needsReauth` and the caller
+     * has to be able to tell the user which it was (#200).
      */
     class RefreshFailure(
         message: String,
         val httpCode: Int?,
         val needsReauth: Boolean,
+        val error: String? = null,
     ) : Exception(message)
 
     /**
@@ -66,21 +81,45 @@ object GoogleTokens {
      */
     fun fresh(prefs: SharedPreferences, keys: Keys, forceRefresh: Boolean = false): String {
         val access = prefs.getString(keys.accessToken, null)
-        val expiresAt = prefs.getLong(keys.expiresAt, 0L)
-        val stale = expiresAt > 0L && expiresAt - System.currentTimeMillis() < REFRESH_MARGIN_MS
-        if (!forceRefresh && !stale && !access.isNullOrBlank()) return access
+        val needsRefresh = needsRefresh(
+            expiresAtMs = prefs.getLong(keys.expiresAt, 0L),
+            nowMs = System.currentTimeMillis(),
+            hasAccessToken = !access.isNullOrBlank(),
+            forceRefresh = forceRefresh,
+        )
+        if (!needsRefresh && access != null) return access
         return refresh(prefs, keys)
     }
 
     /**
-     * [fresh] for callers with nowhere to report a failure: null when there is
-     * no usable token, for any reason.
+     * Whether the stored access token has to be exchanged before it is handed
+     * out, given when it expires ([expiresAtMs], epoch millis).
+     *
+     * A missing expiry — `0L`, what [SharedPreferences.getLong] answers for a
+     * key that was never written, and what `MainActivity` stores when the Dart
+     * side has no expiry to send — reads as *unknown*, not *never expires*.
+     * The other reading kept a stored token forever: no expiry meant never
+     * stale, so the counter went on presenting a token that had died an hour
+     * ago and every like fell back to the local tally. Unknown is cheap to be
+     * wrong about (one refresh, and the answer carries an expiry, so at most
+     * one per hour), and "fresh forever" is not.
      */
-    fun freshOrNull(prefs: SharedPreferences, keys: Keys): String? = try {
-        fresh(prefs, keys).takeIf { it.isNotBlank() }
-    } catch (_: Exception) {
-        null
+    fun needsRefresh(
+        expiresAtMs: Long,
+        nowMs: Long,
+        hasAccessToken: Boolean,
+        forceRefresh: Boolean = false,
+    ): Boolean {
+        if (forceRefresh || !hasAccessToken) return true
+        if (expiresAtMs <= 0L) return true
+        return expiresAtMs - nowMs < REFRESH_MARGIN_MS
     }
+
+    /** Google's OAuth `error` code in a token-endpoint error body, if any. */
+    fun oauthError(body: String?): String? =
+        runCatching { JSONObject(body.orEmpty()).optString("error") }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
 
     /** Exchanges the stored refresh token, storing what comes back. */
     fun refresh(prefs: SharedPreferences, keys: Keys): String {
@@ -116,6 +155,7 @@ object GoogleTokens {
                 if (reauth) "Google sign-in revoked" else "Google token refresh failed",
                 status,
                 needsReauth = reauth,
+                error = oauthError(body),
             )
         }
 
@@ -128,10 +168,11 @@ object GoogleTokens {
         json.optString("refresh_token").takeIf { it.isNotBlank() }?.let {
             editor.putString(keys.refreshToken, it)
         }
-        val expiresIn = json.optLong("expires_in", 0L)
-        if (expiresIn > 0L) {
-            editor.putLong(keys.expiresAt, System.currentTimeMillis() + expiresIn * 1000L)
-        }
+        // Always an expiry, even when Google left `expires_in` out: with no
+        // expiry stored the token now reads as "age unknown, refresh it", so
+        // omitting it would mean an exchange per like rather than per hour.
+        val expiresIn = json.optLong("expires_in", 0L).takeIf { it > 0L } ?: DEFAULT_EXPIRES_IN_SEC
+        editor.putLong(keys.expiresAt, System.currentTimeMillis() + expiresIn * 1000L)
         editor.apply()
         return access
     }

@@ -8,6 +8,7 @@ import '../../domain/repositories/platform_service_repository.dart';
 import '../google/google_device_flow.dart';
 import '../google/google_oauth_client.dart';
 import 'like_counter_store.dart';
+import 'like_counter_token_error.dart';
 
 /// The Google account the shared like counter writes its spreadsheet with.
 ///
@@ -99,9 +100,13 @@ class LikeCounterAccount implements DeviceSignInRepository {
 
   // ── Tokens ─────────────────────────────────────────────────────────────
 
-  /// An access token that is good right now, or null when the counter cannot
-  /// speak for the user — not signed in, or Google would not say yes. Callers
-  /// count locally instead of failing the like.
+  /// An access token that is good right now, or null when the counter has no
+  /// sign-in to speak with — never signed in, or a sign-in Google has revoked,
+  /// both of which the user fixes by signing in again.
+  ///
+  /// Any *other* refusal throws [LikeCounterTokenRefused] carrying the reason,
+  /// so the caller can say what went wrong instead of guessing (#200). Either
+  /// way the like still counts: callers fall back to the local tally.
   Future<String?> freshAccessToken() async {
     final config = await _store.read();
     if (!config.isSignedIn || !config.hasCredentials) return null;
@@ -134,8 +139,11 @@ class LikeCounterAccount implements DeviceSignInRepository {
       await signOut();
       return null;
     } catch (error) {
-      debugPrint('Shared like counter token refresh failed: $error');
-      return null;
+      // Anything else — a rejected client, a refused scope, a dropped
+      // connection — is not a sign-in the user can repair by signing in
+      // again, so it travels to the caller with its reason attached rather
+      // than vanishing into a debug print nobody sees in a release build.
+      throw LikeCounterTokenRefused.from(error);
     }
   }
 
