@@ -391,6 +391,31 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 	}
 
 	override fun onCancel(arguments: Any?) {
+		detachFromFlutter()
+	}
+
+	/**
+	 * Also clears the attachment, because [onCancel] alone does not.
+	 *
+	 * [onCancel] fires when *Dart* cancels the subscription. Swiping the task
+	 * out of recents tears the engine down without Dart ever getting there, so
+	 * `onCancel` never runs and [isFlutterAttached] — a process-wide flag —
+	 * stays true for the life of the process. [MediaButtonForegroundService]
+	 * then keeps delegating every matched trigger to an engine that is gone
+	 * instead of falling back to [SpotifyLikeWorker], and the like is silently
+	 * lost. That is the one case the fallback exists for, so the flag has to
+	 * be cleared from the activity lifecycle as well.
+	 *
+	 * Clearing it on a destroy that is only an activity recreate is harmless:
+	 * the engine goes with the activity either way, and the next [onListen]
+	 * sets it back.
+	 */
+	override fun onDestroy() {
+		detachFromFlutter()
+		super.onDestroy()
+	}
+
+	private fun detachFromFlutter() {
 		isFlutterAttached = false
 		localReceiver?.let {
 			LocalBroadcastManager.getInstance(this).unregisterReceiver(it)

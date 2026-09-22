@@ -94,6 +94,17 @@ still the only option for the desktop half.
 
 ### Fixed
 
+- **Android: the headset pattern works again after you swipe the app out of
+  recents.** Closing the app from the recents screen left the listener running
+  and the notification in place, but every press of the pattern did nothing —
+  no like, no log line, no error. The app tracks whether its Flutter side is
+  listening so the background service knows whether to hand the like over or
+  do it itself; that flag was only ever cleared when Flutter unsubscribed
+  cleanly, which is not what happens when the system tears the app down.
+  The service went on handing every like to a half that no longer existed.
+  The flag is now cleared when the app is destroyed as well, so the service
+  takes the like over itself, exactly as it does when the app was never
+  opened.
 - **Android: the listener survives a reboot again on Android 15 and newer.**
   If you had the listener switched on and restarted your phone, it stayed off
   until you opened the app by hand — the headset pattern simply did nothing,
