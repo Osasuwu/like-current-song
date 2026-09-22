@@ -5,6 +5,7 @@ import 'package:like_spotify_mobile_app/data/spotify/spotify_models.dart'
     as models;
 import 'package:like_spotify_mobile_app/data/spotify/spotify_music_service_repository.dart';
 import 'package:like_spotify_mobile_app/data/spotify/spotify_token_store.dart';
+import 'package:like_spotify_mobile_app/domain/entities/app_log.dart';
 import 'package:like_spotify_mobile_app/domain/entities/pending_like.dart';
 import 'package:like_spotify_mobile_app/domain/entities/rule_config.dart';
 import 'package:like_spotify_mobile_app/domain/entities/track_info.dart';
@@ -23,6 +24,9 @@ class MockLikeCountRepository extends Mock implements LikeCountRepository {}
 
 class MockSettingsRepository extends Mock implements SettingsRepository {}
 
+/// Only ever handed to `any()`, never looked at.
+class _FakeAppLog extends Fake implements AppLog {}
+
 void main() {
   late MockSpotifyClient mockClient;
   late MockSpotifyTokenStore mockTokenStore;
@@ -37,6 +41,10 @@ void main() {
     artistIds: ['artist-1', 'artist-2'],
     artistNames: ['Artist One', 'Artist Two'],
   );
+
+  setUpAll(() {
+    registerFallbackValue(_FakeAppLog());
+  });
 
   setUp(() {
     mockClient = MockSpotifyClient();
@@ -82,6 +90,12 @@ void main() {
     when(() => mockLikeCount.getLastLikedAt(any()))
         .thenAnswer((_) async => null);
     when(() => mockLikeCount.recordLikedAt(any(), any()))
+        .thenAnswer((_) async {});
+
+    // Default follow stubs: nobody has been auto-followed yet.
+    when(() => mockPlatform.loadFollowedArtists())
+        .thenAnswer((_) async => <String>{});
+    when(() => mockPlatform.markArtistFollowed(any()))
         .thenAnswer((_) async {});
   });
 
@@ -189,6 +203,100 @@ void main() {
             any(),
             artistIds: ['artist-2'],
           ));
+    });
+
+    test('follows an artist whose count is already past the threshold',
+        () async {
+      // What the unified counter makes possible: the merge can push a count
+      // from below the threshold to well past it in one step, and the rule
+      // still has to fire.
+      when(() => mockClient.likeTrack(
+            trackId: any(named: 'trackId'),
+            accessToken: any(named: 'accessToken'),
+          )).thenAnswer((_) async {});
+      when(() => mockLikeCount.incrementTrackLikeCount('track-123'))
+          .thenAnswer((_) async => 1);
+      when(() => mockLikeCount.incrementArtistLikeCount('artist-1'))
+          .thenAnswer((_) async => 11);
+      when(() => mockLikeCount.incrementArtistLikeCount('artist-2'))
+          .thenAnswer((_) async => 2);
+      when(() => mockClient.followArtists(any(), artistIds: ['artist-1']))
+          .thenAnswer((_) async {});
+
+      final result = await repo.likeTrack(trackInfo);
+
+      expect(result.followedArtistNames, ['Artist One']);
+      verify(() => mockPlatform.markArtistFollowed('artist-1')).called(1);
+    });
+
+    test('does not follow an artist this device already followed', () async {
+      when(() => mockClient.likeTrack(
+            trackId: any(named: 'trackId'),
+            accessToken: any(named: 'accessToken'),
+          )).thenAnswer((_) async {});
+      when(() => mockLikeCount.incrementTrackLikeCount('track-123'))
+          .thenAnswer((_) async => 1);
+      when(() => mockLikeCount.incrementArtistLikeCount(any()))
+          .thenAnswer((_) async => 11);
+      when(() => mockPlatform.loadFollowedArtists())
+          .thenAnswer((_) async => <String>{'artist-1', 'artist-2'});
+
+      final result = await repo.likeTrack(trackInfo);
+
+      expect(result.followedArtistNames, isEmpty);
+      verifyNever(() => mockClient.followArtists(
+            any(),
+            artistIds: any(named: 'artistIds'),
+          ));
+      verifyNever(() => mockPlatform.markArtistFollowed(any()));
+    });
+
+    test('does not remember a follow Spotify refused', () async {
+      when(() => mockClient.likeTrack(
+            trackId: any(named: 'trackId'),
+            accessToken: any(named: 'accessToken'),
+          )).thenAnswer((_) async {});
+      when(() => mockLikeCount.incrementTrackLikeCount('track-123'))
+          .thenAnswer((_) async => 1);
+      when(() => mockLikeCount.incrementArtistLikeCount('artist-1'))
+          .thenAnswer((_) async => 5);
+      when(() => mockLikeCount.incrementArtistLikeCount('artist-2'))
+          .thenAnswer((_) async => 1);
+      when(() => mockClient.followArtists(any(), artistIds: ['artist-1']))
+          .thenThrow(Exception('follow refused'));
+      when(() => mockSettings.appendLog(any())).thenAnswer((_) async {});
+
+      final result = await repo.likeTrack(trackInfo);
+
+      expect(result.followedArtistNames, isEmpty);
+      verifyNever(() => mockPlatform.markArtistFollowed(any()));
+    });
+
+    test('does not read the followed set when the rule is off', () async {
+      when(() => mockSettings.loadRuleConfig()).thenAnswer(
+        (_) async => const RuleConfig(
+          archiveRemoveEnabled: false,
+          archivePlaylistName: '',
+          bestEnabled: false,
+          bestPlaylistName: '',
+          bestThreshold: 3,
+          followArtistEnabled: false,
+          followArtistThreshold: 5,
+        ),
+      );
+      when(() => mockClient.likeTrack(
+            trackId: any(named: 'trackId'),
+            accessToken: any(named: 'accessToken'),
+          )).thenAnswer((_) async {});
+      when(() => mockLikeCount.incrementTrackLikeCount('track-123'))
+          .thenAnswer((_) async => 1);
+      when(() => mockLikeCount.incrementArtistLikeCount(any()))
+          .thenAnswer((_) async => 11);
+
+      final result = await repo.likeTrack(trackInfo);
+
+      expect(result.followedArtistNames, isEmpty);
+      verifyNever(() => mockPlatform.loadFollowedArtists());
     });
 
     test('removes from archive playlist when configured', () async {

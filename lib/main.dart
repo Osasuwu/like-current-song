@@ -4,13 +4,30 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'app.dart';
 import 'data/likes/like_counter_store.dart';
+import 'data/likes/local_counter_migration.dart';
 import 'data/spotify/spotify_token_store.dart';
 import 'data/ytmusic/ytmusic_token_store.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await _seedCompileTimeCredentials();
+  await _migrateLocalCounters();
   runApp(const ProviderScope(child: LikeSpotifyApp()));
+}
+
+/// Hands the old Flutter-side like counters to the native store, once.
+///
+/// Awaited rather than fired and forgotten, so the first like of the session
+/// cannot race the merge; after the one launch that does the work it is a
+/// single preferences read.
+Future<void> _migrateLocalCounters() async {
+  try {
+    await LocalCounterMigration().run();
+  } catch (error) {
+    // Counters that stay where they are for another launch are worth far
+    // less than a start-up, and the migration retries on its own.
+    debugPrint('Could not migrate local like counters: $error');
+  }
 }
 
 /// Moves `--dart-define` credentials into the stores the app reads from, once.

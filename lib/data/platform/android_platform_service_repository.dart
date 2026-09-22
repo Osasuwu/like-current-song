@@ -177,6 +177,23 @@ class AndroidPlatformServiceRepository implements PlatformServiceRepository {
   }
 
   @override
+  Future<Set<String>> loadFollowedArtists() async {
+    final ids = await _methodChannel.invokeMethod<List<dynamic>>(
+      'loadFollowedArtists',
+    );
+    if (ids == null) return const <String>{};
+    return ids.whereType<String>().toSet();
+  }
+
+  @override
+  Future<void> markArtistFollowed(String artistId) async {
+    await _methodChannel.invokeMethod<void>(
+      'markArtistFollowed',
+      <String, dynamic>{'id': artistId},
+    );
+  }
+
+  @override
   Stream<Map<String, dynamic>> events() {
     return _eventChannel
         .receiveBroadcastStream()

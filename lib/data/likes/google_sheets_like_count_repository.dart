@@ -6,8 +6,8 @@ import 'package:http/http.dart' as http;
 import '../../domain/entities/app_log.dart';
 import '../../domain/repositories/like_count_repository.dart';
 import 'counter_sheet_schema.dart';
+import 'native_like_count_repository.dart';
 import 'sheets_api_error.dart';
-import 'shared_prefs_like_count_repository.dart';
 
 /// A Sheets call the counter could not complete, in words a user can read.
 ///
@@ -40,8 +40,10 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
     required this.readAccessToken,
     required this.userIdGetter,
     required this.appendLog,
+    LikeCountRepository localCounts = const NativeLikeCountRepository(),
     http.Client? httpClient,
-  }) : _httpClient = httpClient ?? http.Client();
+  })  : _local = localCounts,
+        _httpClient = httpClient ?? http.Client();
 
   /// The action type every counter line on the Logs screen carries.
   static const logActionType = 'like_count';
@@ -80,7 +82,12 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
   /// report to (#170).
   final Future<void> Function(AppLog log) appendLog;
 
-  final SharedPrefsLikeCountRepository _local = SharedPrefsLikeCountRepository();
+  /// Where a like goes when the sheet is off, unreachable, or simply not the
+  /// place a given number lives — the artist counts and the cooldown stamps
+  /// never go to the sheet at all. Injectable so a test can watch it; in the
+  /// app it is always the native store the foreground service shares.
+  final LikeCountRepository _local;
+
   final http.Client _httpClient;
 
   /// The spreadsheet [_rows] and [_counts] were built from; a different id

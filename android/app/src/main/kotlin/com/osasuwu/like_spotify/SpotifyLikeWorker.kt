@@ -25,8 +25,8 @@ import java.net.URL
  * Mirrors the canonical rule pipeline in the Dart layer
  * ([SpotifyMusicServiceRepository.likeTrack]): like -> remove from archive playlist
  * (non-blocking) -> increment track like count (counter sheet first, local fallback) ->
- * promote to best playlist at threshold -> increment artist like count (local only) ->
- * auto-follow artist at threshold.
+ * promote to best playlist at threshold -> increment the like count of every artist
+ * on the track (local only) -> auto-follow each that has reached the threshold.
  */
 class SpotifyLikeWorker(
     appContext: Context,
@@ -302,7 +302,7 @@ class SpotifyLikeWorker(
         }
 
         val trackCount = runCatching { incrementTrackLikeCount(prefs, token, track.id) }
-            .getOrElse { incrementLocalCount(prefs, AppConstants.KEY_TRACK_LIKE_COUNTS, track.id) }
+            .getOrElse { LocalCounters.increment(prefs, LocalCounters.Kind.TRACK, track.id) }
         if (ruleConfig.bestEnabled &&
             ruleConfig.bestPlaylistName.isNotBlank() &&
             trackCount == ruleConfig.bestThreshold
@@ -340,12 +340,22 @@ class SpotifyLikeWorker(
             }
         }
 
-        val artistId = track.artistId ?: return
-        val artistCount = incrementLocalCount(prefs, AppConstants.KEY_ARTIST_LIKE_COUNTS, artistId)
-        if (ruleConfig.followArtistEnabled && artistCount == ruleConfig.followArtistThreshold) {
+        // Every artist on the track, not just the first: a feature or a
+        // collaboration is as much a like for the guest as for the headliner,
+        // which is how the Dart and desktop halves have always counted it.
+        track.artistIds.forEach { artistId ->
+            val artistCount = LocalCounters.increment(prefs, LocalCounters.Kind.ARTIST, artistId)
+            if (!ruleConfig.followArtistEnabled) return@forEach
+            // At or past the threshold, and not followed yet. Testing for the
+            // exact count missed the artist whenever a like was counted
+            // somewhere this map did not see; the followed set is what keeps
+            // `>=` from re-following on every like after.
+            if (artistCount < ruleConfig.followArtistThreshold) return@forEach
+            if (artistId in LocalCounters.followedArtists(prefs)) return@forEach
             runCatching {
                 val result = followArtist(artistId, token)
                 if (result.success) {
+                    LocalCounters.markArtistFollowed(prefs, artistId)
                     log(
                         "Auto-followed artist: $artistId",
                         actionType = "follow_artist",
@@ -414,40 +424,19 @@ class SpotifyLikeWorker(
         LikeCounter.target(prefs, MusicProvider.SPOTIFY)?.let { target ->
             LikeCounter.increment(prefs, target, trackId)?.let { return it }
         }
-        return incrementLocalCount(prefs, AppConstants.KEY_TRACK_LIKE_COUNTS, trackId)
-    }
-
-    private fun incrementLocalCount(prefs: SharedPreferences, key: String, id: String): Int {
-        val map = loadCountMap(prefs, key)
-        val next = map.optInt(id, 0) + 1
-        map.put(id, next)
-        prefs.edit().putString(key, map.toString()).apply()
-        return next
-    }
-
-    private fun loadCountMap(prefs: SharedPreferences, key: String): JSONObject {
-        val raw = prefs.getString(key, null) ?: return JSONObject()
-        return try {
-            JSONObject(raw)
-        } catch (_: Exception) {
-            JSONObject()
-        }
+        return LocalCounters.increment(prefs, LocalCounters.Kind.TRACK, trackId)
     }
 
     // ---- Like cooldown -------------------------------------------------
 
     private fun isWithinCooldown(prefs: SharedPreferences, trackId: String, cooldownMinutes: Int): Boolean {
-        val map = loadCountMap(prefs, AppConstants.KEY_TRACK_LAST_LIKED_AT)
-        val last = map.optLong(trackId, 0L)
-        if (last <= 0L) return false
+        val last = LocalCounters.lastLikedAt(prefs, trackId) ?: return false
         val elapsedMs = System.currentTimeMillis() - last
         return elapsedMs < cooldownMinutes * 60_000L
     }
 
     private fun recordLikedAt(prefs: SharedPreferences, trackId: String) {
-        val map = loadCountMap(prefs, AppConstants.KEY_TRACK_LAST_LIKED_AT)
-        map.put(trackId, System.currentTimeMillis())
-        prefs.edit().putString(AppConstants.KEY_TRACK_LAST_LIKED_AT, map.toString()).apply()
+        LocalCounters.recordLikedAt(prefs, trackId, System.currentTimeMillis())
     }
 
     // ---- Playlist lookup / creation -------------------------------------------------
@@ -605,8 +594,17 @@ class SpotifyLikeWorker(
         val id = item.optString("id")
         if (id.isBlank()) return null
         val uri = item.optString("uri").ifBlank { "spotify:track:$id" }
-        val artistId = item.optJSONArray("artists")?.optJSONObject(0)?.optString("id")?.takeIf { it.isNotBlank() }
-        return CurrentTrack(id = id, uri = uri, artistId = artistId)
+        return CurrentTrack(id = id, uri = uri, artistIds = artistIds(item))
+    }
+
+    /** Every artist credited on a track item, in order, skipping any without an id. */
+    private fun artistIds(item: JSONObject): List<String> {
+        val artists = item.optJSONArray("artists") ?: return emptyList()
+        val ids = ArrayList<String>(artists.length())
+        for (i in 0 until artists.length()) {
+            artists.optJSONObject(i)?.optString("id")?.takeIf { it.isNotBlank() }?.let { ids.add(it) }
+        }
+        return ids
     }
 
     private fun likeTrack(trackId: String, token: String?): ApiResult {
@@ -707,7 +705,7 @@ class SpotifyLikeWorker(
     private data class CurrentTrack(
         val id: String,
         val uri: String,
-        val artistId: String?
+        val artistIds: List<String>
     )
 
     private data class RuleConfig(

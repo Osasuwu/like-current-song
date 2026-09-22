@@ -50,7 +50,7 @@ class YouTubeMusicExtraActions(
         if (rules.bestEnabled && rules.bestPlaylistName.isNotBlank()) {
             // The shared counter already counted this like; the local map is
             // only the fallback for when there is no counter to ask.
-            val count = sharedLikeCount ?: incrementLocalCount(AppConstants.KEY_TRACK_LIKE_COUNTS, match.videoId)
+            val count = sharedLikeCount ?: incrementLocalCount(LocalCounters.Kind.TRACK, match.videoId)
             if (reachedThreshold(count, rules.bestThreshold)) {
                 runCatching { promoteToBest(rules.bestPlaylistName, match.videoId) }
                     .onFailure { report("Best promotion failed", BEST_ACTION, it) }
@@ -63,10 +63,13 @@ class YouTubeMusicExtraActions(
             if (channelId == null) {
                 log("Auto-follow skipped: the match is not the artist's own channel", FOLLOW_ACTION, "info", null)
             } else {
-                val count = incrementLocalCount(AppConstants.KEY_ARTIST_LIKE_COUNTS, channelId)
-                if (reachedThreshold(count, rules.followArtistThreshold)) {
-                    runCatching { followChannel(channelId) }
-                        .onFailure { report("Follow artist failed", FOLLOW_ACTION, it) }
+                val followedKey = countKey(channelId)
+                val count = incrementLocalCount(LocalCounters.Kind.ARTIST, channelId)
+                if (shouldFollow(count, rules.followArtistThreshold, followedKey)) {
+                    runCatching {
+                        followChannel(channelId)
+                        LocalCounters.markArtistFollowed(prefs, followedKey)
+                    }.onFailure { report("Follow artist failed", FOLLOW_ACTION, it) }
                 }
             }
         }
@@ -216,15 +219,21 @@ class YouTubeMusicExtraActions(
      * The local like count for [id], one higher than before. Kept apart from
      * Spotify's ids in the same map by [countKey].
      */
-    private fun incrementLocalCount(key: String, id: String): Int {
-        val raw = prefs.getString(key, null)
-        val map = raw?.let { runCatching { JSONObject(it) }.getOrNull() } ?: JSONObject()
-        val entry = countKey(id)
-        val next = map.optInt(entry, 0) + 1
-        map.put(entry, next)
-        prefs.edit().putString(key, map.toString()).apply()
-        return next
-    }
+    private fun incrementLocalCount(kind: LocalCounters.Kind, id: String): Int =
+        LocalCounters.increment(prefs, kind, countKey(id))
+
+    /**
+     * Whether to subscribe to [followedKey]'s channel now: at or past the
+     * threshold, and not subscribed by this app already.
+     *
+     * Deliberately not [reachedThreshold], which the best-playlist rule shares
+     * and which fires on the exact count. Follow is the rule #197 broke -- a
+     * count that skipped past the threshold because the two stores were
+     * separate could never equal it again -- so it gets its own condition and
+     * the best rule keeps the behaviour it has.
+     */
+    private fun shouldFollow(count: Int, threshold: Int, followedKey: String): Boolean =
+        count >= threshold && followedKey !in LocalCounters.followedArtists(prefs)
 
     // ---- Rule config -------------------------------------------------
 

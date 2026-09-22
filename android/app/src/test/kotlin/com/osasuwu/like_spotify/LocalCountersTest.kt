@@ -1,0 +1,171 @@
+package com.osasuwu.like_spotify
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/**
+ * [LocalCounters] keeps its JSON shaping separate from the SharedPreferences
+ * shell exactly so the shaping can be tested here, where the suite is plain
+ * JUnit with no Robolectric. The counting, the merge rule and the degradation
+ * on unreadable storage all live in the pure half; only the shell is untested.
+ */
+class LocalCountersTest {
+
+    // ---- Kind.fromId -------------------------------------------------
+
+    @Test
+    fun `the two kinds map to their own stores`() {
+        assertEquals(LocalCounters.Kind.TRACK, LocalCounters.Kind.fromId("track"))
+        assertEquals(LocalCounters.Kind.ARTIST, LocalCounters.Kind.fromId("artist"))
+        assertEquals(AppConstants.KEY_TRACK_LIKE_COUNTS, LocalCounters.Kind.TRACK.prefsKey)
+        assertEquals(AppConstants.KEY_ARTIST_LIKE_COUNTS, LocalCounters.Kind.ARTIST.prefsKey)
+    }
+
+    @Test
+    fun `an unknown kind is not guessed at`() {
+        assertNull(LocalCounters.Kind.fromId("album"))
+        assertNull(LocalCounters.Kind.fromId(""))
+        assertNull(LocalCounters.Kind.fromId(null))
+    }
+
+    // ---- parseCounts / encode -------------------------------------------------
+
+    @Test
+    fun `counts survive a round trip through storage`() {
+        val counts = mapOf("t1" to 3, "t2" to 1)
+        assertEquals(counts, LocalCounters.parseCounts(LocalCounters.encode(counts)))
+    }
+
+    @Test
+    fun `nothing stored yet reads as no counts`() {
+        assertEquals(emptyMap<String, Int>(), LocalCounters.parseCounts(null))
+    }
+
+    @Test
+    fun `unreadable stored counts degrade to empty instead of throwing`() {
+        assertEquals(emptyMap<String, Int>(), LocalCounters.parseCounts("{\"t1\":2"))
+        assertEquals(emptyMap<String, Int>(), LocalCounters.parseCounts("[1,2,3]"))
+        assertEquals(emptyMap<String, Int>(), LocalCounters.parseCounts(""))
+    }
+
+    // ---- incremented -------------------------------------------------
+
+    @Test
+    fun `a track counted for the first time lands on one`() {
+        assertEquals(mapOf("t1" to 1), LocalCounters.incremented(null, "t1"))
+        assertEquals(mapOf("t1" to 1), LocalCounters.incremented("{}", "t1"))
+    }
+
+    @Test
+    fun `a track counted before goes one higher`() {
+        assertEquals(mapOf("t1" to 5), LocalCounters.incremented("""{"t1":4}""", "t1"))
+    }
+
+    @Test
+    fun `counting one id leaves the others alone`() {
+        val updated = LocalCounters.incremented("""{"t1":4,"t2":9}""", "t1")
+        assertEquals(mapOf("t1" to 5, "t2" to 9), updated)
+    }
+
+    // ---- parseTimestamps -------------------------------------------------
+
+    @Test
+    fun `timestamps survive a round trip at millisecond width`() {
+        // Past Int range on purpose: epoch millis overflow a 32-bit count.
+        val stamps = mapOf("t1" to 1_758_499_200_000L)
+        assertEquals(stamps, LocalCounters.parseTimestamps(LocalCounters.encode(stamps)))
+    }
+
+    @Test
+    fun `unreadable stored timestamps degrade to empty instead of throwing`() {
+        assertEquals(emptyMap<String, Long>(), LocalCounters.parseTimestamps("not json at all"))
+    }
+
+    // ---- merged -------------------------------------------------
+
+    @Test
+    fun `merging keeps the larger count per id`() {
+        assertEquals(
+            mapOf("t1" to 7, "t2" to 4, "t3" to 2),
+            LocalCounters.merged(
+                existing = mapOf("t1" to 7, "t2" to 1),
+                incoming = mapOf("t1" to 3, "t2" to 4, "t3" to 2),
+            ),
+        )
+    }
+
+    @Test
+    fun `merging timestamps keeps the later like`() {
+        assertEquals(
+            mapOf("t1" to 200L, "t2" to 500L),
+            LocalCounters.merged(
+                existing = mapOf("t1" to 200L, "t2" to 100L),
+                incoming = mapOf("t1" to 150L, "t2" to 500L),
+            ),
+        )
+    }
+
+    @Test
+    fun `merging the same counters twice changes nothing the second time`() {
+        val existing = mapOf("t1" to 7, "t2" to 1)
+        val incoming = mapOf("t1" to 3, "t2" to 4, "t3" to 2)
+        val once = LocalCounters.merged(existing, incoming)
+        // What makes the one-time migration safe to re-run: the merge is what
+        // decides whether anything gets written, and a repeat decides "no".
+        assertEquals(once, LocalCounters.merged(once, incoming))
+    }
+
+    @Test
+    fun `merging nothing in leaves the stored counters untouched`() {
+        val existing = mapOf("t1" to 7)
+        assertEquals(existing, LocalCounters.merged(existing, emptyMap()))
+    }
+
+    // ---- numbersFrom -------------------------------------------------
+
+    @Test
+    fun `channel counts arrive at either integer width`() {
+        assertEquals(
+            mapOf("t1" to 3L, "t2" to 1_758_499_200_000L),
+            LocalCounters.numbersFrom(mapOf("t1" to 3, "t2" to 1_758_499_200_000L)),
+        )
+    }
+
+    @Test
+    fun `entries that are not a count are dropped, not guessed at`() {
+        assertEquals(
+            mapOf("t1" to 3L),
+            LocalCounters.numbersFrom(mapOf("t1" to 3, "t2" to "four", "t3" to null, 7 to 9)),
+        )
+        assertEquals(emptyMap<String, Long>(), LocalCounters.numbersFrom(null))
+    }
+
+    // ---- parseIds / encodeIds -------------------------------------------------
+
+    @Test
+    fun `the followed-artist set survives a round trip`() {
+        val followed = setOf("artist-1", "artist-2", "ytmusic:UC123")
+        assertEquals(followed, LocalCounters.parseIds(LocalCounters.encodeIds(followed)))
+    }
+
+    @Test
+    fun `no artist followed yet reads as an empty set`() {
+        assertEquals(emptySet<String>(), LocalCounters.parseIds(null))
+        assertEquals(emptySet<String>(), LocalCounters.parseIds("[]"))
+    }
+
+    @Test
+    fun `an unreadable followed set degrades to empty instead of throwing`() {
+        assertEquals(emptySet<String>(), LocalCounters.parseIds("""["a", """))
+        assertEquals(emptySet<String>(), LocalCounters.parseIds("""{"a":1}"""))
+    }
+
+    @Test
+    fun `adding an artist already in the set is not a second entry`() {
+        val followed = LocalCounters.parseIds("""["artist-1"]""") + "artist-1"
+        assertEquals(setOf("artist-1"), followed)
+        assertTrue("artist-1" in LocalCounters.parseIds(LocalCounters.encodeIds(followed)))
+    }
+}

@@ -369,12 +369,24 @@ class SpotifyMusicServiceRepository implements MusicServiceRepository {
 
     // 6. Increment artist like counts (always) and auto-follow at configured threshold
     final followedArtistNames = <String>[];
+    // Who has been followed already is what keeps `>=` from re-following on
+    // every later like. The test used to be `==`, which needed the count to
+    // land on the threshold exactly — one like counted somewhere the rule
+    // could not see, and the artist was never followed at all (#197).
+    final alreadyFollowed = ruleConfig.followArtistEnabled
+        ? await _platformServiceRepository.loadFollowedArtists()
+        : const <String>{};
     for (var i = 0; i < trackInfo.artistIds.length; i++) {
       final artistId = trackInfo.artistIds[i];
       final artistCount = await _likeCountRepository.incrementArtistLikeCount(artistId);
-      if (ruleConfig.followArtistEnabled && artistCount == ruleConfig.followArtistThreshold) {
+      if (ruleConfig.followArtistEnabled &&
+          artistCount >= ruleConfig.followArtistThreshold &&
+          !alreadyFollowed.contains(artistId)) {
         try {
           await _spotifyClient.followArtists(accessToken, artistIds: [artistId]);
+          // Recorded only once Spotify has confirmed, so a follow that failed
+          // is tried again on the next like instead of being written off.
+          await _platformServiceRepository.markArtistFollowed(artistId);
           final name = i < trackInfo.artistNames.length ? trackInfo.artistNames[i] : artistId;
           followedArtistNames.add(name);
         } catch (e) {
