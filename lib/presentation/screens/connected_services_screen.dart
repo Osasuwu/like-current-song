@@ -34,6 +34,14 @@ class ConnectedServicesScreen extends ConsumerWidget {
     final automatic =
         automaticOffered && state.musicRoutingMode == MusicRoutingMode.automatic;
     final blockedReason = state.automaticRoutingBlockedReason;
+    // Automatic hides which service is picked, but everything below this line
+    // is still that service's — sign-in state, credentials, connect and
+    // disconnect all stay on the pick (see `ActiveMusicServiceRepository`).
+    // Without a name on the section the fields read as leftovers from before
+    // the switch.
+    final others = MusicProvider.values
+        .where((p) => p != provider)
+        .toList(growable: false);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Connected services')),
@@ -82,7 +90,21 @@ class ConnectedServicesScreen extends ConsumerWidget {
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
-          const SizedBox(height: 20),
+          const SizedBox(height: 24),
+          const Divider(height: 1),
+          const SizedBox(height: 16),
+          Text('$name setup', style: Theme.of(context).textTheme.titleMedium),
+          if (automatic) ...<Widget>[
+            const SizedBox(height: 4),
+            Text(
+              'Automatic can send a like to either service, so each keeps its '
+              'own sign-in and credentials. Everything below is $name: the '
+              'service picked before Automatic went on, and the one a like '
+              'falls back to.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+          const SizedBox(height: 12),
           Text('$name installed: ${state.musicAppInstalled ? 'Yes' : 'No'}'),
           const SizedBox(height: 8),
           Text('$name connected: ${state.authState.connected ? 'Yes' : 'No'}'),
@@ -119,6 +141,31 @@ class ConnectedServicesScreen extends ConsumerWidget {
           if (!isYouTubeMusic && !hasSpotifyClientId) ...<Widget>[
             const SizedBox(height: 4),
             const Text('Connect turns on once the client ID is saved.'),
+          ],
+          // The other service's credentials are otherwise unreachable while
+          // Automatic is on: picking a service is what this screen follows,
+          // and Automatic is the absence of a pick.
+          if (automatic) ...<Widget>[
+            const SizedBox(height: 20),
+            Text(
+              'Setting up the other service means picking it, which turns '
+              'Automatic off. Turn Automatic back on when you are done.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                for (final other in others)
+                  OutlinedButton(
+                    onPressed: signInBusy
+                        ? null
+                        : () => controller.selectMusicProvider(other),
+                    child: Text('Set up ${other.displayName}'),
+                  ),
+              ],
+            ),
           ],
           const SizedBox(height: 12),
           Align(

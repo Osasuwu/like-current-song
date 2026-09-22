@@ -210,6 +210,59 @@ void main() {
         .called(1);
   });
 
+  testWidgets('the setup section is headed with the service it belongs to',
+      (tester) async {
+    await pumpScreen(tester, AppControllerHarness());
+
+    expect(find.text('Spotify setup'), findsOneWidget);
+    // Nothing is hidden behind Automatic here, so neither the explanation nor
+    // the way out of it belongs on the screen.
+    expect(find.textContaining('the one a like falls back to'), findsNothing);
+    expect(
+      find.widgetWithText(OutlinedButton, 'Set up YouTube Music'),
+      findsNothing,
+    );
+  });
+
+  testWidgets('under Automatic the setup section still names the pick',
+      (tester) async {
+    await pumpScreen(tester, automaticReady());
+    await tester.tap(find.text('Automatic'));
+    await tester.pumpAndSettle();
+
+    // The fields below belong to the picked service whatever the mode, and
+    // Automatic is what hides the pick — so the section has to say it, or the
+    // fields read as leftovers from before the switch.
+    expect(find.text('Spotify setup'), findsOneWidget);
+    expect(find.textContaining('the one a like falls back to'), findsOneWidget);
+  });
+
+  testWidgets('under Automatic the other service can still be set up',
+      (tester) async {
+    final harness = automaticReady();
+    await pumpScreen(tester, harness);
+    await tester.tap(find.text('Automatic'));
+    await tester.pumpAndSettle();
+
+    final setUpOther =
+        find.widgetWithText(OutlinedButton, 'Set up YouTube Music');
+    expect(
+      setUpOther,
+      findsOneWidget,
+      reason: 'the other service has its own credentials, and Automatic can '
+          'send a like to it',
+    );
+    expect(find.textContaining('turns Automatic off'), findsOneWidget);
+
+    await tester.tap(setUpOther);
+    await tester.pumpAndSettle();
+
+    expect(find.text('YouTube Music setup'), findsOneWidget);
+    expect(find.text('Google sign-in'), findsOneWidget);
+    expect(picker(tester).selected, <MusicProvider?>{MusicProvider.ytmusic});
+    expect(harness.routingMode, MusicRoutingMode.picker);
+  });
+
   testWidgets('Spotify gets its OAuth connect button and a client-id field',
       (tester) async {
     await pumpScreen(tester, AppControllerHarness());

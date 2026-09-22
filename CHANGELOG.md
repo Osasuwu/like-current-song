@@ -126,6 +126,19 @@ still the only option for the desktop half.
 
 ### Fixed
 
+- **Android: turning on Automatic no longer looks like nothing happened below
+  the switch.** Automatic is the absence of an explicit pick, but everything
+  under it on *Connected services* — installed, connected, the account, the
+  credentials fields, Connect and Disconnect — still belongs to the service you
+  had picked before. With the pick no longer highlighted, those fields read as
+  leftovers from the old selection, and it was easy to think the switch had not
+  taken. That block is now headed with the service's own name, and under
+  Automatic it says in one line why that service is the subject: it is the one
+  a like falls back to when nothing is playing. The other service's
+  credentials were also simply unreachable while Automatic was on, since
+  reaching them meant picking it; there is now a *Set up …* button for each
+  other service that does exactly that, and says up front that picking turns
+  Automatic off.
 - **The shared counter no longer writes some like counts as text.** Whether a
   count landed in your sheet as a number or as text depended on something you
   had no reason to think about: whether the app happened to be open when the
