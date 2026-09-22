@@ -112,6 +112,20 @@ still the only option for the desktop half.
 
 ### Fixed
 
+- **Android: a failed like with the app closed now says what failed.** When
+  the app is swiped out of recents there is no window to show a log in, so
+  everything the background path reported was simply dropped — a like that
+  buzzed the failure tone told you nothing more than that. Those reports now
+  also go to `adb logcat` under the tag `LikeCurrentSong`, so a failure can
+  be diagnosed instead of guessed at (`adb logcat -s LikeCurrentSong:*`).
+  Anything long enough to be an access or refresh token is replaced with
+  `<redacted>` before it is written; track and playlist ids are short enough
+  to survive, which is the point. Three failures that used to look identical
+  now name themselves: no playlist name configured, a playlist that could be
+  neither found nor created, and an error thrown on the way. The one failure
+  tone that played with nothing logged at all — no access token left after a
+  refresh — is logged too. These lines still do not reach the in-app Logs
+  screen while the app is closed; carrying them across a restart is next.
 - **Android: a like with the app closed no longer fails in silence.** If a
   Spotify request fell over mid-flight — a dropped connection, a reply that
   wasn't the JSON we expected — the background job died on the spot. You got
