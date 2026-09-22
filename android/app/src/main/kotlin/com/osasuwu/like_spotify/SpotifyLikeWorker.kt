@@ -692,7 +692,7 @@ class SpotifyLikeWorker(
         result: String = "info",
         httpCode: Int? = null
     ) {
-        BackgroundLog.emit(message, actionType, result, targetId, httpCode)
+        BackgroundLog.emit(applicationContext, message, actionType, result, targetId, httpCode)
         val intent = android.content.Intent(AppConstants.ACTION_LOG_EVENT)
             .putExtra(AppConstants.EXTRA_LOG, message)
             .putExtra(AppConstants.EXTRA_LOG_ACTION_TYPE, actionType)

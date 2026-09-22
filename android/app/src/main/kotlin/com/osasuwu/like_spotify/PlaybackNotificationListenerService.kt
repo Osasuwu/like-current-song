@@ -125,7 +125,7 @@ class PlaybackNotificationListenerService : NotificationListenerService() {
     }
 
     private fun log(message: String, actionType: String = "notification_listener", result: String = "info") {
-        BackgroundLog.emit(message, actionType, result)
+        BackgroundLog.emit(this, message, actionType, result)
         val intent = android.content.Intent(AppConstants.ACTION_LOG_EVENT)
             .putExtra(AppConstants.EXTRA_LOG, message)
             .putExtra(AppConstants.EXTRA_LOG_ACTION_TYPE, actionType)

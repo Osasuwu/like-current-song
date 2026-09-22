@@ -269,7 +269,7 @@ class MediaButtonForegroundService : Service() {
     }
 
     private fun log(message: String, actionType: String = "media_event", result: String = "info") {
-        BackgroundLog.emit(message, actionType, result)
+        BackgroundLog.emit(this, message, actionType, result)
         val intent = Intent(AppConstants.ACTION_LOG_EVENT)
             .putExtra(AppConstants.EXTRA_LOG, message)
             .putExtra(AppConstants.EXTRA_LOG_ACTION_TYPE, actionType)

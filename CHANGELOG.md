@@ -14,6 +14,20 @@ still the only option for the desktop half.
 
 ### Added
 
+- **Android: the Logs screen now shows what happened while the app was
+  closed.** Background events — a like triggered with the app swiped out of
+  recents, and every failure behind it — were broadcast to a receiver that
+  only exists while the app is open, so they were thrown away unseen. That is
+  precisely the case the background service exists for, which made it the one
+  case you could not diagnose. Those events are now kept on the device and
+  appear on the Logs screen the next time you open the app, with the time they
+  actually happened rather than the time you opened it. Only events that found
+  no open app are kept, so nothing is listed twice; the last 200 are held, and
+  anything that looks like a credential is redacted before it is written.
+- **Android: every log entry now says when it happened.** The Logs screen
+  never showed a time, which was survivable while everything on it had just
+  happened in front of you. Now that a line can be days old, each one carries
+  its own clock time — plus the date once it is not from today.
 - **Desktop: choose where a like goes.** A like used to mean exactly one
   thing — the music service's own like. It now has three settings: *Like on
   the music service* (the default, unchanged), *Add to a playlist* of your

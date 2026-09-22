@@ -88,6 +88,9 @@ class AppController extends StateNotifier<AppState> {
       final isMiui = await _platformServiceRepository.isMiuiDevice();
       final musicAppInstalled =
           await _platformServiceRepository.isMusicAppInstalled(musicProvider);
+      // Before `loadLogs`, so the background stretch is already on the Logs
+      // screen at start-up rather than after a manual refresh.
+      await _persistBackgroundLogs();
       final logLines = await _settingsRepository.loadLogs();
       final connected = await _musicRoutingRepository.connectedProviders();
 
@@ -138,6 +141,28 @@ class AppController extends StateNotifier<AppState> {
         loading: false,
         lastError: error.toString(),
       );
+    }
+  }
+
+  /// Moves the events the native side buffered while no Flutter UI was
+  /// attached into the stored log, keeping their own timestamps — `addLog`
+  /// would stamp them `now` and file a like from last night under this
+  /// morning.
+  ///
+  /// The native call empties the buffer, so this runs exactly once per
+  /// start-up. It swallows whatever goes wrong: a throw here costs the
+  /// background lines and nothing else, and must not take the rest of
+  /// start-up with it (an older native half has no such method at all).
+  Future<void> _persistBackgroundLogs() async {
+    try {
+      final drained = await _platformServiceRepository.drainBackgroundLogs();
+      // Oldest first, as the native side hands them over.
+      for (final log in drained) {
+        await _settingsRepository.appendLog(log);
+      }
+    } catch (_) {
+      // Nothing to report to the user: the Logs screen just looks the way it
+      // did before background logs were kept.
     }
   }
 

@@ -307,6 +307,13 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 					result.success(true)
 				}
 
+				// Events produced while no Flutter engine was attached. Reading
+				// them clears the buffer, so Dart has to persist what it gets;
+				// see `BackgroundLog.drain`.
+				"drainBackgroundLogs" -> {
+					result.success(BackgroundLog.drain(this))
+				}
+
 				"playFeedbackTone" -> {
 					val success = call.argument<Boolean>("success") ?: true
 					FeedbackPlayer.play(this, success)

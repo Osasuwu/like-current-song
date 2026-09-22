@@ -560,7 +560,7 @@ class YouTubeMusicLiker(context: Context) {
         httpCode: Int? = null,
         actionType: String = "like_track",
     ) {
-        BackgroundLog.emit(message, actionType, result, httpCode = httpCode)
+        BackgroundLog.emit(context, message, actionType, result, httpCode = httpCode)
         val intent = Intent(AppConstants.ACTION_LOG_EVENT)
             .putExtra(AppConstants.EXTRA_LOG, message)
             .putExtra(AppConstants.EXTRA_LOG_ACTION_TYPE, actionType)

@@ -1,3 +1,4 @@
+import '../entities/app_log.dart';
 import '../entities/music_provider.dart';
 import '../entities/music_routing.dart';
 import '../entities/rule_config.dart';
@@ -37,6 +38,18 @@ abstract class PlatformServiceRepository {
   /// likes work without it.
   Future<MusicSessionSnapshot> readMusicSessions();
   Future<void> updateRuleConfig(RuleConfig config);
+
+  /// Takes the log events the native side recorded while no Flutter UI was
+  /// attached, oldest first, and empties the native buffer in the same call.
+  ///
+  /// It drains rather than reads because the buffer is bounded and has no
+  /// cursor: the native side cannot know which entries have already been
+  /// persisted, so handing them over and forgetting them is the only way not
+  /// to duplicate them. The flip side is that the caller owns them from that
+  /// moment — call it exactly once per app start and persist every entry, or
+  /// those background likes are gone for good.
+  Future<List<AppLog>> drainBackgroundLogs();
+
   Stream<Map<String, dynamic>> events();
   Future<void> syncSpotifyTokens({
     required String accessToken,

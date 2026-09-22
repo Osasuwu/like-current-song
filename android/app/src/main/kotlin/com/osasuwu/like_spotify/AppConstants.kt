@@ -101,6 +101,16 @@ object AppConstants {
 
     const val PLAYLIST_CACHE_TTL_MS = 12 * 60 * 60 * 1000L  // 12 hours
 
+    /** Background log events that found no live Flutter engine; see [BackgroundLog]. */
+    const val KEY_BACKGROUND_LOG = "background_log_buffer"
+
+    /**
+     * How many background events survive at once. The app can stay closed for
+     * days, so the buffer has to be bounded; at roughly six events per like
+     * this still covers a long stretch of presses, and the oldest go first.
+     */
+    const val BACKGROUND_LOG_MAX_ENTRIES = 200
+
     const val ACTION_MEDIA_EVENT = "com.osasuwu.like_spotify.MEDIA_EVENT"
     const val ACTION_LOG_EVENT = "com.osasuwu.like_spotify.LOG_EVENT"
     const val ACTION_SERVICE_STATE = "com.osasuwu.like_spotify.SERVICE_STATE"

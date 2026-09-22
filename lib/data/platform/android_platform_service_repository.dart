@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 
 import '../../core/app_constants.dart';
+import '../../domain/entities/app_log.dart';
 import '../../domain/entities/music_provider.dart';
 import '../../domain/entities/music_routing.dart';
 import '../../domain/entities/rule_config.dart';
@@ -132,6 +133,47 @@ class AndroidPlatformServiceRepository implements PlatformServiceRepository {
   @override
   Future<void> updateRuleConfig(RuleConfig config) async {
     await _methodChannel.invokeMethod<void>('setRuleConfig', config.toJson());
+  }
+
+  @override
+  Future<List<AppLog>> drainBackgroundLogs() async {
+    final List<dynamic>? entries;
+    try {
+      entries = await _methodChannel.invokeMethod<List<dynamic>>(
+        'drainBackgroundLogs',
+      );
+    } on PlatformException {
+      // A device running an older native half has no such method, and a
+      // channel failure here is not worth breaking start-up over: the Logs
+      // screen simply misses the background stretch, as it did before.
+      return const <AppLog>[];
+    } on MissingPluginException {
+      return const <AppLog>[];
+    }
+    if (entries == null) return const <AppLog>[];
+
+    final logs = <AppLog>[];
+    for (final entry in entries) {
+      if (entry is! Map) continue;
+      final atMs = entry['atMs'];
+      final message = entry['message'];
+      // Without a timestamp the line cannot be placed on the Logs screen, so
+      // one bad entry is dropped rather than taking the whole batch with it.
+      if (atMs is! int || message is! String) continue;
+      final actionType = entry['actionType'];
+      final targetId = entry['targetId'];
+      final result = entry['result'];
+      final httpCode = entry['httpCode'];
+      logs.add(AppLog(
+        at: DateTime.fromMillisecondsSinceEpoch(atMs, isUtc: true),
+        actionType: actionType is String ? actionType : 'legacy',
+        targetId: targetId is String ? targetId : null,
+        result: LogResult.fromName(result is String ? result : null),
+        httpCode: httpCode is int ? httpCode : null,
+        message: message,
+      ));
+    }
+    return logs;
   }
 
   @override
