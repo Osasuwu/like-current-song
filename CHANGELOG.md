@@ -112,6 +112,20 @@ still the only option for the desktop half.
 
 ### Fixed
 
+- **A like stopped reaching a playlist you had deleted and recreated.** The
+  app remembers a playlist's id under its name so it doesn't re-list every
+  playlist you own on every like. Delete that playlist and the remembered id
+  outlives it: Spotify answers `404` and the like goes nowhere, with nothing
+  recovering — re-listing doesn't help, because a deleted playlist never
+  comes back in the listing to overwrite the entry. With the app closed this
+  lasted a full day, since the background half keeps the id on disk; with the
+  app open it lasted until the next restart. Now a `404` drops the remembered
+  id, resolves the name again — creating the playlist if it is really gone —
+  and retries exactly once. A second failure is reported, not retried. The
+  same happens on the archive and best-of legs and when removing a track,
+  minus the retry, so the next like starts from a clean cache. The background
+  log says `(after clearing a stale playlist id)` when a like was saved this
+  way.
 - **Android: a failed like with the app closed now says what failed.** When
   the app is swiped out of recents there is no window to show a log in, so
   everything the background path reported was simply dropped — a like that

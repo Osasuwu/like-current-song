@@ -79,6 +79,45 @@ class SpotifyPlaylistService {
   Future<void> addTrack(String accessToken, String playlistId, String trackUri) =>
       _client.addTracksToPlaylist(accessToken, playlistId: playlistId, trackUris: [trackUri]);
 
+  /// Adds [trackUri] to the playlist called [name], creating it if it is
+  /// missing, and surviving a cached id that names a deleted playlist.
+  ///
+  /// Delete a like playlist and the cache still holds its id, so the add comes
+  /// back 404 and nothing recovers — [findPlaylistByName] would hand back the
+  /// same dead id, because a deleted playlist never reappears in the listing
+  /// to overwrite it. So the entry is dropped first, then resolved again,
+  /// which recreates the playlist. Exactly one retry, never a loop.
+  ///
+  /// Mirrors the same recovery in `SpotifyLikeWorker.runLikeLegs` on the
+  /// Kotlin side; the two must not drift.
+  Future<void> addTrackToNamedPlaylist(
+    String accessToken,
+    String name,
+    String trackUri,
+  ) async {
+    final playlistId = await ensurePlaylist(accessToken, name);
+    if (playlistId == null) {
+      throw Exception('Could not find or create the playlist "$name"');
+    }
+    try {
+      await addTrack(accessToken, playlistId, trackUri);
+    } on SpotifyApiException catch (e) {
+      if (e.statusCode != 404) rethrow;
+      forgetPlaylist(name);
+      final freshId = await ensurePlaylist(accessToken, name);
+      if (freshId == null) {
+        throw Exception('Could not find or create the playlist "$name"');
+      }
+      await addTrack(accessToken, freshId, trackUri);
+    }
+  }
+
+  /// Drops the cached id filed under [name], so the next lookup resolves it
+  /// against Spotify instead of trusting an id the API has already rejected.
+  void forgetPlaylist(String name) {
+    _cache.remove(name.trim().toLowerCase());
+  }
+
   Future<bool> removeTrack(String accessToken, String playlistId, String trackUri) async {
     try {
       await _client.removeTracksFromPlaylist(
@@ -88,9 +127,23 @@ class SpotifyPlaylistService {
       );
       return true;
     } catch (e) {
+      // Same stale-cache trap as the add, minus the retry: this leg is
+      // non-blocking, so dropping the dead id is enough — the next like
+      // resolves the playlist properly instead of waiting out the TTL.
+      if (e is SpotifyApiException && e.statusCode == 404) {
+        forgetPlaylistId(playlistId);
+      }
       debugPrint('Remove from playlist failed: $e');
       return false;
     }
+  }
+
+  /// Drops any cached name → id entry pointing at [playlistId].
+  ///
+  /// The by-name variant is [forgetPlaylist]; this one is for the callers that
+  /// only ever held the id.
+  void forgetPlaylistId(String playlistId) {
+    _cache.removeWhere((_, id) => id == playlistId);
   }
 
   /// The signed-in account's Spotify user id, fetched once and kept.

@@ -202,6 +202,7 @@ class SpotifyLikeWorker(
             // no playlist name configured, a playlist that could be neither
             // found nor created, and a throw on the way. Name which one.
             var reason: String? = null
+            var recovered = false
             val outcome = runCatching {
                 if (name.isBlank()) {
                     reason = "no playlist name configured"
@@ -212,7 +213,25 @@ class SpotifyLikeWorker(
                     reason = "playlist not found and could not be created"
                     return@runCatching ApiResult(false, 0)
                 }
-                addTrackToPlaylist(playlistId, track.uri, token)
+                val first = addTrackToPlaylist(playlistId, track.uri, token)
+                if (first.statusCode != 404) return@runCatching first
+
+                // The cached id names a playlist that no longer exists -- the
+                // user deleted it. Dropping the entry is what makes the second
+                // resolve real: a deleted playlist never comes back in the
+                // listing, so with the entry still there the lookup would hand
+                // back the same dead id. Without it, the resolve enumerates and
+                // then creates. Exactly one retry, never a loop.
+                forgetPlaylist(prefs, name)
+                val freshId = ensurePlaylist(prefs, name, token)
+                if (freshId == null) {
+                    reason = "404, and the playlist could not be found or recreated"
+                    return@runCatching ApiResult(false, 404)
+                }
+                val retried = addTrackToPlaylist(freshId, track.uri, token)
+                if (retried.success) recovered = true
+                else reason = "404 on the cached playlist, retry also failed"
+                retried
             }.getOrElse {
                 reason = "${it.javaClass.simpleName}: ${it.message ?: "no message"}"
                 ApiResult(false, 0)
@@ -220,7 +239,8 @@ class SpotifyLikeWorker(
             playlistOk = outcome.success
             if (outcome.success) {
                 log(
-                    "Added to like playlist: $name",
+                    "Added to like playlist: $name" +
+                        if (recovered) " (after clearing a stale playlist id)" else "",
                     actionType = "like_playlist_add",
                     targetId = track.id,
                     result = "success",
@@ -248,6 +268,11 @@ class SpotifyLikeWorker(
                 val archiveId = findPlaylistByName(prefs, ruleConfig.archivePlaylistName, token)
                 if (archiveId != null) {
                     val result = removeTrackFromPlaylist(archiveId, track.uri, token)
+                    // Same stale-cache trap as the like leg, minus the retry:
+                    // this leg is non-blocking, so dropping the dead id is
+                    // enough -- the next press resolves it properly instead of
+                    // waiting out the cache TTL.
+                    if (result.statusCode == 404) forgetPlaylist(prefs, ruleConfig.archivePlaylistName)
                     if (result.success) {
                         log(
                             "Removed from archive playlist: ${ruleConfig.archivePlaylistName}",
@@ -286,6 +311,7 @@ class SpotifyLikeWorker(
                 val bestId = ensurePlaylist(prefs, ruleConfig.bestPlaylistName, token)
                 if (bestId != null) {
                     val result = addTrackToPlaylist(bestId, track.uri, token)
+                    if (result.statusCode == 404) forgetPlaylist(prefs, ruleConfig.bestPlaylistName)
                     if (result.success) {
                         log(
                             "Added to best playlist: ${ruleConfig.bestPlaylistName}",
@@ -460,6 +486,21 @@ class SpotifyLikeWorker(
             if (items.length() < limit || offset >= total) break
         }
         return null
+    }
+
+    /**
+     * Drops every cached id filed under [name]. Called when Spotify answers a
+     * cached id with 404: the playlist it names is gone, and re-enumerating
+     * would not remove the entry by itself -- a deleted playlist simply never
+     * comes back in the listing, leaving the dead id in place until the cache
+     * TTL expires.
+     */
+    private fun forgetPlaylist(prefs: SharedPreferences, name: String) {
+        val cache = loadPlaylistCache(prefs)
+        val doomed = cache.keys().asSequence().filter { it.equals(name, ignoreCase = true) }.toList()
+        if (doomed.isEmpty()) return
+        doomed.forEach { cache.remove(it) }
+        savePlaylistCache(prefs, cache)
     }
 
     private fun ensurePlaylist(prefs: SharedPreferences, name: String, token: String): String? {

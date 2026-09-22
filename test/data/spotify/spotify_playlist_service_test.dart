@@ -11,6 +11,11 @@ void main() {
   late SpotifyPlaylistService service;
   const token = 'test-token';
 
+  setUpAll(() {
+    // `any(named: 'trackUris')` needs a fallback for the non-primitive type.
+    registerFallbackValue(<String>[]);
+  });
+
   setUp(() {
     mockClient = MockSpotifyClient();
     service = SpotifyPlaylistService(mockClient);
@@ -155,6 +160,166 @@ void main() {
       await service.findPlaylistByName(token, 'Test');
 
       verify(() => mockClient.getUserPlaylists(token, offset: 0)).called(2);
+    });
+  });
+
+  group('addTrackToNamedPlaylist', () {
+    const trackUri = 'spotify:track:4cOdK2wGLETKBW3PvgPWqT';
+
+    setUp(() {
+      when(() => mockClient.getCurrentUserId(token))
+          .thenAnswer((_) async => 'me');
+    });
+
+    test('adds to the resolved playlist without creating anything', () async {
+      when(() => mockClient.getUserPlaylists(token, offset: 0)).thenAnswer(
+        (_) async => const SpotifyPlaylistPage(
+          items: [SpotifyPlaylistItem(id: 'pl-1', name: 'Liked')],
+          total: 1,
+        ),
+      );
+      when(() => mockClient.addTracksToPlaylist(token,
+          playlistId: 'pl-1', trackUris: [trackUri])).thenAnswer((_) async {});
+
+      await service.addTrackToNamedPlaylist(token, 'Liked', trackUri);
+
+      verify(() => mockClient.addTracksToPlaylist(token,
+          playlistId: 'pl-1', trackUris: [trackUri])).called(1);
+      verifyNever(() => mockClient.createPlaylist(token,
+          userId: any(named: 'userId'), name: any(named: 'name')));
+    });
+
+    test('drops a stale cached id on 404, then recreates and retries once',
+        () async {
+      var listings = 0;
+      when(() => mockClient.getUserPlaylists(token, offset: 0))
+          .thenAnswer((_) async {
+        listings++;
+        // The first enumeration still sees the playlist, so its id lands in
+        // the cache; by the second it has been deleted. That is exactly the
+        // state that used to strand every like behind a 404.
+        return listings == 1
+            ? const SpotifyPlaylistPage(
+                items: [SpotifyPlaylistItem(id: 'pl-dead', name: 'Liked')],
+                total: 1,
+              )
+            : const SpotifyPlaylistPage(items: [], total: 0);
+      });
+      when(() => mockClient.addTracksToPlaylist(token,
+              playlistId: 'pl-dead', trackUris: [trackUri]))
+          .thenThrow(SpotifyApiException(404, 'Not found'));
+      when(() => mockClient.createPlaylist(token, userId: 'me', name: 'Liked'))
+          .thenAnswer((_) async => 'pl-new');
+      when(() => mockClient.addTracksToPlaylist(token,
+          playlistId: 'pl-new', trackUris: [trackUri])).thenAnswer((_) async {});
+
+      await service.addTrackToNamedPlaylist(token, 'Liked', trackUri);
+
+      verify(() => mockClient.addTracksToPlaylist(token,
+          playlistId: 'pl-dead', trackUris: [trackUri])).called(1);
+      verify(() => mockClient.addTracksToPlaylist(token,
+          playlistId: 'pl-new', trackUris: [trackUri])).called(1);
+      // The dead id is gone: the cache now names the playlist that exists.
+      expect(await service.findPlaylistByName(token, 'Liked'), 'pl-new');
+    });
+
+    test('gives up after one retry instead of looping', () async {
+      when(() => mockClient.getUserPlaylists(token, offset: 0)).thenAnswer(
+        (_) async => const SpotifyPlaylistPage(
+          items: [SpotifyPlaylistItem(id: 'pl-1', name: 'Liked')],
+          total: 1,
+        ),
+      );
+      when(() => mockClient.addTracksToPlaylist(token,
+              playlistId: 'pl-1', trackUris: [trackUri]))
+          .thenThrow(SpotifyApiException(404, 'Not found'));
+
+      await expectLater(
+        service.addTrackToNamedPlaylist(token, 'Liked', trackUri),
+        throwsA(isA<SpotifyApiException>()
+            .having((e) => e.statusCode, 'statusCode', 404)),
+      );
+      verify(() => mockClient.addTracksToPlaylist(token,
+          playlistId: 'pl-1', trackUris: [trackUri])).called(2);
+    });
+
+    test('rethrows anything that is not a 404', () async {
+      when(() => mockClient.getUserPlaylists(token, offset: 0)).thenAnswer(
+        (_) async => const SpotifyPlaylistPage(
+          items: [SpotifyPlaylistItem(id: 'pl-1', name: 'Liked')],
+          total: 1,
+        ),
+      );
+      when(() => mockClient.addTracksToPlaylist(token,
+              playlistId: 'pl-1', trackUris: [trackUri]))
+          .thenThrow(SpotifyApiException(403, 'Forbidden'));
+
+      await expectLater(
+        service.addTrackToNamedPlaylist(token, 'Liked', trackUri),
+        throwsA(isA<SpotifyApiException>()
+            .having((e) => e.statusCode, 'statusCode', 403)),
+      );
+      // No second attempt: only a 404 means the id went bad.
+      verify(() => mockClient.addTracksToPlaylist(token,
+          playlistId: 'pl-1', trackUris: [trackUri])).called(1);
+    });
+
+    test('throws when the playlist can neither be found nor created', () async {
+      when(() => mockClient.getUserPlaylists(token, offset: 0)).thenAnswer(
+        (_) async => const SpotifyPlaylistPage(items: [], total: 0),
+      );
+      when(() => mockClient.createPlaylist(token, userId: 'me', name: 'Liked'))
+          .thenThrow(SpotifyApiException(403, 'Forbidden'));
+
+      await expectLater(
+        service.addTrackToNamedPlaylist(token, 'Liked', trackUri),
+        throwsA(isA<Exception>()),
+      );
+      verifyNever(() => mockClient.addTracksToPlaylist(token,
+          playlistId: any(named: 'playlistId'),
+          trackUris: any(named: 'trackUris')));
+    });
+  });
+
+  group('removeTrack', () {
+    const trackUri = 'spotify:track:4cOdK2wGLETKBW3PvgPWqT';
+
+    test('drops the cached id when the playlist is already gone', () async {
+      when(() => mockClient.getUserPlaylists(token, offset: 0)).thenAnswer(
+        (_) async => const SpotifyPlaylistPage(
+          items: [SpotifyPlaylistItem(id: 'pl-1', name: 'Archive')],
+          total: 1,
+        ),
+      );
+      when(() => mockClient.removeTracksFromPlaylist(token,
+              playlistId: 'pl-1', trackUris: [trackUri]))
+          .thenThrow(SpotifyApiException(404, 'Not found'));
+
+      expect(await service.findPlaylistByName(token, 'Archive'), 'pl-1');
+      expect(await service.removeTrack(token, 'pl-1', trackUri), isFalse);
+
+      // With the entry dropped the next lookup asks Spotify again instead of
+      // handing back an id the API has already rejected.
+      await service.findPlaylistByName(token, 'Archive');
+      verify(() => mockClient.getUserPlaylists(token, offset: 0)).called(2);
+    });
+
+    test('keeps the cache on a failure that is not a 404', () async {
+      when(() => mockClient.getUserPlaylists(token, offset: 0)).thenAnswer(
+        (_) async => const SpotifyPlaylistPage(
+          items: [SpotifyPlaylistItem(id: 'pl-1', name: 'Archive')],
+          total: 1,
+        ),
+      );
+      when(() => mockClient.removeTracksFromPlaylist(token,
+              playlistId: 'pl-1', trackUris: [trackUri]))
+          .thenThrow(SpotifyApiException(500, 'Server error'));
+
+      expect(await service.findPlaylistByName(token, 'Archive'), 'pl-1');
+      expect(await service.removeTrack(token, 'pl-1', trackUri), isFalse);
+
+      await service.findPlaylistByName(token, 'Archive');
+      verify(() => mockClient.getUserPlaylists(token, offset: 0)).called(1);
     });
   });
 }
