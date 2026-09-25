@@ -119,18 +119,21 @@ screen.
 
 #### Known limitations (Android)
 
-- **Some phones stop the app once you swipe it away.** Vendor ROMs with
-  aggressive battery management — confirmed on Xiaomi HyperOS, and common on
-  MIUI, Samsung One UI, Huawei and OnePlus — can stop delivering playback
-  events to an app whose task was removed from *Recents*, even though its
-  service and notification are still there. The pattern then does nothing
-  until you open the app again
-  ([#199](https://github.com/Osasuwu/like-current-song/issues/199)). What helps:
-  open *Battery optimization status* in the app's menu and **Request
-  exemption**; on Xiaomi also allow **autostart** (the same screen has a
-  button for it) and lock the app in *Recents*; otherwise simply don't swipe
-  it away. [dontkillmyapp.com](https://dontkillmyapp.com/) lists the settings
-  for each vendor.
+- **Some phones stop the app once you swipe it away, unless it is exempt
+  from battery optimization.** Vendor ROMs with aggressive battery
+  management (Xiaomi HyperOS and MIUI, Samsung One UI, Huawei, OnePlus) can
+  stop delivering playback events to an app whose task was removed from
+  *Recents*, even though its service and notification are still there. The
+  pattern then does nothing until you open the app again. On the HyperOS
+  phone where this was seen, the exemption was enough: with the app gone from
+  *Recents* it kept picking up presses and liking tracks
+  ([#199](https://github.com/Osasuwu/like-current-song/issues/199)). So open
+  *Battery optimization status* in the app's menu and tap **Request
+  exemption**. If presses still stop after a swipe, on Xiaomi also allow
+  **autostart** and set the battery saver to *No restrictions* (the same
+  screen shows both steps), or just leave the app in *Recents*.
+  [dontkillmyapp.com](https://dontkillmyapp.com/) lists the settings for each
+  vendor.
 - **Android only.** There is no iOS app: iOS doesn't let third-party apps
   observe another app's playback in the background.
 
