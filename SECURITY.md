@@ -23,16 +23,21 @@ Please include:
 - version / commit
 - reproduction steps, and the impact you believe it has
 
-Expect a first response within 7 days. This is a hobby project maintained by
-one person, so please size your expectations accordingly — there is no paid
-support and no bug bounty.
+A first response is best effort, usually within a couple of weeks. This is a
+hobby project maintained by one person and development has slowed down, so
+please size your expectations accordingly — there is no paid support and no
+bug bounty. Security reports still take priority over everything else.
 
 ## What is in scope
 
 - Leakage or mishandling of Spotify OAuth tokens (`FlutterSecureStorage` on
   Android, `~/.like_spotify/spotify_token.json` on desktop)
-- Leakage or mishandling of Google OAuth tokens (`~/.like_spotify/google_token.json`)
-- Anything that lets a third party act on a user's Spotify account
+- Leakage or mishandling of Google OAuth tokens — the counter's
+  (`~/.like_spotify/google_token.json`) and YouTube Music's
+  (`~/.like_spotify/youtube_token.json`), and both in `FlutterSecureStorage`
+  on Android
+- Anything that lets a third party act on a user's Spotify, YouTube or Google
+  account
 - Privilege escalation or arbitrary code execution through an extension the
   host loads from `like_spotify/extensions/`
 - Android: the foreground service, the notification listener, and the exported

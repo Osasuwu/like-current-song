@@ -5,6 +5,6 @@
   "description": "Global keyboard hotkey (default Ctrl+Shift+Alt+W) emits a like intent.",
   "codeowners": ["@Osasuwu"],
   "requirements": ["keyboard>=0.13"],
-  "documentation": "https://github.com/Osasuwu/like-current-song/blob/main/like_spotify/extensions/tray_hotkey_trigger/README.md",
+  "documentation": "https://github.com/Osasuwu/like-current-song/tree/main/like_spotify/extensions/tray_hotkey_trigger",
   "stage": "stable"
 }

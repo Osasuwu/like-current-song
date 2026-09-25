@@ -7,8 +7,8 @@ tests / CI work.
 ## Repo at a glance
 
 - **Android** (`lib/`, `android/app/src/main/kotlin/…`) — Flutter + Kotlin
-  app that listens for headset pause-play patterns. Feature-complete for
-  Phase 0.
+  app that listens for headset pause-play patterns. Feature-complete;
+  development has slowed down since v1.2.0 and follows issues.
 - **Desktop** (`like_spotify/`) — pluggable Python framework. Default
   flavor is a Windows tray host + global hotkey. Pluggability is what
   the OSS-framework refactor ([#19](https://github.com/Osasuwu/like-current-song/issues/19))
@@ -51,7 +51,7 @@ model so `tests/test_settings_model.py` covers it without a display.
 
 `hosts/__init__.py` picks the right host at startup via `sys.platform`.
 Anything Windows-specific (`winreg`, `winsound`, `ctypes.windll`,
-`pystray`) lives in `hosts/windows.py` and the `tray_hotkey_trigger`
+`pystray`) lives in `hosts/windows/` and the `tray_hotkey_trigger`
 extension — never in `core/`.
 
 ## Good-first-PR ideas
@@ -125,6 +125,9 @@ like_spotify/extensions/<your_domain>/
 The factory name is fixed per extension point — `TRIGGER`,
 `MUSIC_PROVIDER`, `STORAGE`, `PRE_LIKE_ACTION`, or `POST_LIKE_ACTION`
 — and it's a plain callable that returns one configured instance.
+The one exception is `like_cooldown`, which is a *pair* of actions (a
+`PreLikeAction` gate and a `PostLikeAction` recorder sharing one store) and
+so exports `build_like_cooldown()` returning both instead.
 
 **There is no automatic discovery yet.** A host picks your extension up
 because someone imported it and registered its factory in
@@ -146,7 +149,7 @@ Example manifest:
   "description": "Listen for vol-up-up on a connected MIDI / HID device and emit a like intent.",
   "codeowners": ["@you"],
   "requirements": ["hid>=1.0"],
-  "documentation": "https://github.com/Osasuwu/like-current-song/blob/main/like_spotify/extensions/volume_button_trigger/README.md",
+  "documentation": "https://github.com/Osasuwu/like-current-song/blob/main/CONTRIBUTING.md",
   "stage": "experimental"
 }
 ```
@@ -324,8 +327,8 @@ alongside the like. See
 [#168](https://github.com/Osasuwu/like-current-song/issues/168).
 
 **Existing impls**: `google_sheets_storage` — REST PUT/APPEND on a sheet
-you own. A Supabase backend shipped alongside it until the release after
-v1.1.0 and was removed: a hosted Postgres project was a lot of setup to
+you own. A Supabase backend shipped alongside it through v1.1.0 and was
+removed in v1.2.0: a hosted Postgres project was a lot of setup to
 ask of someone who wanted a like counter, and the Sheets impl covered the
 same job. What it left behind is the useful part — `core/storage.py` is
 written against neither, and the Android half arrives at the same counts
@@ -597,7 +600,7 @@ publish must not.
   [README](README.md#1-spotify-developer-app).
 - Cross-platform helpers in `hosts/_common.py` (config I/O, builder
   registries) and `hosts/_setup.py` (the wizard); OS-bound side effects
-  in `hosts/<platform>.py`. **No `winreg` / `winsound` / `ctypes.windll`
+  in `hosts/<platform>/` (or `hosts/_stub.py`). **No `winreg` / `winsound` / `ctypes.windll`
   outside `hosts/windows/`.**
 - Each `PostLikeAction` is independent — a failure must not abort the
   chain (see `like_spotify/core/pipeline.py`).

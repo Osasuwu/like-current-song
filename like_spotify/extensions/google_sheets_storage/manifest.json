@@ -5,6 +5,6 @@
   "description": "Like counter persisted to a Google Sheet you own. The shipped Storage impl.",
   "codeowners": ["@Osasuwu"],
   "requirements": ["requests>=2.31"],
-  "documentation": "https://github.com/Osasuwu/like-current-song/blob/main/like_spotify/extensions/google_sheets_storage/README.md",
+  "documentation": "https://github.com/Osasuwu/like-current-song/tree/main/like_spotify/extensions/google_sheets_storage",
   "stage": "stable"
 }

@@ -1,8 +1,14 @@
 """like-current-song — pluggable hotkey-to-like framework.
 
-Phase 1 tracer bullet (#21): Trigger + MusicProvider seams + a tray host
-that wires the default-flavor extensions (tray_hotkey_trigger + spotify).
-Storage and PostLikeActions land in #22 / #23.
+Five seams (Trigger, MusicProvider, Storage, PreLikeAction, PostLikeAction)
+live in ``core/``; the implementations live in ``extensions/`` and are wired
+in by the builder registries in ``hosts/_common.py``.
 """
 
-__version__ = "1.0.3"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    # pyproject.toml is the single source of the version.
+    __version__ = version("like-current-song")
+except PackageNotFoundError:  # running from a checkout that was never installed
+    __version__ = "0+unknown"

@@ -10,6 +10,6 @@
     "winrt-Windows.Foundation>=3.0; sys_platform == 'win32'",
     "winrt-Windows.Foundation.Collections>=3.0; sys_platform == 'win32'"
   ],
-  "documentation": "https://github.com/Osasuwu/like-current-song/blob/main/like_spotify/extensions/ytmusic/README.md",
+  "documentation": "https://github.com/Osasuwu/like-current-song/tree/main/like_spotify/extensions/ytmusic",
   "stage": "beta"
 }
