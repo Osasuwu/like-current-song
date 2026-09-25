@@ -26,7 +26,7 @@ class SharedPrefsLikeCountRepository implements LikeCountRepository {
       _getCount(_keyTrackCounts, trackId);
 
   @override
-  Future<int> incrementArtistLikeCount(String artistId) =>
+  Future<int> incrementArtistLikeCount(String artistId, {String? trackId}) =>
       _increment(_keyArtistCounts, artistId);
 
   @override

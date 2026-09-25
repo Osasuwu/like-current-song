@@ -97,9 +97,9 @@ def test_likes_header_agrees_across_all_three_halves(dart: str, kotlin: str) -> 
     assert _string_list(kotlin, "LIKES_HEADER") == schema.HEADER_ROW
 
 
-def test_artist_tab_agrees_with_the_half_that_creates_it(dart: str) -> None:
-    # Desktop-only data, but the phone creates the tab, so those two must
-    # agree; the native counter never touches it and does not declare it.
+def test_artist_tab_agrees_across_all_three_halves(dart: str, kotlin: str) -> None:
+    # Follow-artist records its triples here from the desktop, the phone's
+    # foreground path and the background worker alike.
     assert schema.DEFAULT_ARTIST_SHEET == "ArtistTracks"
     assert schema.ARTIST_HEADER_ROW == [
         "user_id",
@@ -109,6 +109,8 @@ def test_artist_tab_agrees_with_the_half_that_creates_it(dart: str) -> None:
     ]
     assert _string(dart, "artistTracksTab") == schema.DEFAULT_ARTIST_SHEET
     assert _string_list(dart, "artistTracksHeader") == schema.ARTIST_HEADER_ROW
+    assert _string(kotlin, "ARTIST_TRACKS_TAB") == schema.DEFAULT_ARTIST_SHEET
+    assert _string_list(kotlin, "ARTIST_TRACKS_HEADER") == schema.ARTIST_HEADER_ROW
 
 
 def test_new_spreadsheets_get_the_same_name_from_either_half(dart: str) -> None:

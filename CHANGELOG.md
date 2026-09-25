@@ -12,6 +12,19 @@ still the only option for the desktop half.
 
 ## [Unreleased]
 
+### Added
+
+- **Android: follow-artist now counts through the shared sheet, like the
+  desktop does.** The phone kept its own tally of artist likes, so an artist
+  liked twice on the phone and once at the computer never reached a threshold
+  of three anywhere, and a track liked twice counted twice. With a counter
+  configured, both the app and the background service now record each
+  (artist, track) pair on the sheet's `ArtistTracks` tab and follow on the
+  number of distinct tracks liked on any device. A sheet created by the app
+  already has the tab; one built by hand needs it added (see the README). If
+  the sheet cannot be reached, the like falls back to the count on the device
+  and the Logs screen says so.
+
 ## [1.2.0] - 2026-09-25
 
 Where a like goes is now your choice — the service's own likes, a playlist of

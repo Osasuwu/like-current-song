@@ -189,7 +189,27 @@ class YouTubeMusicLiker(context: Context) {
         log = { message, actionType, result, httpCode ->
             log(message, result = result, httpCode = httpCode, actionType = actionType)
         },
+        sharedArtistTrackCount = ::sharedArtistTrackCount,
     )
+
+    /**
+     * The follow-artist number off the shared sheet for [channelId], with
+     * [videoId] recorded — see [LikeCounter.recordArtistTrack]. Null when no
+     * counter is set up for YouTube Music or the sheet did not take it; the
+     * latter is logged, since the rule then runs on this device's count.
+     */
+    private fun sharedArtistTrackCount(channelId: String, videoId: String): Int? {
+        val target = LikeCounter.target(prefs, MusicProvider.YTMUSIC) ?: return null
+        val outcome = LikeCounter.recordArtistTrack(prefs, target, channelId, videoId)
+        outcome.count?.let { return it }
+        log(
+            "Artist like counted on this device only: ${outcome.failure}",
+            result = "failure",
+            httpCode = outcome.httpCode,
+            actionType = YouTubeMusicExtraActions.FOLLOW_ACTION,
+        )
+        return null
+    }
 
     private fun countLocked(outcome: Outcome): Outcome {
         val nowPlaying = outcome.nowPlaying ?: return outcome

@@ -31,7 +31,7 @@ class NativeLikeCountRepository implements LikeCountRepository {
   Future<int> getTrackLikeCount(String trackId) => _getCount(_trackKind, trackId);
 
   @override
-  Future<int> incrementArtistLikeCount(String artistId) =>
+  Future<int> incrementArtistLikeCount(String artistId, {String? trackId}) =>
       _increment(_artistKind, artistId);
 
   @override

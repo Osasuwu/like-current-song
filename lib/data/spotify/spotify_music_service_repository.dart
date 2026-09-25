@@ -378,7 +378,12 @@ class SpotifyMusicServiceRepository implements MusicServiceRepository {
         : const <String>{};
     for (var i = 0; i < trackInfo.artistIds.length; i++) {
       final artistId = trackInfo.artistIds[i];
-      final artistCount = await _likeCountRepository.incrementArtistLikeCount(artistId);
+      // The track goes along only while the rule is on: recording it is a
+      // sheet round trip that nothing else reads.
+      final artistCount = await _likeCountRepository.incrementArtistLikeCount(
+        artistId,
+        trackId: ruleConfig.followArtistEnabled ? trackInfo.trackId : null,
+      );
       if (ruleConfig.followArtistEnabled &&
           artistCount >= ruleConfig.followArtistThreshold &&
           !alreadyFollowed.contains(artistId)) {

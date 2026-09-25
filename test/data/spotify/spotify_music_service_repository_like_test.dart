@@ -107,7 +107,8 @@ void main() {
           )).thenAnswer((_) async {});
       when(() => mockLikeCount.incrementTrackLikeCount('track-123'))
           .thenAnswer((_) async => 1);
-      when(() => mockLikeCount.incrementArtistLikeCount(any()))
+      when(() => mockLikeCount.incrementArtistLikeCount(any(),
+              trackId: any(named: 'trackId')))
           .thenAnswer((_) async => 1);
 
       final result = await repo.likeTrack(trackInfo);
@@ -130,7 +131,8 @@ void main() {
           )).thenAnswer((_) async {});
       when(() => mockLikeCount.incrementTrackLikeCount('track-123'))
           .thenAnswer((_) async => 3);
-      when(() => mockLikeCount.incrementArtistLikeCount(any()))
+      when(() => mockLikeCount.incrementArtistLikeCount(any(),
+              trackId: any(named: 'trackId')))
           .thenAnswer((_) async => 1);
       when(() => mockSettings.loadRuleConfig()).thenAnswer(
         (_) async => const RuleConfig(
@@ -168,7 +170,8 @@ void main() {
           )).thenAnswer((_) async {});
       when(() => mockLikeCount.incrementTrackLikeCount('track-123'))
           .thenAnswer((_) async => 4);
-      when(() => mockLikeCount.incrementArtistLikeCount(any()))
+      when(() => mockLikeCount.incrementArtistLikeCount(any(),
+              trackId: any(named: 'trackId')))
           .thenAnswer((_) async => 1);
 
       final result = await repo.likeTrack(trackInfo);
@@ -183,9 +186,11 @@ void main() {
           )).thenAnswer((_) async {});
       when(() => mockLikeCount.incrementTrackLikeCount('track-123'))
           .thenAnswer((_) async => 1);
-      when(() => mockLikeCount.incrementArtistLikeCount('artist-1'))
+      when(() => mockLikeCount.incrementArtistLikeCount('artist-1',
+              trackId: any(named: 'trackId')))
           .thenAnswer((_) async => 5);
-      when(() => mockLikeCount.incrementArtistLikeCount('artist-2'))
+      when(() => mockLikeCount.incrementArtistLikeCount('artist-2',
+              trackId: any(named: 'trackId')))
           .thenAnswer((_) async => 2);
       when(() => mockClient.followArtists(
             any(),
@@ -195,6 +200,12 @@ void main() {
       final result = await repo.likeTrack(trackInfo);
 
       expect(result.followedArtistNames, ['Artist One']);
+      // The track goes along, so a shared counter can count distinct tracks
+      // across devices rather than presses on this one (#209).
+      verify(() => mockLikeCount.incrementArtistLikeCount(
+            'artist-1',
+            trackId: 'track-123',
+          )).called(1);
       verify(() => mockClient.followArtists(
             any(),
             artistIds: ['artist-1'],
@@ -216,9 +227,11 @@ void main() {
           )).thenAnswer((_) async {});
       when(() => mockLikeCount.incrementTrackLikeCount('track-123'))
           .thenAnswer((_) async => 1);
-      when(() => mockLikeCount.incrementArtistLikeCount('artist-1'))
+      when(() => mockLikeCount.incrementArtistLikeCount('artist-1',
+              trackId: any(named: 'trackId')))
           .thenAnswer((_) async => 11);
-      when(() => mockLikeCount.incrementArtistLikeCount('artist-2'))
+      when(() => mockLikeCount.incrementArtistLikeCount('artist-2',
+              trackId: any(named: 'trackId')))
           .thenAnswer((_) async => 2);
       when(() => mockClient.followArtists(any(), artistIds: ['artist-1']))
           .thenAnswer((_) async {});
@@ -236,7 +249,8 @@ void main() {
           )).thenAnswer((_) async {});
       when(() => mockLikeCount.incrementTrackLikeCount('track-123'))
           .thenAnswer((_) async => 1);
-      when(() => mockLikeCount.incrementArtistLikeCount(any()))
+      when(() => mockLikeCount.incrementArtistLikeCount(any(),
+              trackId: any(named: 'trackId')))
           .thenAnswer((_) async => 11);
       when(() => mockPlatform.loadFollowedArtists())
           .thenAnswer((_) async => <String>{'artist-1', 'artist-2'});
@@ -258,9 +272,11 @@ void main() {
           )).thenAnswer((_) async {});
       when(() => mockLikeCount.incrementTrackLikeCount('track-123'))
           .thenAnswer((_) async => 1);
-      when(() => mockLikeCount.incrementArtistLikeCount('artist-1'))
+      when(() => mockLikeCount.incrementArtistLikeCount('artist-1',
+              trackId: any(named: 'trackId')))
           .thenAnswer((_) async => 5);
-      when(() => mockLikeCount.incrementArtistLikeCount('artist-2'))
+      when(() => mockLikeCount.incrementArtistLikeCount('artist-2',
+              trackId: any(named: 'trackId')))
           .thenAnswer((_) async => 1);
       when(() => mockClient.followArtists(any(), artistIds: ['artist-1']))
           .thenThrow(Exception('follow refused'));
@@ -290,7 +306,8 @@ void main() {
           )).thenAnswer((_) async {});
       when(() => mockLikeCount.incrementTrackLikeCount('track-123'))
           .thenAnswer((_) async => 1);
-      when(() => mockLikeCount.incrementArtistLikeCount(any()))
+      when(() => mockLikeCount.incrementArtistLikeCount(any(),
+              trackId: any(named: 'trackId')))
           .thenAnswer((_) async => 11);
 
       final result = await repo.likeTrack(trackInfo);
@@ -306,7 +323,8 @@ void main() {
           )).thenAnswer((_) async {});
       when(() => mockLikeCount.incrementTrackLikeCount(any()))
           .thenAnswer((_) async => 1);
-      when(() => mockLikeCount.incrementArtistLikeCount(any()))
+      when(() => mockLikeCount.incrementArtistLikeCount(any(),
+              trackId: any(named: 'trackId')))
           .thenAnswer((_) async => 1);
       when(() => mockSettings.loadRuleConfig()).thenAnswer(
         (_) async => const RuleConfig(
@@ -367,7 +385,8 @@ void main() {
           )).thenAnswer((_) async {});
       when(() => mockLikeCount.incrementTrackLikeCount(any()))
           .thenAnswer((_) async => 2);
-      when(() => mockLikeCount.incrementArtistLikeCount(any()))
+      when(() => mockLikeCount.incrementArtistLikeCount(any(),
+              trackId: any(named: 'trackId')))
           .thenAnswer((_) async => 1);
 
       final result = await repo.likeTrack(trackInfo);
@@ -402,7 +421,8 @@ void main() {
           )).thenAnswer((_) async {});
       when(() => mockLikeCount.incrementTrackLikeCount(any()))
           .thenAnswer((_) async => 2);
-      when(() => mockLikeCount.incrementArtistLikeCount(any()))
+      when(() => mockLikeCount.incrementArtistLikeCount(any(),
+              trackId: any(named: 'trackId')))
           .thenAnswer((_) async => 1);
 
       final result = await repo.likeTrack(trackInfo);
@@ -422,7 +442,8 @@ void main() {
           )).thenAnswer((_) async {});
       when(() => mockLikeCount.incrementTrackLikeCount(any()))
           .thenAnswer((_) async => 1);
-      when(() => mockLikeCount.incrementArtistLikeCount(any()))
+      when(() => mockLikeCount.incrementArtistLikeCount(any(),
+              trackId: any(named: 'trackId')))
           .thenAnswer((_) async => 1);
 
       final result = await repo.likeCurrentTrack();
@@ -464,7 +485,8 @@ void main() {
           )).thenAnswer((_) async {});
       when(() => mockLikeCount.incrementTrackLikeCount(any()))
           .thenAnswer((_) async => 1);
-      when(() => mockLikeCount.incrementArtistLikeCount(any()))
+      when(() => mockLikeCount.incrementArtistLikeCount(any(),
+              trackId: any(named: 'trackId')))
           .thenAnswer((_) async => 1);
 
       final result = await repo.likeCurrentTrack();
@@ -504,7 +526,8 @@ void main() {
           )).thenAnswer((_) async {});
       when(() => mockLikeCount.incrementTrackLikeCount(any()))
           .thenAnswer((_) async => 1);
-      when(() => mockLikeCount.incrementArtistLikeCount(any()))
+      when(() => mockLikeCount.incrementArtistLikeCount(any(),
+              trackId: any(named: 'trackId')))
           .thenAnswer((_) async => 1);
       when(() => mockSettings.removePendingLike(any()))
           .thenAnswer((_) async {});

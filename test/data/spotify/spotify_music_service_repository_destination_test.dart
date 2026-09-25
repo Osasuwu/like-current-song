@@ -92,7 +92,8 @@ void main() {
     when(() => mockLikeCount.recordLikedAt(any(), any())).thenAnswer((_) async {});
     when(() => mockLikeCount.incrementTrackLikeCount(any()))
         .thenAnswer((_) async => 1);
-    when(() => mockLikeCount.incrementArtistLikeCount(any()))
+    when(() => mockLikeCount.incrementArtistLikeCount(any(),
+              trackId: any(named: 'trackId')))
         .thenAnswer((_) async => 1);
 
     when(() => mockClient.likeTrack(

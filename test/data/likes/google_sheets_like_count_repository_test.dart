@@ -449,6 +449,193 @@ void main() {
     });
   });
 
+  group('follow-artist counts distinct tracks on the shared sheet (#209)', () {
+    /// The `ArtistTracks` tab as either half writes it.
+    String artistBody(List<List<String>> dataRows) =>
+        jsonEncode(<String, dynamic>{
+          'range': 'ArtistTracks!A1:D1000',
+          'values': <List<String>>[
+            <String>['user_id', 'artist_id', 'track_id', 'created_at'],
+            ...dataRows,
+          ],
+        });
+
+    /// A sheet whose `ArtistTracks` tab holds [rows] and grows on append.
+    ({http.Client client, List<http.Request> requests}) artistSheet(
+      List<List<String>> rows,
+    ) =>
+        recordingClient((request) {
+          if (request.method == 'GET') {
+            return http.Response(artistBody(rows), 200);
+          }
+          final row = (jsonDecode(request.body)['values'] as List).single
+              as List;
+          rows.add(row.map((cell) => '$cell').toList());
+          return http.Response('{}', 200);
+        });
+
+    test('a new track by the artist is recorded and counted', () async {
+      final rows = <List<String>>[
+        <String>['user-1', 'artist-1', 'track-a', '2026-09-01T00:00:00Z'],
+      ];
+      final spy = artistSheet(rows);
+      final repo = repoOver(spy.client);
+
+      expect(
+        await repo.incrementArtistLikeCount('artist-1', trackId: 'track-b'),
+        2,
+      );
+      final append = spy.requests.last;
+      expect(append.method, 'POST');
+      expect(
+        append.url.path,
+        '/v4/spreadsheets/sheet-1/values/ArtistTracks:append',
+      );
+      expect(rows.last.take(3), <String>['user-1', 'artist-1', 'track-b']);
+      expect(logs, isEmpty);
+    });
+
+    test('a track already on the tab counts once and writes nothing',
+        () async {
+      final spy = artistSheet(<List<String>>[
+        <String>['user-1', 'artist-1', 'track-a', '2026-09-01T00:00:00Z'],
+      ]);
+      final repo = repoOver(spy.client);
+
+      expect(
+        await repo.incrementArtistLikeCount('artist-1', trackId: 'track-a'),
+        1,
+      );
+      expect(spy.requests.where((r) => r.method != 'GET'), isEmpty);
+    });
+
+    test('tracks liked at the computer count toward the phone', () async {
+      // The desktop wrote two tracks, and once the same triple twice: two
+      // devices appending the same pair counts it once, as the desktop does.
+      final spy = artistSheet(<List<String>>[
+        <String>['user-1', 'artist-1', 'track-a', '2026-09-01T00:00:00Z'],
+        <String>['user-1', 'artist-1', 'track-b', '2026-09-02T00:00:00Z'],
+        <String>['user-1', 'artist-1', 'track-b', '2026-09-03T00:00:00Z'],
+        <String>['user-2', 'artist-1', 'track-c', '2026-09-03T00:00:00Z'],
+        <String>['user-1', 'artist-2', 'track-d', '2026-09-03T00:00:00Z'],
+      ]);
+      final repo = repoOver(spy.client);
+
+      // The local tally has never seen this artist; the sheet has.
+      expect(
+        await repo.incrementArtistLikeCount('artist-1', trackId: 'track-e'),
+        3,
+      );
+    });
+
+    test('the local tally moves either way, for the Stats screen', () async {
+      final spy = artistSheet(<List<String>>[]);
+      final repo = repoOver(spy.client);
+
+      await repo.incrementArtistLikeCount('artist-1', trackId: 'track-a');
+      await repo.incrementArtistLikeCount('artist-1', trackId: 'track-a');
+      expect(await repo.getArtistLikeCount('artist-1'), 2);
+    });
+
+    test('without a track — follow-artist off — the sheet is not asked',
+        () async {
+      final spy = artistSheet(<List<String>>[]);
+      final repo = repoOver(spy.client);
+
+      expect(await repo.incrementArtistLikeCount('artist-1'), 1);
+      expect(await repo.incrementArtistLikeCount('artist-1'), 2);
+      expect(spy.requests, isEmpty);
+    });
+
+    test('no spreadsheet means the count stays on this device, silently',
+        () async {
+      final spy = artistSheet(<List<String>>[]);
+      final repo = repoOver(spy.client, spreadsheetId: '');
+
+      expect(
+        await repo.incrementArtistLikeCount('artist-1', trackId: 'track-a'),
+        1,
+      );
+      expect(spy.requests, isEmpty);
+      expect(logs, isEmpty);
+    });
+
+    test('a sheet without the tab falls back and names the missing tab',
+        () async {
+      final spy = recordingClient(
+        (_) => http.Response('{"error":{"code":400}}', 400),
+      );
+      final repo = repoOver(spy.client);
+
+      expect(
+        await repo.incrementArtistLikeCount('artist-1', trackId: 'track-a'),
+        1,
+      );
+      expect(logs, hasLength(1));
+      final log = logs.single;
+      expect(
+        log.actionType,
+        GoogleSheetsLikeCountRepository.artistLogActionType,
+      );
+      expect(log.targetId, 'artist-1');
+      expect(log.result, LogResult.failure);
+      expect(log.httpCode, 400);
+      expect(
+        log.message,
+        startsWith('Artist like counted on this device only.'),
+      );
+      expect(log.message, contains('no ArtistTracks tab'));
+    });
+
+    test('a refused append falls back to the local tally', () async {
+      final spy = recordingClient((request) => request.method == 'GET'
+          ? http.Response(artistBody(<List<String>>[]), 200)
+          : http.Response('nope', 500));
+      final repo = repoOver(spy.client);
+
+      expect(
+        await repo.incrementArtistLikeCount('artist-1', trackId: 'track-a'),
+        1,
+      );
+      expect(logs.single.httpCode, 500);
+    });
+  });
+
+  group('artistTrackTally', () {
+    List<List<String>> tab(List<List<String>> rows) => <List<String>>[
+          <String>['user_id', 'artist_id', 'track_id', 'created_at'],
+          ...rows,
+        ];
+
+    test('skips the header and rows too short to hold a triple', () {
+      final tally = GoogleSheetsLikeCountRepository.artistTrackTally(
+        <Object>[
+          ...tab(<List<String>>[
+            <String>['user-1', 'artist-1'],
+            <String>['user-1', 'artist-1', 'track-a'],
+          ]),
+          'not a row',
+        ],
+        'user-1',
+        'artist-1',
+        'track-a',
+      );
+      expect(tally.seen, isTrue);
+      expect(tally.count, 1);
+    });
+
+    test('an unreadable tab is an empty one', () {
+      final tally = GoogleSheetsLikeCountRepository.artistTrackTally(
+        null,
+        'user-1',
+        'artist-1',
+        'track-a',
+      );
+      expect(tally.seen, isFalse);
+      expect(tally.count, 0);
+    });
+  });
+
   group('rowFromA1Range', () {
     test('reads the row an append landed on', () {
       expect(

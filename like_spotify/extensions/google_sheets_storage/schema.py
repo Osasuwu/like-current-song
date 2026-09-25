@@ -17,8 +17,8 @@ SPREADSHEET_TITLE = "Like Current Song counters"
 #: The tab the per-track counts live on.
 DEFAULT_SHEET = "Likes"
 
-#: The tab the (user, artist, track) triples live on. Desktop-only, but the
-#: phone creates it too: one spreadsheet is meant to serve both halves.
+#: The tab the (user, artist, track) triples live on. Follow-artist writes it
+#: from the desktop and the phone alike, so its count spans both.
 DEFAULT_ARTIST_SHEET = "ArtistTracks"
 
 #: Row 1 of :data:`DEFAULT_SHEET`. Data starts at row 2.
