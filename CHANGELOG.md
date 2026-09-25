@@ -12,6 +12,19 @@ still the only option for the desktop half.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-25
+
+Where a like goes is now your choice — the service's own likes, a playlist of
+yours, or both — on Android and on the desktop. The shared like counter moved
+from Supabase to a Google Sheet you own, and can create that sheet for you.
+Most of the rest is the app telling you what actually went wrong instead of
+failing quietly, and a run of fixes for likes made with the app closed.
+Follow-artist now counts across devices on Android too, and the app has a
+logo of its own.
+
+Development slows down after this release: the project does what it set out
+to do. Bugs and requests filed as issues are still read and answered.
+
 ### Added
 
 - **Android: follow-artist now counts through the shared sheet, like the
@@ -24,29 +37,6 @@ still the only option for the desktop half.
   already has the tab; one built by hand needs it added (see the README). If
   the sheet cannot be reached, the like falls back to the count on the device
   and the Logs screen says so.
-
-### Changed
-
-- **The app has a logo.** A white heart with the gesture inside it — pause,
-  then play — on a violet tile. It replaces Flutter's stock launcher icon on
-  Android (an adaptive icon, with a monochrome layer for themed icons), the
-  generic play symbol in the status bar while the service runs, and the green
-  heart in the Windows tray and on the Settings window. The tray still flashes
-  a white or red heart after a like. The website uses it as its favicon too.
-
-## [1.2.0] - 2026-09-25
-
-Where a like goes is now your choice — the service's own likes, a playlist of
-yours, or both — on Android and on the desktop. The shared like counter moved
-from Supabase to a Google Sheet you own, and can create that sheet for you.
-Most of the rest is the app telling you what actually went wrong instead of
-failing quietly, and a run of fixes for likes made with the app closed.
-
-Development slows down after this release: the project does what it set out
-to do. Bugs and requests filed as issues are still read and answered.
-
-### Added
-
 - **Android: the Logs screen now shows what happened while the app was
   closed.** Background events — a like triggered with the app swiped out of
   recents, and every failure behind it — were broadcast to a receiver that
@@ -447,6 +437,12 @@ to do. Bugs and requests filed as issues are still read and answered.
 
 ### Changed
 
+- **The app has a logo.** A white heart with the gesture inside it — pause,
+  then play — on a violet tile. It replaces Flutter's stock launcher icon on
+  Android (an adaptive icon, with a monochrome layer for themed icons), the
+  generic play symbol in the status bar while the service runs, and the green
+  heart in the Windows tray and on the Settings window. The tray still flashes
+  a white or red heart after a like. The website uses it as its favicon too.
 - **The "best-of" playlist rule is now just "best".** "Best of" reads like it
   wants a qualifier ("best of electronic"), but there is only ever one general
   best playlist, so the rule is called **best** everywhere: in the app and the
