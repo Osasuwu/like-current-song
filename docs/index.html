@@ -3,9 +3,33 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Like Current Song</title>
-<meta name="description" content="Like the song you are hearing without unlocking the phone — an open-source Android app and desktop tool for Spotify and YouTube Music.">
+<title>Like Current Song — like a Spotify or YouTube Music song with your headphone button</title>
+<meta name="description" content="Free, open-source Android app and Windows hotkey that save the song you are hearing to Spotify Liked Songs or YouTube Music likes — with the screen off, from your headphone button, without unlocking the phone.">
+<link rel="canonical" href="https://osasuwu.github.io/like-current-song/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%E2%99%A5%3C/text%3E%3C/svg%3E">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Like Current Song">
+<meta property="og:title" content="Like Current Song — like the song you're hearing without unlocking your phone">
+<meta property="og:description" content="Pause and resume with your headphone button and the track lands in Spotify Liked Songs or your YouTube Music likes. Android app + Windows global hotkey, free and open source.">
+<meta property="og:url" content="https://osasuwu.github.io/like-current-song/">
+<meta property="og:image" content="https://opengraph.githubassets.com/1/Osasuwu/like-current-song">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="stylesheet" href="style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Like Current Song",
+  "applicationCategory": "MultimediaApplication",
+  "operatingSystem": "Android, Windows, macOS, Linux",
+  "description": "Save the song you are hearing to Spotify Liked Songs or YouTube Music likes from a headphone-button pattern or a global keyboard shortcut.",
+  "url": "https://osasuwu.github.io/like-current-song/",
+  "downloadUrl": "https://github.com/Osasuwu/like-current-song/releases/latest",
+  "codeRepository": "https://github.com/Osasuwu/like-current-song",
+  "license": "https://opensource.org/licenses/MIT",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
+</script>
 </head>
 <body>
 
@@ -15,7 +39,7 @@
 </header>
 
 <nav>
-  <a href="index.html">Home</a>
+  <a href="index.html" aria-current="page">Home</a>
   <a href="privacy.html">Privacy</a>
   <a href="terms.html">Terms</a>
   <a href="https://github.com/Osasuwu/like-current-song">Source</a>
@@ -24,49 +48,75 @@
 <main>
 
 <p>
-  Like Current Song is a free and open-source project in two halves. On Android it
-  watches for a media-button pattern — a quick pause-play on your headphones, for
-  example — and saves whatever is playing to your library. On Windows a small desktop
-  tool does the same from a tray icon and a global hotkey; on macOS and Linux it
-  currently ships as a one-shot command you run yourself, <code>like-current-song
-  like-once</code>.
+  A song you love comes on while the phone is in your pocket. <strong>Pause and resume
+  it with your headphone button</strong> and it is saved to your Spotify
+  <strong>Liked Songs</strong> or your YouTube Music likes. You don't unlock the
+  phone, look at the screen or open the music app, and a short tone confirms the like.
 </p>
 
 <p>
-  It works with <strong>Spotify</strong> and <strong>YouTube Music</strong>. Optional
-  extras can also remove the song from an archive playlist, add it to a best
-  playlist, and follow the artist.
+  At the computer, a <strong>global keyboard shortcut</strong> does the same:
+  <code>Ctrl+Shift+Alt+W</code> likes whatever is playing, even with Spotify minimized
+  or in the background.
 </p>
+
+<h2>What it does</h2>
+
+<ul>
+  <li><strong>Android</strong> — works with the screen off and the phone locked. It
+      watches the pause/play state of whatever is playing, so wired or Bluetooth
+      headphones, earbud taps, a smartwatch or a car stereo can all trigger it. The
+      pattern is configurable.</li>
+  <li><strong>Windows</strong> — a tray app with a global hotkey to like the current
+      track, and a second one to discard it.</li>
+  <li><strong>macOS and Linux</strong> — a <code>like-current-song like-once</code>
+      command you bind to any shortcut.</li>
+  <li><strong>Spotify and YouTube Music</strong> — on Android it can pick whichever
+      one is actually playing. A like can also go to a playlist of yours instead of,
+      or as well as, the service's own likes.</li>
+  <li><strong>Optional rules</strong> — take the track out of a Discover Weekly
+      archive playlist, promote it to a "best" playlist after N likes, follow an
+      artist after N liked tracks. The counts live in a Google Sheet you own, so
+      phone and computer see the same numbers.</li>
+</ul>
 
 <h2>Get it</h2>
 
 <p>
-  There is no app-store listing. Everything lives on GitHub, and you build or install it
-  yourself:
+  <a class="download" href="https://github.com/Osasuwu/like-current-song/releases/latest/download/app-release.apk">Download the Android APK</a>
+</p>
+
+<p>
+  There is no Play Store listing, so Android will warn you about an app from outside
+  the store — that is expected for a sideloaded APK. For the desktop tool, clone the
+  repository and run the installer (<code>install.ps1</code> on Windows,
+  <code>install.sh</code> on macOS and Linux).
 </p>
 
 <ul>
-  <li><a href="https://github.com/Osasuwu/like-current-song">Source code and build instructions</a></li>
-  <li><a href="https://github.com/Osasuwu/like-current-song/blob/main/README.md#quick-start">Setup guide</a> — connecting Spotify or YouTube Music</li>
-  <li><a href="https://github.com/Osasuwu/like-current-song/issues">Issue tracker</a> — bugs and feature requests</li>
+  <li><a href="https://github.com/Osasuwu/like-current-song#quick-start">Setup guide</a> — connecting Spotify or YouTube Music</li>
+  <li><a href="https://github.com/Osasuwu/like-current-song/releases">All releases and changelog</a></li>
+  <li><a href="https://github.com/Osasuwu/like-current-song#known-limitations-android">Known limitations</a> — some phones stop background apps once swiped away</li>
 </ul>
 
 <h2>Bring your own credentials</h2>
 
 <p>
-  The project does not ship shared API keys. Both Spotify and Google require each
+  The project does not ship shared API keys. Spotify and Google both require each
   person to register their own application, so the setup guide walks you through
-  creating one and pasting the client ID into the app. Those credentials stay on your
-  device.
+  creating one and pasting its client ID into the app. Those credentials stay on your
+  device, and there is no server run by this project — see the
+  <a href="privacy.html">privacy policy</a>.
 </p>
 
 <h2>Licence and contact</h2>
 
 <p>
-  Released under the MIT licence. The project is maintained by Osasuwu; questions,
-  bug reports and contributions go through the
-  <a href="https://github.com/Osasuwu/like-current-song/issues">issue tracker</a>.
-  Security problems should be reported privately, as described in
+  Free and open source under the MIT licence, maintained by Osasuwu. Development has
+  slowed down now that it does what it set out to do, but bug reports and feature
+  requests in the <a href="https://github.com/Osasuwu/like-current-song/issues">issue
+  tracker</a> are still read and answered. Security problems should be reported
+  privately, as described in
   <a href="https://github.com/Osasuwu/like-current-song/blob/main/SECURITY.md">SECURITY.md</a>.
 </p>
 
