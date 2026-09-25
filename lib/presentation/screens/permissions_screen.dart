@@ -21,7 +21,7 @@ class PermissionsScreen extends ConsumerWidget {
             children: <Widget>[
               const Text('Required permissions and integration points:'),
               const SizedBox(height: 12),
-              const Text('• Foreground service (media playback type)'),
+              const Text('• Foreground service (keeps the listener running)'),
               const Text('• Notification permission (Android 13+)'),
               Text(
                 '• Notification access (required): ${state.notificationListenerEnabled ? 'Enabled' : 'Disabled'}',

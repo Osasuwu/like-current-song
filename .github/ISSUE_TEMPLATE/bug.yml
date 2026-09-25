@@ -2,27 +2,68 @@ name: "Bug Report"
 description: "Report a bug or unexpected behavior."
 labels: ["bug"]
 body:
-  - type: input
-    id: parent
+  - type: markdown
     attributes:
-      label: "Parent Epic (if tracked)"
-      description: "Link to parent epic if this bug is part of a tracked effort, e.g. #42"
-      placeholder: "#"
+      value: |
+        Thanks for taking the time. If a press on Android seems to do nothing,
+        check [Known limitations](https://github.com/Osasuwu/like-current-song#known-limitations-android)
+        first — some phones stop background apps once they are swiped away.
+        Security problems go through a [private advisory](https://github.com/Osasuwu/like-current-song/security/advisories/new), not here.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: "Which part"
+      options:
+        - "Android app"
+        - "Windows tray app"
+        - "macOS / Linux command"
+        - "Documentation"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: "Version"
+      description: "Android: *About* in the app menu. Desktop: `pip show like-current-song`."
+      placeholder: "1.2.0"
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: "Device and OS"
+      description: "Phone model and Android version (and ROM, e.g. HyperOS), or your desktop OS."
+      placeholder: "Pixel 8, Android 15 / Windows 11"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: service
+    attributes:
+      label: "Music service"
+      options:
+        - "Spotify"
+        - "YouTube Music"
+        - "Both"
+        - "Not relevant"
     validations:
       required: false
 
   - type: textarea
     id: description
     attributes:
-      label: "Bug Description"
-      description: "What went wrong?"
+      label: "What went wrong"
     validations:
       required: true
 
   - type: textarea
     id: reproduction
     attributes:
-      label: "Steps to Reproduce"
+      label: "Steps to reproduce"
       value: |
         1.
         2.
@@ -33,46 +74,18 @@ body:
   - type: textarea
     id: expected
     attributes:
-      label: "Expected Behavior"
+      label: "What you expected instead"
     validations:
       required: true
 
   - type: textarea
-    id: actual
+    id: logs
     attributes:
-      label: "Actual Behavior"
-    validations:
-      required: true
-
-  - type: dropdown
-    id: area
-    attributes:
-      label: "Area"
-      options:
-        - "domain:android"
-        - "domain:desktop"
-        - "domain:backend"
-        - "area:docs"
-        - "area:quality"
-    validations:
-      required: true
-
-  - type: dropdown
-    id: priority
-    attributes:
-      label: "Priority"
-      options:
-        - "priority:critical"
-        - "priority:high"
-        - "priority:medium"
-        - "priority:low"
-    validations:
-      required: true
-
-  - type: textarea
-    id: context
-    attributes:
-      label: "Additional Context"
-      description: "Logs, screenshots, environment details."
+      label: "Logs"
+      description: |
+        Android: copy the relevant lines from *Logs / debug* in the app menu.
+        Desktop: the tray app's log, or the terminal output. Remove tokens and
+        account ids before pasting.
+      render: text
     validations:
       required: false

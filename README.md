@@ -11,7 +11,7 @@ Heard a song you love while your phone is in your pocket with the screen off? **
 At your computer, a **global keyboard shortcut** does the same thing: press `Ctrl+Shift+Alt+W` while your music plays in the background, and the current song is liked without switching away from the app you're working in.
 
 - **Android**: works with the screen off and the phone locked. It reacts to the pause/play state of whatever is playing, so anything that pauses and resumes playback can trigger it: wired or Bluetooth headphones, earbud taps, a smartwatch, or a car stereo. The pattern is configurable, and a short sound confirms the like.
-- **Windows**: a tray app with a global hotkey to like the current track, plus a second hotkey to remove it from a playlist. Spotify, or YouTube Music in beta.
+- **Windows**: a tray app with a global hotkey to like the current track, plus a second hotkey that discards it: out of your playlists, and a dislike on YouTube Music. Spotify, or YouTube Music in beta.
 - **macOS / Linux**: a `like-current-song like-once` command you can bind to any shortcut.
 - **Two music services**: Spotify, and YouTube Music (beta on Windows, and on Android with no Google sign-in needed). On Android you can also let it pick whichever one is actually playing.
 - **Beyond "like"** (optional rules): remove the track from a Discover Weekly archive playlist, promote it to a "best" playlist after you like it N times across devices, and auto-follow an artist after N liked tracks. The counts live in a Google Sheet you own, so your phone and computer see the same numbers.
@@ -26,7 +26,7 @@ For developers: the desktop side is a **pluggable framework** with five extensio
 Yes, that's the main use case. Install the Android app, connect Spotify, and turn on the listener service. With the screen off, do the trigger pattern with your headphone button (default: pause, then play within a short window), and the current track goes to Liked Songs.
 
 ### Does it work with Bluetooth headphones, earbuds, or a smartwatch?
-Yes. The app watches Spotify's playback state rather than one specific button, so any device that pauses and resumes Spotify works.
+Yes. The app watches the player's pause/play state rather than one specific button, so any device that pauses and resumes playback works.
 
 ### Is there a global keyboard shortcut to like the current Spotify song on Windows?
 Yes. The Windows tray host binds `Ctrl+Shift+Alt+W` (configurable) to "save current track to Liked Songs", and it works while Spotify is minimized or in the background. On macOS and Linux, bind `like-current-song like-once` to a shortcut in your OS settings, Raycast, skhd, or similar.
@@ -39,6 +39,9 @@ Yes, on both halves. On Android it is built in and needs **no Google sign-in**: 
 
 ### Do I have to use Spotify?
 No. Spotify and YouTube Music are equal citizens: the desktop side reaches each one through a `MusicProvider` extension, and adding a third is a plugin, not a fork.
+
+### Why does it stop reacting after I swipe the app away?
+Some Android ROMs (Xiaomi HyperOS/MIUI in particular) stop delivering playback events to an app once it is removed from *Recents*. Exempt it from battery optimization, allow autostart, or just leave it in *Recents* — see [Known limitations](#known-limitations-android).
 
 ### Does it work on iPhone?
 No. iOS doesn't let third-party apps observe another app's playback in the background. Android and desktop only.
@@ -141,6 +144,28 @@ and that is what notification access is for. Without it the service starts,
 says so, and nothing ever happens. Finally, switch the service on from the main
 screen.
 
+#### Known limitations (Android)
+
+- **Some phones stop the app once you swipe it away.** Vendor ROMs with
+  aggressive battery management — confirmed on Xiaomi HyperOS, and common on
+  MIUI, Samsung One UI, Huawei and OnePlus — can stop delivering playback
+  events to an app whose task was removed from *Recents*, even though its
+  service and notification are still there. The pattern then does nothing
+  until you open the app again
+  ([#199](https://github.com/Osasuwu/like-current-song/issues/199)). What helps:
+  open *Battery optimization status* in the app's menu and **Request
+  exemption**; on Xiaomi also allow **autostart** (the same screen has a
+  button for it) and lock the app in *Recents*; otherwise simply don't swipe
+  it away. [dontkillmyapp.com](https://dontkillmyapp.com/) lists the settings
+  for each vendor.
+- **Android only.** There is no iOS app (see the FAQ).
+
+**When a press seems to do nothing**, open *Logs / debug* from the menu. It
+lists what the app saw and did, including what happened while the app was
+closed — those entries are kept and shown the next time you open it, with the
+time they actually happened. With a cable, `adb logcat -s LikeCurrentSong:*`
+shows the same lines live.
+
 The client ID lives in the app's encrypted storage, so it survives updates and
 a disconnect — you type it once, not once per build. The published APK carries
 no credentials of anyone else's.
@@ -199,7 +224,7 @@ off until you choose it — upgrading never changes where your likes go — and 
 is only offered while notification access is granted **and** at least two
 services are connected, since that is what it takes to tell them apart. When it
 isn't offered, the picker says which of the two is missing. Every automatic like
-logs which service it went to and why, on the *Logs* screen.
+logs which service it went to and why, on the *Logs / debug* screen.
 
 **Signing in is optional, and the rest of this section is only about that.**
 It buys two things: a YouTube Data API fallback for when the session rating
@@ -504,11 +529,11 @@ a second device joins an existing count.
    | `paste` | counts into a sheet you name by ID — how a second device joins |
    | `skip` | leaves the counter off; likes still work, nothing is counted |
 
-   The Windows settings window has the same **Create spreadsheet** button next
+   The Windows settings window has a **Create spreadsheet** button next
    to the Spreadsheet ID box.
 3. Point the Android app at the **same sheet** to share counts between
    devices: *Connected services* → **Shared like counter (optional)**. Enter
-   the client ID and secret, sign in, then either press **Create spreadsheet**
+   the client ID and secret, sign in, then either press **Create a sheet for me**
    or paste the ID of the sheet the other device already uses. This is the
    counter's **own** Google sign-in, separate from the music service and
    asking for one scope, `spreadsheets` — so a Spotify user gets a shared
@@ -542,7 +567,7 @@ shape for you, a different backend is a plugin — see
 ships.
 
 > **Upgrading from the Supabase backend?** Both halves had one; both dropped
-> it in the release after v1.1.0. Nothing breaks: likes keep working, they
+> it in v1.2.0. Nothing breaks: likes keep working, they
 > just stop being counted until you point the half at a sheet.
 >
 > On the desktop, a config still saying `backend: "supabase"` says so once at
@@ -634,6 +659,13 @@ settings window (`like-current-song --settings`, or **Settings…** in the tray 
 | Storage backend | Blank spreadsheet ID = counts stay on the device | `~/.like_spotify/config.json` → `storage.backend` (`sheets` / `none`) |
 | Counter Google tokens | `FlutterSecureStorage` (refreshed automatically) | `~/.like_spotify/google_token.json` (refreshed automatically) |
 | Best / follow | In-app UI | `~/.like_spotify/config.json` → `actions.{promote_to_best,follow_artist}` |
+
+## Project status
+
+It does what it set out to do, so development has slowed down since v1.2.0.
+It is not abandoned: bug reports and feature requests filed as
+[issues](https://github.com/Osasuwu/like-current-song/issues) are read and
+answered, and fixes still ship as releases.
 
 ## Contributing
 

@@ -12,6 +12,17 @@ still the only option for the desktop half.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-25
+
+Where a like goes is now your choice — the service's own likes, a playlist of
+yours, or both — on Android and on the desktop. The shared like counter moved
+from Supabase to a Google Sheet you own, and can create that sheet for you.
+Most of the rest is the app telling you what actually went wrong instead of
+failing quietly, and a run of fixes for likes made with the app closed.
+
+Development slows down after this release: the project does what it set out
+to do. Bugs and requests filed as issues are still read and answered.
+
 ### Added
 
 - **Android: the Logs screen now shows what happened while the app was
@@ -68,7 +79,7 @@ still the only option for the desktop half.
   `Likes`, type five column headers exactly right, add an `ArtistTracks` tab,
   then find the id in the URL — and getting a header wrong failed later, in a
   background job, as a like that quietly did not count. Now every entry point
-  offers to do it for you. On Android it is a **Create spreadsheet** button in
+  offers to do it for you. On Android it is a **Create a sheet for me** button in
   *Connected services* → *Shared like counter*, which shows the new sheet's id
   and a link to open it. On the desktop it is the `create` answer in
   `like-current-song --setup` (now the default, and asked *after* the Google
@@ -287,8 +298,8 @@ still the only option for the desktop half.
   now name themselves: no playlist name configured, a playlist that could be
   neither found nor created, and an error thrown on the way. The one failure
   tone that played with nothing logged at all — no access token left after a
-  refresh — is logged too. These lines still do not reach the in-app Logs
-  screen while the app is closed; carrying them across a restart is next.
+  refresh — is logged too. (They now reach the in-app Logs screen as well —
+  see *Added*.)
 - **Android: a like with the app closed no longer fails in silence.** If a
   Spotify request fell over mid-flight — a dropped connection, a reply that
   wasn't the JSON we expected — the background job died on the spot. You got
@@ -310,7 +321,10 @@ still the only option for the desktop half.
   The service went on handing every like to a half that no longer existed.
   The flag is now cleared when the app is destroyed as well, so the service
   takes the like over itself, exactly as it does when the app was never
-  opened.
+  opened. **Not fixed by this:** on some vendor ROMs — seen on Xiaomi HyperOS —
+  swiping the app away stops the system delivering playback events to it at
+  all, which no flag can help ([#199](https://github.com/Osasuwu/like-current-song/issues/199)).
+  The README's *Known limitations* says what to do there.
 - **Android: the listener survives a reboot again on Android 15 and newer.**
   If you had the listener switched on and restarted your phone, it stayed off
   until you opened the app by hand — the headset pattern simply did nothing,
@@ -337,7 +351,8 @@ still the only option for the desktop half.
   untouched: it still succeeds, and the local tally still stands in for the
   shared count. Having no counter set up at all stays silent, as before.
 
-- **A like the counter could not record no longer passes for one that was.**
+- **Desktop: a like the counter could not record no longer passes for one
+  that was.**
   With the shared like counter switched on, anything that stopped a like being
   counted looked exactly like having no counter at all: the desktop said
   "Liked", the count stayed where it was, and nothing was written anywhere.
@@ -353,7 +368,7 @@ still the only option for the desktop half.
   the page that switches it on.** Setting the shared like counter up on a
   fresh Cloud project — or on the one you already made for YouTube Music,
   which the README suggests reusing — failed with a bare `403` and a wall of
-  Google's JSON, on the Android *Create spreadsheet* button, in
+  Google's JSON, on the Android *Create a sheet for me* button, in
   `like-current-song --setup`, and in the desktop settings window alike. The
   API has to be enabled once per project, and nothing said so. All four places
   now report it as "the Google Sheets API is not enabled on your Google Cloud
@@ -825,7 +840,8 @@ First tagged release.
   via `trigger.feedback_volume` in `~/.like_spotify/config.json`.
 - Matching Android feedback-volume setting in the Trigger configuration screen.
 
-[Unreleased]: https://github.com/Osasuwu/like-current-song/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/Osasuwu/like-current-song/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/Osasuwu/like-current-song/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/Osasuwu/like-current-song/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/Osasuwu/like-current-song/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/Osasuwu/like-current-song/compare/v1.0.1...v1.0.2
