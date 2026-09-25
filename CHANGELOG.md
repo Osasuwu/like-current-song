@@ -25,6 +25,15 @@ still the only option for the desktop half.
   the sheet cannot be reached, the like falls back to the count on the device
   and the Logs screen says so.
 
+### Changed
+
+- **The app has a logo.** A white heart with the gesture inside it — pause,
+  then play — on a violet tile. It replaces Flutter's stock launcher icon on
+  Android (an adaptive icon, with a monochrome layer for themed icons), the
+  generic play symbol in the status bar while the service runs, and the green
+  heart in the Windows tray and on the Settings window. The tray still flashes
+  a white or red heart after a like. The website uses it as its favicon too.
+
 ## [1.2.0] - 2026-09-25
 
 Where a like goes is now your choice — the service's own likes, a playlist of
@@ -438,12 +447,6 @@ to do. Bugs and requests filed as issues are still read and answered.
 
 ### Changed
 
-- **The app has a logo.** A white heart with the gesture inside it — pause,
-  then play — on a violet tile. It replaces Flutter's stock launcher icon on
-  Android (an adaptive icon, with a monochrome layer for themed icons), the
-  generic play symbol in the status bar while the service runs, and the green
-  heart in the Windows tray and on the Settings window. The tray still flashes
-  a white or red heart after a like. The website uses it as its favicon too.
 - **The "best-of" playlist rule is now just "best".** "Best of" reads like it
   wants a qualifier ("best of electronic"), but there is only ever one general
   best playlist, so the rule is called **best** everywhere: in the app and the
