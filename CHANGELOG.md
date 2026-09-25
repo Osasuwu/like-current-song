@@ -455,6 +455,12 @@ to do. Bugs and requests filed as issues are still read and answered.
   field the app has never been told about: whatever you save in *Connected
   services* wins from then on, and a field you cleared on purpose stays clear
   across rebuilds.
+- **README: both music services from the first line.** The title and intro
+  used to mention only Spotify, leaving YouTube Music to be discovered further
+  down. The FAQ, which only repeated the sections below it, and the short
+  Russian summary are gone; the one answer that lived nowhere else (why there
+  is no iPhone app) moved to *Known limitations*. YouTube Music on Android is
+  no longer labelled beta.
 
 ### Removed
 

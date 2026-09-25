@@ -1,4 +1,4 @@
-# Like Current Song — save the Spotify song you're hearing without touching your phone
+# Like Current Song — like the song you're hearing on Spotify or YouTube Music without touching your phone
 
 [![CI](https://github.com/Osasuwu/like-current-song/actions/workflows/ci.yml/badge.svg)](https://github.com/Osasuwu/like-current-song/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/Osasuwu/like-current-song)](https://github.com/Osasuwu/like-current-song/releases)
@@ -6,56 +6,29 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](CONTRIBUTING.md)
 
-Heard a song you love while your phone is in your pocket with the screen off? **Pause and resume it with your headphone button** (e.g. pause → play), and the track is saved to your Spotify **Liked Songs**. You don't unlock the phone, look at the screen, or open the Spotify app.
+Heard a song you love while your phone is in your pocket with the screen off? **Pause and resume it with your headphone button** (e.g. pause → play), and the track is saved to your Spotify **Liked Songs** or your **YouTube Music** likes. You don't unlock the phone, look at the screen, or open the music app.
 
-At your computer, a **global keyboard shortcut** does the same thing: press `Ctrl+Shift+Alt+W` while your music plays in the background, and the current song is liked without switching away from the app you're working in.
+At your computer, a **global keyboard shortcut** does the same thing: press `Ctrl+Shift+Alt+W` (configurable) while your music plays in the background, and the current song is liked without switching away from the app you're working in.
 
 - **Android**: works with the screen off and the phone locked. It reacts to the pause/play state of whatever is playing, so anything that pauses and resumes playback can trigger it: wired or Bluetooth headphones, earbud taps, a smartwatch, or a car stereo. The pattern is configurable, and a short sound confirms the like.
 - **Windows**: a tray app with a global hotkey to like the current track, plus a second hotkey that discards it: out of your playlists, and a dislike on YouTube Music. Spotify, or YouTube Music in beta.
-- **macOS / Linux**: a `like-current-song like-once` command you can bind to any shortcut.
-- **Two music services**: Spotify, and YouTube Music (beta on Windows, and on Android with no Google sign-in needed). On Android you can also let it pick whichever one is actually playing.
+- **macOS / Linux**: a `like-current-song like-once` command you can bind to any shortcut — in your OS settings, Raycast, skhd, or similar.
+- **Two music services, neither required**: Spotify and YouTube Music. On Android, YouTube Music needs no Google sign-in; on Windows it is in beta. If you use both, Android can send each like to whichever one is actually playing.
 - **Beyond "like"** (optional rules): remove the track from a Discover Weekly archive playlist, promote it to a "best" playlist after you like it N times across devices, and auto-follow an artist after N liked tracks. The counts live in a Google Sheet you own, so your phone and computer see the same numbers.
 
 Open source (MIT). It talks to your music service through that service's official API, using a developer app you create yourself. There's no UI scraping, and your tokens stay on your devices.
 
 For developers: the desktop side is a **pluggable framework** with five extension points (`Trigger`, `MusicProvider`, `Storage`, `PreLikeAction`, `PostLikeAction`). Nine extensions ship across those five seams, plus one skeleton, each a folder under `like_spotify/extensions/` with a `manifest.json` describing it. Adding one is a builder function and a registry entry, not a new branch in a dispatcher. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## FAQ
-
-### Can I like a Spotify song without unlocking my phone?
-Yes, that's the main use case. Install the Android app, connect Spotify, and turn on the listener service. With the screen off, do the trigger pattern with your headphone button (default: pause, then play within a short window), and the current track goes to Liked Songs.
-
-### Does it work with Bluetooth headphones, earbuds, or a smartwatch?
-Yes. The app watches the player's pause/play state rather than one specific button, so any device that pauses and resumes playback works.
-
-### Is there a global keyboard shortcut to like the current Spotify song on Windows?
-Yes. The Windows tray host binds `Ctrl+Shift+Alt+W` (configurable) to "save current track to Liked Songs", and it works while Spotify is minimized or in the background. On macOS and Linux, bind `like-current-song like-once` to a shortcut in your OS settings, Raycast, skhd, or similar.
-
-### Can it add the song to a playlist too, not only Liked Songs?
-Yes. On Android, **Trigger configuration → Where likes go** sends every like to the service's own likes (the default), to a playlist of yours, or to both. The playlist is matched by name on whichever service played the song, and created if it isn't there yet. It is the only way to keep a songs-only list on YouTube Music, where the native like drops the song in with every video you have ever liked. On top of that, the rule engine can promote a track to a "best" playlist after N likes and remove it from an archive playlist. New actions are small Python plugins.
-
-### Does it work with YouTube Music?
-Yes, on both halves. On Android it is built in and needs **no Google sign-in**: the trigger gives the playing song a thumbs-up through YT Music's own media session. On Windows it is in beta — pick `ytmusic` during `--setup` and connect your own free Google OAuth client. If you use both services, Android can send each like to whichever one is currently playing.
-
-### Do I have to use Spotify?
-No. Spotify and YouTube Music are equal citizens: the desktop side reaches each one through a `MusicProvider` extension, and adding a third is a plugin, not a fork.
-
-### Why does it stop reacting after I swipe the app away?
-Some Android ROMs (Xiaomi HyperOS/MIUI in particular) stop delivering playback events to an app once it is removed from *Recents*. Exempt it from battery optimization, allow autostart, or just leave it in *Recents* — see [Known limitations](#known-limitations-android).
-
-### Does it work on iPhone?
-No. iOS doesn't let third-party apps observe another app's playback in the background. Android and desktop only.
-
-## По-русски
-
-**Like Current Song** лайкает играющий трек — в Spotify или YouTube Music — не доставая телефон: нажмите пауза → плей на наушниках, и песня попадёт в «Любимые треки», даже с выключенным экраном и заблокированным телефоном. Работает с любыми наушниками (проводными и Bluetooth), часами и магнитолой. На компьютере (Windows) то же самое делает глобальная горячая клавиша `Ctrl+Shift+Alt+W`, пока Spotify играет в фоне. Открытый исходный код, лицензия MIT.
-
 ## How it works
 
 1. **Trigger** — pause-play your headset (Android) or press a hotkey (desktop)
 2. **Like** — the current track is saved: Liked Songs on Spotify, a thumbs-up
    on YouTube Music — or a playlist of your own instead, or both
-   (**Trigger configuration → Where likes go** on Android)
+   (**Trigger configuration → Where likes go** on Android). The playlist is
+   matched by name and created if it isn't there yet; on YouTube Music it is
+   the only way to keep a songs-only list, since the native like mixes songs
+   in with every video you have ever liked
 3. **Archive cleanup** — if the track is in your archive playlist, it gets removed
 4. **Best promotion** — like a track 3 times across devices and it's added to your best playlist
 5. **Artist follow** — like 5+ tracks from an artist and they get auto-followed
@@ -158,7 +131,8 @@ screen.
   button for it) and lock the app in *Recents*; otherwise simply don't swipe
   it away. [dontkillmyapp.com](https://dontkillmyapp.com/) lists the settings
   for each vendor.
-- **Android only.** There is no iOS app (see the FAQ).
+- **Android only.** There is no iOS app: iOS doesn't let third-party apps
+  observe another app's playback in the background.
 
 **When a press seems to do nothing**, open *Logs / debug* from the menu. It
 lists what the app saw and did, including what happened while the app was
@@ -210,7 +184,7 @@ clear — a rebuild will not put the old value back.
 
 #### YouTube Music (Android)
 
-**YouTube Music (beta).** Pick YouTube Music under *Connected services*. The
+Pick YouTube Music under *Connected services*. The
 trigger then gives the playing song a thumbs-up through the YT Music app's own
 media session, so it works with the screen off and needs **no Google sign-in
 at all** — only the notification access the listener already uses.
