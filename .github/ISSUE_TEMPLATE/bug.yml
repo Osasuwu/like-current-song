@@ -15,11 +15,11 @@ body:
     attributes:
       label: "Which part"
       options:
-        - "Android app"
-        - "Windows tray app"
-        - "macOS / Linux command"
-        - "Documentation"
-        - "Not sure"
+        - "domain:android — Android app"
+        - "domain:desktop — Windows tray app, or the macOS / Linux command"
+        - "domain:backend — Google Sheets counter"
+        - "area:docs — README, setup guide, landing page"
+        - "not sure"
     validations:
       required: true
 
