@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The logo's heart, the gesture cut out of it: pause, then play. Also the
+     monochrome layer, which is why the gesture is a hole rather than paint.
+     Its subpaths wind against the heart's, so it stays a hole on API 21-23
+     too, where fillType is ignored. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:translateX="24"
+        android:translateY="25.2"
+        android:scaleX="0.6"
+        android:scaleY="0.6">
+        <path
+            android:fillColor="#FFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M50,88C20,66 6,50 6,32C6,18 17,8 30,8C39,8 46,13 50,20C54,13 61,8 70,8C83,8 94,18 94,32C94,50 80,66 50,88ZM29,32v24h6v-24zM40,32v24h6v-24zM53,32v24l19,-12z" />
+    </group>
+</vector>

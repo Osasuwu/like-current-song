@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The logo's violet; docs/logo.svg and the desktop tray use the same. -->
+    <color name="ic_launcher_background">#5B3FD9</color>
+</resources>

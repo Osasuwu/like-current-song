@@ -709,9 +709,9 @@ def _set_icon(root: tk.Tk) -> None:
     try:
         from PIL import ImageTk
 
-        from like_spotify.hosts.windows.feedback import _ICON_GREEN, _make_heart_icon
+        from like_spotify.hosts.windows.feedback import _make_logo_icon
 
-        image = ImageTk.PhotoImage(_make_heart_icon(_ICON_GREEN))
+        image = ImageTk.PhotoImage(_make_logo_icon())
         root.iconphoto(True, image)
         root._heart_icon = image  # keep a reference; Tk doesn't
     except Exception:

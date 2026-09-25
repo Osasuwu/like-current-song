@@ -1,8 +1,8 @@
 """Windows host — tray icon rendering + synthesized-tone beep feedback.
 
 Split out of `hosts/windows.py` in #55. Owns everything `TrayFeedback`
-needs to confirm a like/remove/error to the user: the heart icon bitmaps
-and the PCM tone synthesis played through `winsound.PlaySound`.
+needs to confirm a like/remove/error to the user: the logo and heart icon
+bitmaps and the PCM tone synthesis played through `winsound.PlaySound`.
 """
 
 from __future__ import annotations
@@ -19,23 +19,70 @@ from .. import _common
 # ── Tray icon + feedback ───────────────────────────────────────────────
 
 
-def _make_heart_icon(color: tuple[int, int, int]):
+# The logo's heart in a 100-unit box, as cubic Bézier segments — the same
+# curves as `docs/logo.svg` and the Android launcher icon. The pause-play
+# mark those carry inside the heart is left out here: at tray size it is a
+# smudge.
+_HEART = (
+    ((50, 88), (20, 66), (6, 50), (6, 32)),
+    ((6, 32), (6, 18), (17, 8), (30, 8)),
+    ((30, 8), (39, 8), (46, 13), (50, 20)),
+    ((50, 20), (54, 13), (61, 8), (70, 8)),
+    ((70, 8), (83, 8), (94, 18), (94, 32)),
+    ((94, 32), (94, 50), (80, 66), (50, 88)),
+)
+
+_ICON_SIZE = 64
+# Drawn this many times larger and scaled down: Pillow's polygons have no
+# anti-aliasing of their own.
+_SUPERSAMPLE = 4
+
+
+def _heart_points(scale: float, dx: float, dy: float, steps: int = 16):
+    """[_HEART] flattened to a polygon, scaled by [scale] and moved by (dx, dy)."""
+    points = []
+    for p0, p1, p2, p3 in _HEART:
+        for i in range(steps):
+            t = i / steps
+            u = 1 - t
+            a, b, c, d = u**3, 3 * u * u * t, 3 * u * t * t, t**3
+            points.append((
+                dx + scale * (a * p0[0] + b * p1[0] + c * p2[0] + d * p3[0]),
+                dy + scale * (a * p0[1] + b * p1[1] + c * p2[1] + d * p3[1]),
+            ))
+    return points
+
+
+def _draw_icon(tile: tuple[int, int, int] | None, heart: tuple[int, int, int]):
     from PIL import Image, ImageDraw
 
-    size = 64
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    s = _ICON_SIZE * _SUPERSAMPLE
+    img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    s = size
-    d.ellipse([s * 0.05, s * 0.10, s * 0.52, s * 0.57], fill=color)
-    d.ellipse([s * 0.48, s * 0.10, s * 0.95, s * 0.57], fill=color)
+    if tile is not None:
+        d.rounded_rectangle([0, 0, s - 1, s - 1], radius=s * 0.22, fill=tile)
+    # The heart spans 88 x 80 units, centred on (50, 48).
+    scale = s * (0.66 if tile is not None else 1.0) / 100
     d.polygon(
-        [(s * 0.02, s * 0.38), (s * 0.50, s * 0.95), (s * 0.98, s * 0.38)],
-        fill=color,
+        _heart_points(scale, s / 2 - 50 * scale, s / 2 - 48 * scale),
+        fill=heart,
     )
-    return img
+    return img.resize((_ICON_SIZE, _ICON_SIZE), Image.LANCZOS)
 
 
-_ICON_GREEN = (30, 215, 96)
+def _make_logo_icon():
+    """The logo: a white heart on the violet tile. The tray at rest, and the
+    Settings window."""
+    return _draw_icon(_ICON_BRAND, _ICON_WHITE)
+
+
+def _make_heart_icon(color: tuple[int, int, int]):
+    """A bare heart in [color] — the flash a like or a failure shows."""
+    return _draw_icon(None, color)
+
+
+# The logo's violet, the same as `docs/logo.svg` and the launcher icon.
+_ICON_BRAND = (91, 63, 217)
 _ICON_WHITE = (255, 255, 255)
 _ICON_RED = (255, 60, 60)
 
@@ -136,7 +183,7 @@ class TrayFeedback:
         player: Callable[[bytes], None] = _play_tone,
     ) -> None:
         self._hotkey = hotkey
-        self._icon_default = _make_heart_icon(_ICON_GREEN)
+        self._icon_default = _make_logo_icon()
         self._icon_success = _make_heart_icon(_ICON_WHITE)
         self._icon_error = _make_heart_icon(_ICON_RED)
         self._icon = None  # set in run()
