@@ -8,8 +8,9 @@
 /// rows another half will never find. `tests/test_counter_schema_parity.py`
 /// fails the build if the three stop agreeing.
 ///
-/// The `ArtistTracks` tab is desktop-only, but the phone creates it all the
-/// same: the same spreadsheet is meant to serve both.
+/// Both tabs are written from both devices: `Likes` by promote-to-best's
+/// count, `ArtistTracks` by follow-artist's, so each rule sees the likes
+/// made anywhere.
 abstract final class CounterSheetSchema {
   /// The title a freshly created spreadsheet gets in the user's Drive.
   static const String spreadsheetTitle = 'Like Current Song counters';
@@ -26,7 +27,8 @@ abstract final class CounterSheetSchema {
     'updated_at',
   ];
 
-  /// The tab the desktop half records (user, artist, track) triples on.
+  /// The tab follow-artist records (user, artist, track) triples on, from
+  /// every half.
   static const String artistTracksTab = 'ArtistTracks';
 
   /// Row 1 of [artistTracksTab].

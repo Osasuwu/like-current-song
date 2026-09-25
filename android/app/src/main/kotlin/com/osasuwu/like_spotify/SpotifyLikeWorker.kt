@@ -360,8 +360,11 @@ class SpotifyLikeWorker(
         // collaboration is as much a like for the guest as for the headliner,
         // which is how the Dart and desktop halves have always counted it.
         track.artistIds.forEach { artistId ->
-            val artistCount = LocalCounters.increment(prefs, LocalCounters.Kind.ARTIST, artistId)
+            // The local count backs the stats screen, so it moves either way;
+            // the follow decision prefers the shared sheet when there is one.
+            val localCount = LocalCounters.increment(prefs, LocalCounters.Kind.ARTIST, artistId)
             if (!ruleConfig.followArtistEnabled) return@forEach
+            val artistCount = sharedArtistTrackCount(prefs, token, artistId, track.id) ?: localCount
             val shouldFollow = LocalCounters.shouldFollow(
                 artistCount,
                 ruleConfig.followArtistThreshold,
@@ -453,6 +456,33 @@ class SpotifyLikeWorker(
             )
         }
         return LocalCounters.increment(prefs, LocalCounters.Kind.TRACK, trackId)
+    }
+
+    /**
+     * How many distinct tracks by [artistId] this Spotify account has liked
+     * on any device, off the shared sheet's ArtistTracks tab, with [trackId]
+     * recorded first. Null when no counter is configured or the sheet did not
+     * answer — the caller then decides on this device's own count, and a
+     * failure says so on the Logs screen.
+     */
+    private fun sharedArtistTrackCount(
+        prefs: SharedPreferences,
+        token: String,
+        artistId: String,
+        trackId: String,
+    ): Int? {
+        getCurrentUserId(prefs, token)
+        val target = LikeCounter.target(prefs, MusicProvider.SPOTIFY) ?: return null
+        val outcome = LikeCounter.recordArtistTrack(prefs, target, artistId, trackId)
+        outcome.count?.let { return it }
+        log(
+            "Artist like counted on this device only: ${outcome.failure}",
+            actionType = "follow_artist",
+            targetId = artistId,
+            result = "failure",
+            httpCode = outcome.httpCode
+        )
+        return null
     }
 
     // ---- Like cooldown -------------------------------------------------

@@ -27,6 +27,12 @@ class YouTubeMusicExtraActions(
     /** `(method, url, jsonBody) -> response body`; throws [ApiFailure] on a non-2xx. */
     private val apiCall: (method: String, url: String, body: String?) -> String,
     private val log: (message: String, actionType: String, result: String, httpCode: Int?) -> Unit,
+    /**
+     * `(channelId, videoId) -> distinct tracks by that artist` off the shared
+     * counter sheet, with this one recorded; null when there is no counter or
+     * it did not answer, and follow-artist then decides on the local count.
+     */
+    private val sharedArtistTrackCount: (channelId: String, videoId: String) -> Int? = { _, _ -> null },
 ) {
     private val rules = loadRules()
 
@@ -64,7 +70,10 @@ class YouTubeMusicExtraActions(
                 log("Auto-follow skipped: the match is not the artist's own channel", FOLLOW_ACTION, "info", null)
             } else {
                 val followedKey = countKey(channelId)
-                val count = incrementLocalCount(LocalCounters.Kind.ARTIST, channelId)
+                // The local count moves either way, as on Spotify; the sheet
+                // keys the artist by the bare channel id, like the desktop.
+                val localCount = incrementLocalCount(LocalCounters.Kind.ARTIST, channelId)
+                val count = sharedArtistTrackCount(channelId, match.videoId) ?: localCount
                 if (shouldFollow(count, rules.followArtistThreshold, followedKey)) {
                     runCatching {
                         followChannel(channelId)
@@ -281,7 +290,7 @@ class YouTubeMusicExtraActions(
         /** Log action types, shared with the Spotify pipeline so the log screen groups them. */
         private const val ARCHIVE_ACTION = "archive_remove"
         private const val BEST_ACTION = "best_add"
-        private const val FOLLOW_ACTION = "follow_artist"
+        const val FOLLOW_ACTION = "follow_artist"
 
         /**
          * The like's own playlist leg. Public because the liker runs that leg

@@ -12,8 +12,9 @@ package com.osasuwu.like_spotify
  * `tests/test_counter_schema_parity.py` fails the build if the three stop
  * agreeing.
  *
- * The spreadsheet's other tab, `ArtistTracks`, is desktop-only and is not
- * described here: the native counter never touches it.
+ * Both tabs are described here: the native counter adds to [LIKES_TAB] on
+ * every like and records a row on [ARTIST_TRACKS_TAB] whenever follow-artist
+ * is on, exactly as the desktop does.
  */
 object CounterSheetSchema {
     /** The tab the per-track counts live on. */
@@ -26,6 +27,17 @@ object CounterSheetSchema {
         "count",
         "backfilled",
         "updated_at",
+    )
+
+    /** The tab the (user, artist, track) triples follow-artist counts live on. */
+    const val ARTIST_TRACKS_TAB = "ArtistTracks"
+
+    /** Row 1 of [ARTIST_TRACKS_TAB]. Data starts at row 2. */
+    val ARTIST_TRACKS_HEADER = listOf(
+        "user_id",
+        "artist_id",
+        "track_id",
+        "created_at",
     )
 
     /**

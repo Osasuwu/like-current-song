@@ -38,6 +38,67 @@ class LikeCounterTest {
         assertNull(LikeCounter.userIdFor(MusicProvider.SPOTIFY, spotifyUserId = "", ytmUserSub = null))
     }
 
+    // ---- artistTrackTally -------------------------------------------------
+
+    private val artistTab = """
+        {"values":[
+          ["user_id","artist_id","track_id","created_at"],
+          ["me","artist-a","t1","2026-01-01T00:00:00Z"],
+          ["me","artist-a","t2","2026-01-02T00:00:00Z"],
+          ["me","artist-b","t3","2026-01-03T00:00:00Z"],
+          ["someone-else","artist-a","t4","2026-01-04T00:00:00Z"]
+        ]}
+    """.trimIndent()
+
+    @Test
+    fun `a new track is unseen and counts the artist's other tracks`() {
+        // The caller appends it and answers count + 1.
+        assertEquals(false to 2, LikeCounter.artistTrackTally(artistTab, "me", "artist-a", "t9"))
+    }
+
+    @Test
+    fun `a track liked again is seen and does not move the number`() {
+        assertEquals(true to 2, LikeCounter.artistTrackTally(artistTab, "me", "artist-a", "t1"))
+    }
+
+    @Test
+    fun `rows the desktop wrote count on the phone`() {
+        // Nothing in a row says which device wrote it: a desktop YouTube Music
+        // like is keyed by the same Google sub and bare channel id.
+        val body = """
+            {"values":[
+              ["user_id","artist_id","track_id","created_at"],
+              ["google-sub","UCchannel","vid1","2026-01-01T00:00:00Z"]
+            ]}
+        """.trimIndent()
+        assertEquals(false to 1, LikeCounter.artistTrackTally(body, "google-sub", "UCchannel", "vid2"))
+    }
+
+    @Test
+    fun `a triple written twice counts once`() {
+        val body = """{"values":[["h","h","h","h"],["me","a","t1","x"],["me","a","t1","y"]]}"""
+        assertEquals(false to 1, LikeCounter.artistTrackTally(body, "me", "a", "t2"))
+    }
+
+    @Test
+    fun `the header and short rows are skipped`() {
+        val body = """{"values":[["me","a","t1","created_at"],["me","a"],["me","a","t2"]]}"""
+        assertEquals(false to 1, LikeCounter.artistTrackTally(body, "me", "a", "t1"))
+    }
+
+    @Test
+    fun `other users and other artists do not count`() {
+        assertEquals(false to 1, LikeCounter.artistTrackTally(artistTab, "me", "artist-b", "t9"))
+        assertEquals(false to 1, LikeCounter.artistTrackTally(artistTab, "someone-else", "artist-a", "t9"))
+    }
+
+    @Test
+    fun `an empty tab or an unreadable body counts nothing`() {
+        assertEquals(false to 0, LikeCounter.artistTrackTally("{}", "me", "a", "t1"))
+        assertEquals(false to 0, LikeCounter.artistTrackTally("not json", "me", "a", "t1"))
+        assertEquals(false to 0, LikeCounter.artistTrackTally(null, "me", "a", "t1"))
+    }
+
     // ---- findRow -------------------------------------------------
 
     @Test

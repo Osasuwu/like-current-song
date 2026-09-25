@@ -24,6 +24,10 @@ import java.util.TimeZone
  * (user id, track id), where both ids come from the music service the like
  * went through, so the phone and the computer add to the same count per
  * account.
+ *
+ * Follow-artist counts on a second tab, [ARTIST_SHEET]: one row per distinct
+ * (user id, artist id, track id), so an artist's number is how many of their
+ * tracks were liked, not how many times ([recordArtistTrack]).
  */
 object LikeCounter {
     private const val HTTP_TIMEOUT_MS = 5_000
@@ -31,6 +35,9 @@ object LikeCounter {
 
     /** The tab the counts live on, from the schema all three halves share. */
     const val SHEET = CounterSheetSchema.LIKES_TAB
+
+    /** The tab follow-artist's (user, artist, track) triples live on. */
+    const val ARTIST_SHEET = CounterSheetSchema.ARTIST_TRACKS_TAB
 
     /** Where one like is counted. The access token is fetched per call. */
     data class Target(val spreadsheetId: String, val userId: String)
@@ -112,6 +119,34 @@ object LikeCounter {
         return null
     }
 
+    /**
+     * Whether (user id, artist id, track id) already has a row in a
+     * `values.get` body of [ARTIST_SHEET], and how many distinct tracks of
+     * that artist the user has there.
+     *
+     * The tab is a set, not a counter: a triple written twice — two devices
+     * racing, or a row pasted in by hand — counts once. The header row and
+     * rows with fewer than three cells are skipped. Mirrors
+     * `_ensure_artist_loaded` / `_record_artist_track_sync` on the desktop.
+     */
+    fun artistTrackTally(
+        body: String?,
+        userId: String,
+        artistId: String,
+        trackId: String,
+    ): Pair<Boolean, Int> {
+        val values = runCatching { JSONObject(body.orEmpty()).optJSONArray("values") }.getOrNull()
+            ?: return false to 0
+        val tracks = mutableSetOf<String>()
+        for (offset in 1 until values.length()) {
+            val row = values.optJSONArray(offset) ?: continue
+            if (row.length() < 3) continue
+            if (row.optString(0) != userId || row.optString(1) != artistId) continue
+            tracks.add(row.optString(2))
+        }
+        return (trackId in tracks) to tracks.size
+    }
+
     /** A timestamp in the same shape the desktop writes: `%Y-%m-%dT%H:%M:%SZ`. */
     fun nowIso(): String {
         val format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
@@ -175,12 +210,60 @@ object LikeCounter {
                     if (wasAlreadyLiked) "TRUE" else "FALSE",
                     now,
                 )
-                val (status, _) = append(token, target.spreadsheetId, row)
+                val (status, _) = append(token, target.spreadsheetId, SHEET, row)
                 if (status !in 200..299) {
                     return CountOutcome.failed("the counter sheet refused a new row", status)
                 }
                 CountOutcome.counted(next)
             }
+        } catch (e: Exception) {
+            CountOutcome.failed(unreachable(e))
+        }
+    }
+
+    /**
+     * Records that [trackId] by [artistId] was liked, once per track, and
+     * answers the number of distinct tracks by that artist the user has liked
+     * on any device — the number follow-artist decides on. A track liked a
+     * second time is not written again and does not move the number.
+     * Blocking.
+     *
+     * A sheet without an [ARTIST_SHEET] tab is a failure, not a zero: the
+     * caller falls back to this device's own count rather than following on
+     * a number that can never grow.
+     */
+    fun recordArtistTrack(
+        prefs: SharedPreferences,
+        target: Target,
+        artistId: String,
+        trackId: String,
+    ): CountOutcome {
+        val token = try {
+            GoogleTokens.fresh(prefs, GoogleTokens.COUNTER)
+        } catch (failure: GoogleTokens.RefreshFailure) {
+            return CountOutcome.failed(tokenRefusedMessage(failure), failure.httpCode)
+        } catch (e: Exception) {
+            return CountOutcome.failed(unreachable(e))
+        }
+        return try {
+            val read = get(token, "$API_BASE/${target.spreadsheetId}/values/${encode(ARTIST_SHEET)}")
+            val body = read.body ?: return CountOutcome.failed(
+                if (read.status == 400) {
+                    "the counter sheet has no $ARTIST_SHEET tab. Add one with the header " +
+                        CounterSheetSchema.ARTIST_TRACKS_HEADER.joinToString(", ")
+                } else {
+                    "the counter sheet's $ARTIST_SHEET tab could not be read"
+                },
+                read.status,
+            )
+            val (seen, count) = artistTrackTally(body, target.userId, artistId, trackId)
+            if (seen) return CountOutcome.counted(count)
+            val row = listOf(target.userId, artistId, trackId, nowIso())
+            val (status, _) = append(token, target.spreadsheetId, ARTIST_SHEET, row)
+            if (status !in 200..299) {
+                return CountOutcome.failed("the counter sheet refused a new $ARTIST_SHEET row", status)
+            }
+            CountOutcome.counted(count + 1)
         } catch (e: Exception) {
             CountOutcome.failed(unreachable(e))
         }
@@ -255,11 +338,16 @@ object LikeCounter {
     }
 
     /**
-     * Appends [row] to the tab: the status, and the row it landed on when the
+     * Appends [row] to [tab]: the status, and the row it landed on when the
      * sheet said where.
      */
-    private fun append(token: String, spreadsheetId: String, row: List<Any>): Pair<Int, Int?> {
-        val url = "$API_BASE/$spreadsheetId/values/${encode(SHEET)}:append" +
+    private fun append(
+        token: String,
+        spreadsheetId: String,
+        tab: String,
+        row: List<Any>,
+    ): Pair<Int, Int?> {
+        val url = "$API_BASE/$spreadsheetId/values/${encode(tab)}:append" +
             "?valueInputOption=RAW&insertDataOption=INSERT_ROWS"
         val connection = open(token, url, "POST")
         connection.doOutput = true

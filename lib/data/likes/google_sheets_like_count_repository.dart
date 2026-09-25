@@ -157,13 +157,17 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
     return result;
   }
 
-  Future<int?> _remoteIncrement(String trackId, bool wasAlreadyLiked) async {
+  /// The sheet, the account and the Google token a sheet call needs, or null
+  /// when any of them is missing — each missing piece said through [report],
+  /// except a counter that is simply not set up, which says nothing.
+  Future<({String spreadsheetId, String userId, String token})?> _access(
+    Future<void> Function(String reason, {int? httpCode}) report,
+  ) async {
     final String spreadsheetId;
     try {
       spreadsheetId = await readSpreadsheetId();
     } catch (error) {
-      await _reportFallback(
-        trackId,
+      await report(
         'The counter spreadsheet could not be read: $error',
       );
       return null;
@@ -176,16 +180,14 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
     try {
       userId = await userIdGetter();
     } catch (error) {
-      await _reportFallback(
-        trackId,
+      await report(
         'The account the shared count is keyed by could not be resolved: '
         '$error',
       );
       return null;
     }
     if (userId == null) {
-      await _reportFallback(
-        trackId,
+      await report(
         'The music service is not signed in, so the shared count has no row '
         'to add to. Reconnect it under Connected services.',
       );
@@ -198,23 +200,31 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
     } on LikeCounterTokenRefused catch (error) {
       // Google answered, and said why: pass its words on rather than the
       // "sign in again" advice that only fits a revoked sign-in (#200).
-      await _reportFallback(trackId, error.message, httpCode: error.statusCode);
+      await report(error.message, httpCode: error.statusCode);
       return null;
     } catch (error) {
-      await _reportFallback(
-        trackId,
+      await report(
         "The counter's Google sign-in could not be read: $error",
       );
       return null;
     }
     if (token == null || token.isEmpty) {
-      await _reportFallback(
-        trackId,
+      await report(
         'The counter is not signed in to Google. Sign in under Connected '
         'services → Shared like counter.',
       );
       return null;
     }
+    return (spreadsheetId: spreadsheetId, userId: userId, token: token);
+  }
+
+  Future<int?> _remoteIncrement(String trackId, bool wasAlreadyLiked) async {
+    final access = await _access(
+      (reason, {int? httpCode}) =>
+          _reportFallback(trackId, reason, httpCode: httpCode),
+    );
+    if (access == null) return null;
+    final (:spreadsheetId, :userId, :token) = access;
 
     try {
       final key = _key(userId, trackId);
@@ -305,18 +315,23 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
   ///
   /// The like has already succeeded and the local tally stands in by the time
   /// this runs, so nothing here may throw: a log line must never cost a like.
+  ///
+  /// [subject] and [actionType] let the artist count report through the same
+  /// door under its own name.
   Future<void> _reportFallback(
-    String trackId,
+    String targetId,
     String reason, {
     int? httpCode,
+    String subject = 'Like',
+    String actionType = logActionType,
   }) async {
-    final message = 'Like counted on this device only. $reason';
+    final message = '$subject counted on this device only. $reason';
     debugPrint(message);
     try {
       await appendLog(AppLog(
         at: DateTime.now().toUtc(),
-        actionType: logActionType,
-        targetId: trackId,
+        actionType: actionType,
+        targetId: targetId,
         result: LogResult.failure,
         httpCode: httpCode,
         message: message,
@@ -447,16 +462,17 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
     }
   }
 
-  /// Appends one row and answers the 1-based row it landed on.
+  /// Appends one row to [tab] and answers the 1-based row it landed on.
   Future<int> _append(
     String spreadsheetId,
     String token,
-    List<Object> row,
-  ) async {
+    List<Object> row, {
+    String tab = sheetName,
+  }) async {
     final response = await _httpClient
         .post(
           Uri.parse(
-            '$_apiBase/$spreadsheetId/values/$sheetName:append'
+            '$_apiBase/$spreadsheetId/values/$tab:append'
             '?valueInputOption=RAW&insertDataOption=INSERT_ROWS',
           ),
           headers: _headers(token),
@@ -521,18 +537,127 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
 
   static String _key(String userId, String trackId) => '$userId\u0000$trackId';
 
+  /// The action type an artist count that fell back to this device logs
+  /// under — the step it feeds, since that is what a user reads it for.
+  static const artistLogActionType = 'follow_artist';
+
+  /// The tab the (user, artist, track) triples live on.
+  static const artistSheetName = CounterSheetSchema.artistTracksTab;
+
+  /// The local tally always moves, so the Stats screen and a sheet that later
+  /// fails still have it. With [trackId] the number follow-artist decides on
+  /// comes from the sheet: how many distinct tracks by [artistId] this
+  /// account has liked on any device, the same number the desktop half
+  /// follows on — so an artist liked twice on the phone and once at the
+  /// computer is three, not two here and one there.
+  @override
+  Future<int> incrementArtistLikeCount(
+    String artistId, {
+    String? trackId,
+  }) async {
+    final local = await _local.incrementArtistLikeCount(artistId);
+    if (trackId == null) return local;
+    final shared = await _serialized(
+      () => _remoteArtistTrack(artistId, trackId),
+    );
+    return shared ?? local;
+  }
+
+  /// Records the triple on [artistSheetName] if it is new and answers the
+  /// distinct-track count, or null to fall back to the local tally.
+  ///
+  /// The tab is read fresh every time rather than cached: it only matters
+  /// while follow-artist is on, a read is one small call, and the desktop
+  /// and background halves append to it behind this instance's back.
+  Future<int?> _remoteArtistTrack(String artistId, String trackId) async {
+    Future<void> report(String reason, {int? httpCode}) => _reportFallback(
+          artistId,
+          reason,
+          httpCode: httpCode,
+          subject: 'Artist like',
+          actionType: artistLogActionType,
+        );
+
+    final access = await _access(report);
+    if (access == null) return null;
+    final (:spreadsheetId, :userId, :token) = access;
+
+    try {
+      final response = await _httpClient
+          .get(
+            Uri.parse('$_apiBase/$spreadsheetId/values/$artistSheetName'),
+            headers: _headers(token),
+          )
+          .timeout(_timeout);
+      // A range naming a tab the sheet does not have is a 400. Sheets the
+      // app created have the tab; one set up by hand before follow-artist
+      // was shared may not.
+      if (response.statusCode == 400) {
+        await report(
+          'The counter sheet has no $artistSheetName tab. Add one with the '
+          'header ${CounterSheetSchema.artistTracksHeader.join(', ')}.',
+          httpCode: response.statusCode,
+        );
+        return null;
+      }
+      if (response.statusCode < 200 || response.statusCode > 299) {
+        throw _failure('get', response);
+      }
+      final decoded = jsonDecode(response.body);
+      final values = decoded is Map<String, dynamic> ? decoded['values'] : null;
+      final tally = artistTrackTally(values, userId, artistId, trackId);
+      if (tally.seen) return tally.count;
+
+      await _append(
+        spreadsheetId,
+        token,
+        <Object>[userId, artistId, trackId, _nowIso()],
+        tab: artistSheetName,
+      );
+      return tally.count + 1;
+    } catch (error) {
+      await report(
+        error is SheetsCallException
+            ? error.message
+            : 'The sheet could not be written: $error',
+        httpCode: error is SheetsCallException ? error.statusCode : null,
+      );
+      return null;
+    }
+  }
+
+  /// Whether [values] — the `ArtistTracks` tab as `values.get` returns it —
+  /// already holds ([userId], [artistId], [trackId]), and how many distinct
+  /// tracks by that artist it holds for that user.
+  ///
+  /// Distinct, not rows: a triple two devices both appended counts once,
+  /// which is how the desktop half reads the tab too. Row 1 is the header.
+  @visibleForTesting
+  static ({bool seen, int count}) artistTrackTally(
+    Object? values,
+    String userId,
+    String artistId,
+    String trackId,
+  ) {
+    if (values is! List) return (seen: false, count: 0);
+    final tracks = <String>{};
+    for (var offset = 1; offset < values.length; offset++) {
+      final row = values[offset];
+      if (row is! List || row.length < 3) continue;
+      if ('${row[0]}' != userId || '${row[1]}' != artistId) continue;
+      tracks.add('${row[2]}');
+    }
+    return (seen: tracks.contains(trackId), count: tracks.length);
+  }
+
   // ── Everything else stays on this device ───────────────────────────────
   //
-  // Only track likes are shared. Artist counts, timestamps and the bulk
-  // loads back the local UI, which has never had a remote source.
+  // Timestamps and the bulk loads back the local UI, which has never had a
+  // remote source.
 
   @override
   Future<int> getTrackLikeCount(String trackId) =>
       _local.getTrackLikeCount(trackId);
-
-  @override
-  Future<int> incrementArtistLikeCount(String artistId) =>
-      _local.incrementArtistLikeCount(artistId);
 
   @override
   Future<int> getArtistLikeCount(String artistId) =>
