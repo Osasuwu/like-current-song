@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status-bar icon: the logo's heart alone, since the bar paints it one
+     colour and a tile would read as a blank square. The gesture winds against
+     the heart, so it stays cut out where fillType is ignored (API 21-23). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M50,93C20,71 6,55 6,37C6,23 17,13 30,13C39,13 46,18 50,25C54,18 61,13 70,13C83,13 94,23 94,37C94,55 80,71 50,93ZM29,37v24h6v-24zM40,37v24h6v-24zM53,37v24l19,-12z" />
+</vector>

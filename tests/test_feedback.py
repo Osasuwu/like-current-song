@@ -119,3 +119,18 @@ def test_play_tone_would_crash_if_async_flag_were_reintroduced(
         fake_winsound.PlaySound(
             b"tonedata", fake_winsound.SND_MEMORY | fake_winsound.SND_ASYNC
         )
+
+
+def test_tray_at_rest_shows_the_logo_tile() -> None:
+    # The violet tile with a white heart, matching the launcher icon and
+    # docs/logo.svg — not a bare heart, which the flashes use.
+    icon = feedback._make_logo_icon()
+    assert icon.size == (64, 64)
+    assert icon.getpixel((32, 3))[:3] == feedback._ICON_BRAND
+    assert icon.getpixel((32, 32))[:3] == feedback._ICON_WHITE
+
+
+def test_flash_hearts_leave_the_corners_clear() -> None:
+    icon = feedback._make_heart_icon(feedback._ICON_RED)
+    assert icon.getpixel((1, 1))[3] == 0
+    assert icon.getpixel((32, 40))[:3] == feedback._ICON_RED

@@ -305,7 +305,7 @@ class MediaButtonForegroundService : Service() {
             // The "off" text is longer than one collapsed line, and the one
             // person who needs to read it is the one it is addressed to.
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setSmallIcon(R.drawable.ic_stat_like)
             .setOngoing(true)
             .setSilent(true)
             .addAction(0, "Stop", stopPendingIntent)

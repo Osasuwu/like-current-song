@@ -1,3 +1,5 @@
+<img src="docs/logo.svg" alt="" width="96" height="96" align="right">
+
 # Like Current Song — like the song you're hearing on Spotify or YouTube Music without touching your phone
 
 [![CI](https://github.com/Osasuwu/like-current-song/actions/workflows/ci.yml/badge.svg)](https://github.com/Osasuwu/like-current-song/actions/workflows/ci.yml)
