@@ -1,4 +1,5 @@
 import 'package:app_links/app_links.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -81,6 +82,20 @@ class AppControllerHarness {
   /// What `readMusicSessions` answers; a test that cares sets it before acting.
   MusicSessionSnapshot sessions = const MusicSessionSnapshot();
 
+  /// What the log store already holds, newest first, as
+  /// `SettingsRepository.loadLogs` hands it over. Set it before [build].
+  List<AppLog> logs = <AppLog>[];
+
+  /// What the offline like queue holds. Set it before [build].
+  List<PendingLike> pendingLikes = <PendingLike>[];
+
+  /// Whether the notification-listener grant the trigger runs on was given;
+  /// not by default, which is what a fresh install looks like.
+  bool notificationAccess = false;
+
+  /// Whether the foreground service is running. Set it before [build].
+  bool serviceEnabled = false;
+
   /// What the native side hands over from its background buffer at start-up;
   /// empty by default, which is what an app that was never swiped out looks
   /// like. Set it before [build].
@@ -114,16 +129,19 @@ class AppControllerHarness {
     );
     when(() => settings.loadRuleConfig())
         .thenAnswer((_) async => RuleConfig.defaults());
-    when(() => settings.loadLogs()).thenAnswer((_) async => <AppLog>[]);
+    when(() => settings.loadLogs()).thenAnswer((_) async => logs);
     when(() => settings.loadPendingLikes())
-        .thenAnswer((_) async => <PendingLike>[]);
+        .thenAnswer((_) async => pendingLikes);
     when(() => settings.appendLog(any())).thenAnswer((_) async {});
 
-    when(() => platform.isServiceEnabled()).thenAnswer((_) async => false);
+    when(() => platform.isServiceEnabled())
+        .thenAnswer((_) async => serviceEnabled);
     when(() => platform.isIgnoringBatteryOptimizations())
         .thenAnswer((_) async => true);
     when(() => platform.isNotificationListenerEnabled())
-        .thenAnswer((_) async => false);
+        .thenAnswer((_) async => notificationAccess);
+    when(() => platform.openNotificationListenerSettings())
+        .thenAnswer((_) async {});
     when(() => platform.isMiuiDevice()).thenAnswer((_) async => false);
     when(() => platform.isMusicAppInstalled(any()))
         .thenAnswer((_) async => true);
@@ -181,4 +199,14 @@ class AppControllerHarness {
         deviceSignInRepositoryProvider.overrideWithValue(signIn),
         appLinksProvider.overrideWithValue(appLinks),
       ];
+
+  /// [screen] in a [MaterialApp] over these mocks. `appControllerProvider` is
+  /// built by [build], so [counterConfig] reaches the controller directly.
+  Widget host(Widget screen) => ProviderScope(
+        overrides: <Override>[
+          ...overrides,
+          appControllerProvider.overrideWith((ref) => build()),
+        ],
+        child: MaterialApp(home: screen),
+      );
 }
