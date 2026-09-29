@@ -37,6 +37,14 @@ you sign in from its Settings window.
   points at an exe that is no longer there, the next launch points it at the
   running one. An entry for a copy that still exists elsewhere is left alone.
 
+### Fixed
+
+- **Desktop: copy and paste work in the Settings window on any keyboard
+  layout.** Tk matches Ctrl+V by the letter a key types, so with a Russian (or
+  any non-Latin) layout active, Ctrl+V/C/X/A did nothing, and a client ID or
+  secret couldn't be pasted in. The shortcuts now go by the physical key, and
+  a right-click menu (Cut, Copy, Paste, Select all) is there as well.
+
 ## [1.2.0] - 2026-09-25
 
 Where a like goes is now your choice — the service's own likes, a playlist of
