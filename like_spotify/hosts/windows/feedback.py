@@ -53,10 +53,12 @@ def _heart_points(scale: float, dx: float, dy: float, steps: int = 16):
     return points
 
 
-def _draw_icon(tile: tuple[int, int, int] | None, heart: tuple[int, int, int]):
+def _draw_icon(
+    tile: tuple[int, int, int] | None, heart: tuple[int, int, int], size: int = _ICON_SIZE
+):
     from PIL import Image, ImageDraw
 
-    s = _ICON_SIZE * _SUPERSAMPLE
+    s = size * _SUPERSAMPLE
     img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     if tile is not None:
@@ -67,13 +69,13 @@ def _draw_icon(tile: tuple[int, int, int] | None, heart: tuple[int, int, int]):
         _heart_points(scale, s / 2 - 50 * scale, s / 2 - 48 * scale),
         fill=heart,
     )
-    return img.resize((_ICON_SIZE, _ICON_SIZE), Image.LANCZOS)
+    return img.resize((size, size), Image.LANCZOS)
 
 
-def _make_logo_icon():
-    """The logo: a white heart on the violet tile. The tray at rest, and the
-    Settings window."""
-    return _draw_icon(_ICON_BRAND, _ICON_WHITE)
+def _make_logo_icon(size: int = _ICON_SIZE):
+    """The logo: a white heart on the violet tile. The tray at rest, the
+    Settings window, and (at 256 px) the frozen exe's file icon."""
+    return _draw_icon(_ICON_BRAND, _ICON_WHITE, size)
 
 
 def _make_heart_icon(color: tuple[int, int, int]):

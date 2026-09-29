@@ -313,13 +313,13 @@ def test_autostart_target_frozen_launches_exe_directly(monkeypatch) -> None:
     # A frozen windowed exe has no console — no VBScript indirection needed.
     monkeypatch.setattr(autostart.sys, "frozen", True, raising=False)
     monkeypatch.setattr(
-        autostart.sys, "executable", "C:\\app\\LikeSpotify.exe", raising=False
+        autostart.sys, "executable", "C:\\app\\LikeCurrentSong.exe", raising=False
     )
 
     target = autostart._autostart_target()
 
     assert "wscript" not in target
-    assert "LikeSpotify.exe" in target
+    assert "LikeCurrentSong.exe" in target
 
 
 # ── #101 rename: legacy `like-spotify-gui` shim + autostart migration ──
@@ -413,9 +413,72 @@ def test_migrate_ignores_non_legacy_entries(tmp_path, monkeypatch, run_key, valu
     assert run_key["writes"] == []
 
 
-def test_migrate_skipped_when_frozen(monkeypatch, run_key) -> None:
+# ── #214 standalone exe: a moved exe repoints its own entry ────────────
+
+
+def _fake_frozen(tmp_path: Path, monkeypatch, name: str = "LikeCurrentSong.exe") -> Path:
+    """A frozen exe at tmp_path/new/`name`, set as sys.executable."""
+    exe = tmp_path / "new" / name
+    exe.parent.mkdir(parents=True)
+    exe.write_bytes(b"")
     monkeypatch.setattr(autostart.sys, "frozen", True, raising=False)
-    run_key["value"] = '"C:\\gone\\Scripts\\like-spotify-gui.exe"'
+    monkeypatch.setattr(autostart.sys, "executable", str(exe), raising=False)
+    return exe
+
+
+@pytest.mark.parametrize(
+    "old_name",
+    [
+        "LikeCurrentSong.exe",
+        "LikeSpotify.exe",  # the pre-#214 spec's name
+        "like-current-song-gui.exe",  # pipx uninstalled in favour of the exe
+        "like-spotify-gui.exe",
+    ],
+)
+def test_frozen_migrate_repoints_entry_whose_launcher_is_gone(
+    tmp_path, monkeypatch, run_key, old_name
+) -> None:
+    exe = _fake_frozen(tmp_path, monkeypatch)
+    run_key["value"] = f'"{tmp_path / "old" / old_name}"'
+
+    assert autostart.migrate_legacy_entry() is True
+    assert run_key["value"] == f'"{exe.resolve()}"'
+
+
+def test_frozen_migrate_leaves_other_live_copy_alone(tmp_path, monkeypatch, run_key) -> None:
+    # A second copy (say, a fresh download) must not steal autostart from
+    # the copy the user actually keeps.
+    kept = tmp_path / "kept" / "LikeCurrentSong.exe"
+    kept.parent.mkdir()
+    kept.write_bytes(b"")
+    _fake_frozen(tmp_path, monkeypatch)
+    run_key["value"] = f'"{kept}"'
+
+    assert autostart.migrate_legacy_entry() is False
+    assert run_key["writes"] == []
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        None,
+        'wscript.exe //B //Nologo "C:\\gone\\autostart_hidden.vbs"',
+        '"C:\\gone\\other.exe"',
+    ],
+)
+def test_frozen_migrate_ignores_foreign_or_absent_entries(
+    tmp_path, monkeypatch, run_key, value
+) -> None:
+    _fake_frozen(tmp_path, monkeypatch)
+    run_key["value"] = value
+
+    assert autostart.migrate_legacy_entry() is False
+    assert run_key["writes"] == []
+
+
+def test_frozen_migrate_is_a_no_op_when_entry_is_current(tmp_path, monkeypatch, run_key) -> None:
+    exe = _fake_frozen(tmp_path, monkeypatch)
+    run_key["value"] = f'"{exe.resolve()}"'
 
     assert autostart.migrate_legacy_entry() is False
     assert run_key["writes"] == []
@@ -662,3 +725,72 @@ def test_stub_like_once_refuses_an_unservable_destination(
     err = capsys.readouterr().err
     assert "ytmusic" in err
     assert "--setup" in err
+
+
+# ── #214 standalone exe: first run opens Settings, no terminal ─────────
+
+
+@pytest.fixture
+def first_run(monkeypatch):
+    """`_run_resident_host` up to the not-ready branch, with the dialogs faked."""
+    calls: dict = {"asked": [], "opened": 0}
+
+    class _Feedback:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+    def _not_ready(cfg, feedback):
+        raise resident._NotReady("Spotify isn't configured")
+
+    def _open() -> bool:
+        calls["opened"] += 1
+        return False  # closed without saving: the host gives up cleanly
+
+    monkeypatch.setattr(resident, "TrayFeedback", _Feedback)
+    monkeypatch.setattr(resident._common, "load_config", lambda: {})
+    monkeypatch.setattr(resident, "_build_wiring", _not_ready)
+    monkeypatch.setattr(resident, "_open_settings", _open)
+    monkeypatch.setattr(
+        resident, "_ask_yes_no", lambda text, title="": calls["asked"].append(text) or False
+    )
+    return calls
+
+
+def test_fresh_install_opens_settings_without_asking(monkeypatch, first_run) -> None:
+    monkeypatch.setattr(resident._common, "build_provider", lambda cfg: None)
+
+    assert resident._run_resident_host() == 2
+    assert first_run["opened"] == 1
+    assert first_run["asked"] == []
+
+
+def test_lapsed_sign_in_still_asks_first(monkeypatch, first_run) -> None:
+    monkeypatch.setattr(resident._common, "build_provider", lambda cfg: object())
+
+    assert resident._run_resident_host() == 2
+    assert len(first_run["asked"]) == 1
+    assert first_run["opened"] == 0
+
+
+@pytest.mark.parametrize("frozen, hinted", [(False, True), (True, False)])
+def test_sign_in_prompt_points_at_terminal_only_when_not_frozen(
+    monkeypatch, first_run, frozen, hinted
+) -> None:
+    monkeypatch.setattr(resident.sys, "frozen", frozen, raising=False)
+    monkeypatch.setattr(resident._common, "build_provider", lambda cfg: object())
+
+    resident._run_resident_host()
+
+    assert ("--setup" in first_run["asked"][0]) is hinted
+
+
+def test_setup_without_a_console_opens_settings(monkeypatch) -> None:
+    opened = []
+    monkeypatch.setattr(resident.sys, "stdin", None)
+    monkeypatch.setattr(resident._setup, "do_setup", lambda **_: pytest.fail("wizard ran"))
+    monkeypatch.setattr(
+        "like_spotify.hosts.settings.run", lambda from_tray=False: opened.append(1) or 0
+    )
+
+    assert resident.main(["--setup"]) == 0
+    assert opened == [1]

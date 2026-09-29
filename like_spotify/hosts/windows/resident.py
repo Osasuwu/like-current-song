@@ -271,9 +271,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.config:
         return _common.print_config_paths()
-    if args.setup:
+    if args.setup and sys.stdin is not None:
         return _setup.do_setup(reauth=args.reauth)
-    if args.settings:
+    # The windowed exe has no console for the wizard to prompt in, so
+    # `--setup` there opens the window that replaces it (#214).
+    if args.settings or args.setup:
         from ..settings import run as run_settings  # lazy: keeps tkinter out of the tray
 
         return run_settings(from_tray=args.from_tray)
@@ -543,17 +545,24 @@ def _ask_yes_no(text: str, title: str = "Like Current Song") -> bool:
         return False
 
 
-def _offer_settings(problem: str, title: str) -> bool:
-    """First-run path: offer the window instead of only pointing at --setup.
-    Returns True if the window was shown (the caller re-reads config)."""
-    if not _ask_yes_no(
-        f"{problem}\n\nOpen Settings now?\n\n(Or run `like-current-song --setup` from a terminal.)",
-        title,
-    ):
-        return False
+def _open_settings() -> bool:
+    """Show the Settings window; True once it closed normally (the caller
+    re-reads config)."""
     from ..settings import run as run_settings
 
     return run_settings() == 0
+
+
+def _offer_settings(problem: str, title: str) -> bool:
+    """Sign-in lapsed on a configured install: ask before opening the window.
+    Returns True if the window was shown (the caller re-reads config)."""
+    # The frozen exe has no terminal flow to point at (#214).
+    hint = "" if getattr(sys, "frozen", False) else (
+        "\n\n(Or run `like-current-song --setup` from a terminal.)"
+    )
+    if not _ask_yes_no(f"{problem}\n\nOpen Settings now?{hint}", title):
+        return False
+    return _open_settings()
 
 
 # ── Resident host ──────────────────────────────────────────────────────
@@ -573,9 +582,14 @@ def _run_resident_host() -> int:
             break
         except _NotReady as e:
             configured = _common.build_provider(cfg) is not None
-            title = "Like Current Song — " + ("sign-in required" if configured else "setup required")
             before = _config_snapshot()
-            if not _offer_settings(f"Like Current Song can't start: {e}.", title):
+            if configured:
+                problem = f"Like Current Song can't start: {e}."
+                if not _offer_settings(problem, "Like Current Song — sign-in required"):
+                    return 2
+            elif not _open_settings():
+                # A fresh install: Settings *is* the setup, so no prompt
+                # first. This is the downloaded exe's whole first run (#214).
                 return 2
             if _config_snapshot() == before and not configured:
                 return 2  # window closed without saving — don't loop forever
@@ -584,7 +598,7 @@ def _run_resident_host() -> int:
     feedback.set_volume(wiring.volume)
     try:
         if migrate_legacy_entry():
-            _log("autostart: migrated legacy like-spotify-gui entry to like-current-song-gui")
+            _log("autostart: repointed a stale entry at this install")
     except Exception:
         import traceback
 

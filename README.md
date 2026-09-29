@@ -301,7 +301,32 @@ a tray host + global hotkey on Windows, a CLI fallback (`like-once`) on
 macOS / Linux, providers for **Spotify** and **YouTube Music** (beta), and
 an optional like counter kept in a Google Sheet you own.
 
-**One-liner installs.** Run from a fresh clone:
+**Windows: download the exe.** No Python, no terminal. Download
+`LikeCurrentSong.exe` from the
+[latest release](https://github.com/Osasuwu/like-current-song/releases/latest)
+and double-click it. The first launch opens the Settings window (described
+below): pick the music service, sign in, and save. The tray icon and hotkey
+start right after. Keep the exe wherever you like; if you move it, relaunch
+it once so the autostart entry points at the new location.
+
+The exe isn't code-signed, so Windows SmartScreen warns about an unrecognized
+app on first launch. Click **More info** → **Run anyway** — the same kind of
+warning the APK gets from Android. To check that the file is the one the
+release published, compare its hash with the SHA-256 in the release notes:
+
+```powershell
+Get-FileHash .\LikeCurrentSong.exe -Algorithm SHA256
+```
+
+The exe ships without credentials: everyone brings their own Spotify or Google
+app, entered in Settings. Config and tokens live in `~/.like_spotify/`, the
+same place the Python package uses, so you can switch between the two. The
+exe takes the same commands as `like-current-song` (see *After install*
+below) and never shows a console, so an external hotkey tool can call
+`LikeCurrentSong.exe like-once`.
+
+**From source (pipx).** For macOS / Linux, or to run the Python package on
+Windows. Run from a fresh clone:
 
 ```powershell
 # Windows (PowerShell)
@@ -451,8 +476,10 @@ To switch back, re-run `--setup` and pick `spotify`, or change the music
 service in the settings window. Both services keep their own tokens, so
 switching does not sign you out of the other one.
 
-**Single-file `.exe`** (for users without Python): build via
-`tools\build.bat` → `dist\LikeSpotify.exe`.
+**Building the exe yourself**: `pip install -e .[dev,ytmusic]`, then
+`python tools/build_exe.py` → `dist\LikeCurrentSong.exe` (it prints the
+SHA-256 at the end). See
+[CONTRIBUTING](CONTRIBUTING.md#releasing-the-windows-exe).
 
 ### 4. Cross-device counters (optional)
 

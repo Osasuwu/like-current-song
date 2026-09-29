@@ -7,10 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Releases from v1.1.0 on carry a signed Android APK. It ships with no
 credentials of its own: you paste your Spotify Client ID into the app after
-installing (see [README](README.md)). Building it yourself still works and is
-still the only option for the desktop half.
+installing (see [README](README.md)). Releases after v1.2.0 also carry a
+standalone Windows exe for the desktop half, likewise without credentials:
+you sign in from its Settings window.
 
 ## [Unreleased]
+
+### Added
+
+- **Desktop: a standalone `LikeCurrentSong.exe` for Windows (#214).** No
+  Python and no terminal: download it from the release, double-click, and the
+  first launch opens the Settings window, where you pick the music service,
+  sign in with your own Spotify or Google app, and save. The tray and hotkey
+  start right after. Every extension and YouTube Music are inside. The exe
+  ships with no credentials, and the build fails if a token, keystore,
+  `.env`, or filled-in client secret ever ends up in it. It isn't code-signed,
+  so SmartScreen asks once (**More info** → **Run anyway**); the release notes
+  carry its SHA-256 to check the download against. `install.ps1` remains for
+  people who want the pipx install.
+
+### Changed
+
+- **Desktop: a fresh install opens Settings straight away** instead of asking
+  whether to. A lapsed sign-in on a configured install still asks first. In
+  the exe, prompts no longer tell you to run `--setup` in a terminal, and
+  `--setup` opens the Settings window, since there is no console to run the
+  wizard in.
+- **Desktop: moving the exe keeps autostart working.** If the autostart entry
+  points at an exe that is no longer there, the next launch points it at the
+  running one. An entry for a copy that still exists elsewhere is left alone.
 
 ## [1.2.0] - 2026-09-25
 
