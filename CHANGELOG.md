@@ -13,6 +13,14 @@ you sign in from its Settings window.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-29
+
+The desktop half no longer needs Python: each release now carries a
+standalone `LikeCurrentSong.exe` for Windows, without credentials, that you
+set up from its Settings window. Pasting into that window works on any
+keyboard layout now. The Android app is unchanged apart from its version
+number.
+
 ### Added
 
 - **Desktop: a standalone `LikeCurrentSong.exe` for Windows (#214).** No
@@ -897,7 +905,8 @@ First tagged release.
   via `trigger.feedback_volume` in `~/.like_spotify/config.json`.
 - Matching Android feedback-volume setting in the Trigger configuration screen.
 
-[Unreleased]: https://github.com/Osasuwu/like-current-song/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/Osasuwu/like-current-song/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/Osasuwu/like-current-song/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/Osasuwu/like-current-song/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/Osasuwu/like-current-song/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/Osasuwu/like-current-song/compare/v1.0.2...v1.0.3
