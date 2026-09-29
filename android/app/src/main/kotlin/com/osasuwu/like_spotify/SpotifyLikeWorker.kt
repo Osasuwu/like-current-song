@@ -238,7 +238,7 @@ class SpotifyLikeWorker(
                 // listing, so with the entry still there the lookup would hand
                 // back the same dead id. Without it, the resolve enumerates and
                 // then creates. Exactly one retry, never a loop.
-                forgetPlaylist(prefs, name)
+                PlaylistCache.forget(prefs, name)
                 val freshId = ensurePlaylist(prefs, name, token)
                 if (freshId == null) {
                     reason = "404, and the playlist could not be found or recreated"
@@ -288,7 +288,7 @@ class SpotifyLikeWorker(
                     // this leg is non-blocking, so dropping the dead id is
                     // enough -- the next press resolves it properly instead of
                     // waiting out the cache TTL.
-                    if (result.statusCode == 404) forgetPlaylist(prefs, ruleConfig.archivePlaylistName)
+                    if (result.statusCode == 404) PlaylistCache.forget(prefs, ruleConfig.archivePlaylistName)
                     if (result.success) {
                         log(
                             "Removed from archive playlist: ${ruleConfig.archivePlaylistName}",
@@ -327,7 +327,7 @@ class SpotifyLikeWorker(
                 val bestId = ensurePlaylist(prefs, ruleConfig.bestPlaylistName, token)
                 if (bestId != null) {
                     val result = addTrackToPlaylist(bestId, track.uri, token)
-                    if (result.statusCode == 404) forgetPlaylist(prefs, ruleConfig.bestPlaylistName)
+                    if (result.statusCode == 404) PlaylistCache.forget(prefs, ruleConfig.bestPlaylistName)
                     if (result.success) {
                         log(
                             "Added to best playlist: ${ruleConfig.bestPlaylistName}",
@@ -500,12 +500,8 @@ class SpotifyLikeWorker(
     // ---- Playlist lookup / creation -------------------------------------------------
 
     private fun findPlaylistByName(prefs: SharedPreferences, name: String, token: String): String? {
-        val cache = loadPlaylistCache(prefs)
-        cache.keys().forEach { key ->
-            if (key.equals(name, ignoreCase = true)) {
-                cache.optString(key).takeIf { it.isNotBlank() }?.let { return it }
-            }
-        }
+        val cache = PlaylistCache.load(prefs)
+        PlaylistCache.find(cache, name)?.let { return it }
 
         val limit = 50
         var offset = 0
@@ -525,7 +521,7 @@ class SpotifyLikeWorker(
                 cache.put(playlistName, playlistId)
                 if (found == null && playlistName.equals(name, ignoreCase = true)) found = playlistId
             }
-            savePlaylistCache(prefs, cache)
+            PlaylistCache.save(prefs, cache)
             if (found != null) return found
 
             val total = json.optInt("total", items.length())
@@ -533,21 +529,6 @@ class SpotifyLikeWorker(
             if (items.length() < limit || offset >= total) break
         }
         return null
-    }
-
-    /**
-     * Drops every cached id filed under [name]. Called when Spotify answers a
-     * cached id with 404: the playlist it names is gone, and re-enumerating
-     * would not remove the entry by itself -- a deleted playlist simply never
-     * comes back in the listing, leaving the dead id in place until the cache
-     * TTL expires.
-     */
-    private fun forgetPlaylist(prefs: SharedPreferences, name: String) {
-        val cache = loadPlaylistCache(prefs)
-        val doomed = cache.keys().asSequence().filter { it.equals(name, ignoreCase = true) }.toList()
-        if (doomed.isEmpty()) return
-        doomed.forEach { cache.remove(it) }
-        savePlaylistCache(prefs, cache)
     }
 
     private fun ensurePlaylist(prefs: SharedPreferences, name: String, token: String): String? {
@@ -561,35 +542,17 @@ class SpotifyLikeWorker(
             .toString()
 
         // Invalidate the cache before creating so a concurrent rebuild can't miss the new playlist.
-        savePlaylistCache(prefs, JSONObject())
+        PlaylistCache.save(prefs, JSONObject())
 
         val connection = apiWithBody("https://api.spotify.com/v1/users/$userId/playlists", token, "POST", body)
         if (connection.responseCode !in 200..299) return null
         val payload = readBody(connection) ?: return null
         val id = JSONObject(payload).optString("id").takeIf { it.isNotBlank() } ?: return null
 
-        val cache = loadPlaylistCache(prefs)
+        val cache = PlaylistCache.load(prefs)
         cache.put(name, id)
-        savePlaylistCache(prefs, cache)
+        PlaylistCache.save(prefs, cache)
         return id
-    }
-
-    private fun loadPlaylistCache(prefs: SharedPreferences): JSONObject {
-        val timestamp = prefs.getLong(AppConstants.KEY_PLAYLIST_CACHE_TIMESTAMP, 0L)
-        if (System.currentTimeMillis() - timestamp > AppConstants.PLAYLIST_CACHE_TTL_MS) return JSONObject()
-        val raw = prefs.getString(AppConstants.KEY_PLAYLIST_CACHE, null) ?: return JSONObject()
-        return try {
-            JSONObject(raw)
-        } catch (_: Exception) {
-            JSONObject()
-        }
-    }
-
-    private fun savePlaylistCache(prefs: SharedPreferences, cache: JSONObject) {
-        prefs.edit()
-            .putString(AppConstants.KEY_PLAYLIST_CACHE, cache.toString())
-            .putLong(AppConstants.KEY_PLAYLIST_CACHE_TIMESTAMP, System.currentTimeMillis())
-            .apply()
     }
 
     private fun getCurrentUserId(prefs: SharedPreferences, token: String): String? {
