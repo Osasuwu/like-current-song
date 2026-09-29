@@ -26,6 +26,50 @@ _TITLE = "Like Current Song — Settings"
 _PAD = {"padx": 8, "pady": 3}
 _HINT_WRAP = 460
 
+# Clipboard shortcuts by physical key. Tk binds Ctrl+V to the keysym `v`, so
+# with a Cyrillic (or any non-Latin) layout active the key reads `м` and
+# nothing is pasted. On Windows `keycode` is the virtual-key code, which is
+# the same in every layout.
+_CLIPBOARD_KEYS = {86: "<<Paste>>", 67: "<<Copy>>", 88: "<<Cut>>", 65: "<<SelectAll>>"}
+_CLIPBOARD_MENU = (("Cut", "<<Cut>>"), ("Copy", "<<Copy>>"), ("Paste", "<<Paste>>"))
+
+
+def _clipboard_event(keysym: str, keycode: int) -> str | None:
+    """The virtual event a Ctrl+key press stands for when Tk's own bindings
+    miss it. None for a Latin letter, which Tk already handles, so nothing
+    fires twice."""
+    if len(keysym) == 1 and keysym.isascii():
+        return None
+    return _CLIPBOARD_KEYS.get(keycode)
+
+
+def _on_ctrl_key(event) -> str | None:
+    virtual = _clipboard_event(event.keysym, event.keycode)
+    if virtual is None:
+        return None
+    event.widget.event_generate(virtual)
+    return "break"
+
+
+def _install_clipboard_support(root: tk.Misc) -> None:
+    """Layout-independent Ctrl+V/C/X/A and a right-click menu on every text
+    field — pasting a client ID or secret is the usual way to fill them."""
+    menu = tk.Menu(root, tearoff=False)
+    target: list[tk.Misc] = []
+    for label, virtual in _CLIPBOARD_MENU:
+        menu.add_command(label=label, command=lambda v=virtual: target[0].event_generate(v))
+    menu.add_separator()
+    menu.add_command(label="Select all", command=lambda: target[0].event_generate("<<SelectAll>>"))
+
+    def on_right_click(event):
+        target[:] = [event.widget]
+        event.widget.focus_set()
+        menu.tk_popup(event.x_root, event.y_root)
+
+    for cls in ("TEntry", "TCombobox"):
+        root.bind_class(cls, "<Control-KeyPress>", _on_ctrl_key, add="+")
+        root.bind_class(cls, "<Button-3>", on_right_click, add="+")
+
 
 class SettingsWindow:
     def __init__(self, root: tk.Tk, doc: model.ConfigDocument, *, from_tray: bool) -> None:
@@ -94,6 +138,7 @@ class SettingsWindow:
         root.resizable(False, False)
         root.protocol("WM_DELETE_WINDOW", self._on_cancel)
         root.bind("<Escape>", lambda _e: self._on_cancel())
+        _install_clipboard_support(root)
 
         frame = ttk.Frame(root, padding=12)
         frame.grid(sticky="nsew")

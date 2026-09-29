@@ -588,6 +588,41 @@ apksigner verify --print-certs build/app/outputs/flutter-apk/app-release.apk
 A debug-signed APK names `CN=Android Debug, O=Android, C=US`. Anything you
 publish must not.
 
+## Releasing the Windows exe
+
+`LikeCurrentSong.exe` is the desktop app for people without Python: one
+windowed file with every extension and the YouTube Music extra inside. It is
+published the same way as the APK, by hand, from a Windows machine:
+
+```bash
+pip install -e .[dev,ytmusic]
+python tools/build_exe.py
+```
+
+That builds `dist/LikeCurrentSong.exe` from `tools/LikeCurrentSong.spec`, runs
+the bundle check (`tools/check_bundle.py`), and prints the file's SHA-256.
+Attach the exe to the GitHub Release and paste the SHA-256 into the release
+notes. The README tells users to compare it with `Get-FileHash`.
+
+**The exe goes to strangers, so it carries no credentials.** Everyone enters
+their own Spotify or Google app in Settings. The bundle check fails the build
+when the archive holds a `.env`, a token or `config.json`, a keystore, or a
+filled-in client secret or refresh token, so a build made on your own machine,
+with your own `~/.like_spotify/` next to it, can't leak it by accident. It also
+fails when an extension package or a lazily imported module (the Settings
+window, SMTC, Tk) is missing from the archive, since that would only show up
+on a user's machine. CI builds the exe on every PR, runs the same check, and
+smoke-tests it with `--config` and `--self-check`.
+
+A new extension needs nothing extra: the spec collects every `like_spotify`
+submodule and every `manifest.json`, and the check requires every extension
+folder it finds. A new *third-party* dependency that is imported lazily does
+need a line, in the spec's `hiddenimports` and in `LAZY_MODULES` in
+`check_bundle.py`.
+
+The exe isn't code-signed, so SmartScreen warns on first launch; UPX is off
+because packed executables trip antivirus heuristics.
+
 ## Conventions
 
 - **One Spotify development-mode app per developer.** Spotify limits each

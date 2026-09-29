@@ -71,3 +71,40 @@ jobs:
       - run: pip install . pytest pytest-asyncio
 
       - run: python -m pytest -q
+
+  exe:
+    # The standalone LikeCurrentSong.exe (#214). Built on every PR so a
+    # dependency bump that breaks the frozen app fails here, not on a user's
+    # machine. `build_exe.py` runs the bundle check, which fails the build on
+    # a bundled credential or a missing lazily-imported module.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - run: python -m pip install --upgrade pip
+
+      - run: pip install -e .[dev,ytmusic]
+
+      - run: python tools/build_exe.py
+
+      # The exe is windowed, so PowerShell would return before it exits;
+      # Start-Process -Wait is what surfaces its exit code. `--config` goes
+      # through the real CLI; `--self-check` imports what the app loads
+      # lazily (Settings window, SMTC, Tcl) and writes a traceback on failure.
+      - name: Smoke-test the exe
+        shell: pwsh
+        run: |
+          $exe = "dist\LikeCurrentSong.exe"
+          $p = Start-Process $exe -ArgumentList '--config' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "--config exited $($p.ExitCode)" }
+          $p = Start-Process $exe -ArgumentList '--self-check', 'self-check.txt' -Wait -PassThru
+          if ($p.ExitCode -ne 0) {
+            if (Test-Path self-check.txt) { Get-Content self-check.txt }
+            throw "--self-check exited $($p.ExitCode)"
+          }

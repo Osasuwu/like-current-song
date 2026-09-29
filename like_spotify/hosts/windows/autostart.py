@@ -224,18 +224,39 @@ def _legacy_entry_is_stale(value: str) -> bool:
         return False
 
 
-def migrate_legacy_entry() -> bool:
-    """Point a pre-#101 autostart entry at the renamed launcher.
+# Names the frozen build has shipped under: `LikeSpotify.exe` before #214,
+# `LikeCurrentSong.exe` since.
+_FROZEN_EXE_NAMES = ("likecurrentsong.exe", "likespotify.exe")
 
-    Called once per resident start. Rewrites the Run value only when it
-    names the legacy `like-spotify-gui` shim and `_legacy_entry_is_stale`
-    says this install owns it; any other entry (or none) is untouched.
-    Returns True when the entry was rewritten.
+
+def _dead_launcher_entry(value: str) -> bool:
+    """True when `value` launches one of this app's own launchers — the
+    frozen exe or either gui-script shim — and that file is gone.
+
+    That's the frozen exe after it was moved or deleted, or a pipx install
+    that was uninstalled in favour of the exe. A launcher that still exists
+    is a working install somewhere else and is left alone.
     """
-    if getattr(sys, "frozen", False):
-        return False
+    exe = Path(value.strip().strip('"'))
+    names = (*_FROZEN_EXE_NAMES, _GUI_SCRIPT_NAME, _LEGACY_GUI_SCRIPT_NAME)
+    return exe.name.lower() in names and not exe.exists()
+
+
+def migrate_legacy_entry() -> bool:
+    """Repoint an autostart entry this install should own at this install.
+
+    Called once per resident start, and only acts when autostart is on.
+    From a pip/pipx install: an entry naming the legacy `like-spotify-gui`
+    shim that `_legacy_entry_is_stale` says is ours (#101). From the frozen
+    exe: an entry naming one of our launchers that no longer exists, which
+    is what moving the exe leaves behind (#214). Any other entry is
+    untouched. Returns True when the entry was rewritten.
+    """
     value = _autostart_value()
-    if value is None or not _legacy_entry_is_stale(value):
+    if value is None:
+        return False
+    stale = _dead_launcher_entry if getattr(sys, "frozen", False) else _legacy_entry_is_stale
+    if not stale(value):
         return False
     target = _autostart_target()
     if target == value:
