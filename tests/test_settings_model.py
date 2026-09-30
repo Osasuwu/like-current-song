@@ -7,6 +7,7 @@ The window is a thin view; everything that decides what lands in
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from collections.abc import Iterator
 from dataclasses import replace
@@ -490,15 +491,24 @@ def test_autostart_unsupported_off_windows(monkeypatch) -> None:
 
 
 def test_importing_settings_does_not_import_tkinter() -> None:
-    import importlib
-
-    import like_spotify.hosts.settings as pkg
-
-    importlib.reload(pkg)
-    assert "like_spotify.hosts.settings.window" not in sys.modules or "tkinter" in sys.modules
-    # The package, model and services themselves never import tkinter.
-    for mod in (pkg, model, services):
-        assert "tkinter" not in vars(mod)
+    # A fresh interpreter is the only honest oracle: in this process another
+    # test may already have imported tkinter or the window module.
+    probe = (
+        "import sys\n"
+        "import like_spotify.hosts.settings\n"
+        "import like_spotify.hosts.settings.model\n"
+        "import like_spotify.hosts.settings.services\n"
+        "loaded = [m for m in ('tkinter', 'like_spotify.hosts.settings.window')"
+        " if m in sys.modules]\n"
+        "sys.exit('imported eagerly: ' + ', '.join(loaded) if loaded else 0)\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_run_without_tkinter_prints_hint(monkeypatch, capsys) -> None:

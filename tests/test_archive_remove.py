@@ -5,6 +5,7 @@ Stub a SpotifyMusicProvider — we record method calls and don't go near HTTP.
 
 from __future__ import annotations
 
+import logging
 import time
 
 import pytest
@@ -138,7 +139,7 @@ async def test_archive_not_found_is_silent_noop() -> None:
 
 
 @pytest.mark.asyncio
-async def test_non_spotify_provider_is_silent_noop() -> None:
+async def test_non_spotify_provider_is_silent_noop(caplog) -> None:
     """Cross-flavour safety: action lives in Spotify ecosystem but the
     chain may be wired into a non-Spotify pipeline by a contributor."""
     action = ArchiveRemoveAction(playlist_name="My Archive")
@@ -146,8 +147,14 @@ async def test_non_spotify_provider_is_silent_noop() -> None:
     class NotSpotify:
         pass
 
-    # No raises; returns cleanly.
-    await action.run(LikeContext(track=_track(), music_provider=NotSpotify()))
+    with caplog.at_level(logging.DEBUG, logger="like_spotify.extensions"):
+        await action.run(LikeContext(track=_track(), music_provider=NotSpotify()))
+
+    # "Did not raise" proves nothing here: without the capability guard the
+    # action calls a method the provider does not have, and the resolve step
+    # swallows that into a warning. Silent means it never got that far.
+    assert caplog.records == []
+    assert action._resolved is False
 
 
 @pytest.mark.asyncio
@@ -157,14 +164,19 @@ async def test_constructor_rejects_empty_name() -> None:
 
 
 @pytest.mark.asyncio
-async def test_resolve_failure_is_logged_not_raised() -> None:
+async def test_resolve_failure_is_logged_not_raised(caplog) -> None:
     """Network blip during initial resolve must not break the chain."""
     provider = FakeSpotifyProvider(
         playlist_id=None, track_ids=set(), find_raises=RuntimeError("net")
     )
     action = ArchiveRemoveAction(playlist_name="My Archive")
 
-    await action.run(LikeContext(track=_track(), music_provider=provider))
-    # No remove call attempted; second invocation also no-ops.
-    await action.run(LikeContext(track=_track(), music_provider=provider))
+    with caplog.at_level(logging.WARNING, logger="like_spotify.extensions"):
+        await action.run(LikeContext(track=_track(), music_provider=provider))
+        # No remove call attempted; second invocation also no-ops.
+        await action.run(LikeContext(track=_track(), music_provider=provider))
     assert provider.remove_calls == []
+    # Logged once, with the cause, and the lookup is not retried per like.
+    assert provider.find_calls == ["My Archive"]
+    assert [r.levelno for r in caplog.records] == [logging.WARNING]
+    assert "net" in caplog.records[0].getMessage()

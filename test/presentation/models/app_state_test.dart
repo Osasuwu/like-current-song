@@ -240,49 +240,6 @@ void main() {
       });
     });
 
-    group('constructor with custom values', () {
-      test('creates state with all custom values', () {
-        final authState = SpotifyAuthState(
-          accessToken: 'token',
-          refreshToken: 'refresh',
-          expiresAt: DateTime.now().add(Duration(hours: 1)),
-          connected: true,
-        );
-        final logs = [
-          AppLog(at: DateTime.now(), message: 'Log message'),
-        ];
-        final ruleConfig = RuleConfig.defaults().copyWith(
-          archivePlaylistName: 'Custom Archive',
-          bestPlaylistName: 'Custom Best Of',
-        );
-
-        final state = buildState(
-          serviceEnabled: true,
-          loading: true,
-          isMiui: true,
-          batteryOptimized: false,
-          notificationListenerEnabled: true,
-          musicAppInstalled: true,
-          authState: authState,
-          ruleConfig: ruleConfig,
-          logs: logs,
-          lastError: 'Custom error',
-        );
-
-        expect(state.serviceEnabled, equals(true));
-        expect(state.loading, equals(true));
-        expect(state.isMiui, equals(true));
-        expect(state.batteryOptimized, equals(false));
-        expect(state.notificationListenerEnabled, equals(true));
-        expect(state.musicAppInstalled, equals(true));
-        expect(state.authState.connected, equals(true));
-        expect(state.ruleConfig.archivePlaylistName, equals('Custom Archive'));
-        expect(state.ruleConfig.bestPlaylistName, equals('Custom Best Of'));
-        expect(state.logs.length, equals(1));
-        expect(state.lastError, equals('Custom error'));
-      });
-    });
-
     group('copyWith with multiple fields and auth state', () {
       test('updates auth state and other fields together', () {
         final state = AppState.initial(testConfig);

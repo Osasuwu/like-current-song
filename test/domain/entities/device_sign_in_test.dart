@@ -47,23 +47,4 @@ void main() {
       expect(exception, isA<Exception>());
     });
   });
-
-  group('DeviceSignInPrompt', () {
-    test('keeps what the user needs to approve the sign-in', () {
-      final expiresAt = DateTime.utc(2025, 1, 15, 10, 30);
-      final prompt = DeviceSignInPrompt(
-        deviceCode: 'device-code',
-        userCode: 'ABCD-EFGH',
-        verificationUrl: 'https://www.google.com/device',
-        expiresAt: expiresAt,
-        pollInterval: const Duration(seconds: 5),
-      );
-
-      expect(prompt.deviceCode, 'device-code');
-      expect(prompt.userCode, 'ABCD-EFGH');
-      expect(prompt.verificationUrl, 'https://www.google.com/device');
-      expect(prompt.expiresAt, expiresAt);
-      expect(prompt.pollInterval, const Duration(seconds: 5));
-    });
-  });
 }

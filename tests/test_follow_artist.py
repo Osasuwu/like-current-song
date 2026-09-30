@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from pathlib import Path
@@ -142,21 +143,36 @@ async def test_no_artist_ids_is_noop() -> None:
 
 
 @pytest.mark.asyncio
-async def test_non_spotify_provider_is_noop() -> None:
+async def test_non_spotify_provider_is_noop(caplog) -> None:
     storage = FakeStorage()
     action = FollowArtistAction(storage=storage, threshold=1)
     ctx = LikeContext(track=_track("trk-1"), music_provider=object())
-    await action.run(ctx)  # must not raise
+    with caplog.at_level(logging.DEBUG, logger="like_spotify.extensions"):
+        await action.run(ctx)
+
+    # "Did not raise" proves nothing here: without the capability guard the
+    # missing `user_id` method is swallowed into a warning. A no-op means the
+    # action neither complained nor counted the track.
+    assert caplog.records == []
+    assert storage._seen == set()
 
 
 @pytest.mark.asyncio
-async def test_follow_auth_error_logged_not_raised() -> None:
+async def test_follow_auth_error_logged_not_raised(caplog) -> None:
     provider = FakeSpotifyProvider(follow_raises=AuthError("scope expired"))
     storage = FakeStorage()
     action = FollowArtistAction(storage=storage, threshold=1)
 
-    await action.run(_ctx(_track("trk-1"), provider))
-    # Must not raise even though follow_artist threw.
+    with caplog.at_level(logging.WARNING, logger="like_spotify.extensions"):
+        await action.run(_ctx(_track("trk-1"), provider))
+
+    # Not raised — and the user is told how to fix it, which is the only
+    # trace a denied follow leaves.
+    assert provider.follow_calls == []
+    assert [r.levelno for r in caplog.records] == [logging.WARNING]
+    message = caplog.records[0].getMessage()
+    assert "scope expired" in message
+    assert "like-current-song --setup" in message
 
 
 @pytest.mark.asyncio

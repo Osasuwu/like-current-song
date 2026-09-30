@@ -57,9 +57,11 @@ void main() {
           debounceMs: 500,
         );
 
-        final result = matcher.onEvent(event: 'skip', config: config);
-
-        expect(result, equals(false));
+        // One event can never complete a two-event pattern, so the first call
+        // alone says nothing. The second would complete it if unknown events
+        // were buffered.
+        expect(matcher.onEvent(event: 'skip', config: config), equals(false));
+        expect(matcher.onEvent(event: 'next', config: config), equals(false));
       });
 
       test('rejects invalid event "next"', () {
@@ -173,16 +175,20 @@ void main() {
     group('state management', () {
       test('clears events after successful match', () {
         final matcher = SignalPatternMatcher();
+        // A repeated pattern with no debounce: the event that completed the
+        // match must not also count towards the next one. With any other
+        // pattern, or with a debounce, the third event is refused for a reason
+        // that has nothing to do with the buffer.
         final config = TriggerConfig(
-          pattern: 'pause,play',
+          pattern: 'play,play',
           windowMs: 5000,
-          debounceMs: 500,
+          debounceMs: 0,
         );
 
-        matcher.onEvent(event: 'pause', config: config);
-        matcher.onEvent(event: 'play', config: config);
+        expect(matcher.onEvent(event: 'play', config: config), equals(false));
+        expect(matcher.onEvent(event: 'play', config: config), equals(true));
 
-        final thirdEvent = matcher.onEvent(event: 'pause', config: config);
+        final thirdEvent = matcher.onEvent(event: 'play', config: config);
 
         expect(thirdEvent, equals(false));
       });

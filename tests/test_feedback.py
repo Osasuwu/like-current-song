@@ -9,6 +9,7 @@ device.
 
 from __future__ import annotations
 
+import struct
 import sys
 
 import pytest
@@ -26,12 +27,20 @@ def test_synth_tone_produces_a_valid_wav_header() -> None:
     assert data[12:16] == b"fmt "
 
 
+def _peak(wav: bytes) -> int:
+    """Largest absolute 16-bit sample after the 44-byte WAV header."""
+    body = wav[44:]
+    return max(abs(s) for s in struct.unpack(f"<{len(body) // 2}h", body))
+
+
 def test_synth_tone_volume_scales_peak_amplitude() -> None:
     loud = feedback._synth_tone([(440, 50)], volume=1.0)
     quiet = feedback._synth_tone([(440, 50)], volume=0.1)
     # Volume doesn't change duration, only amplitude.
     assert len(loud) == len(quiet)
-    assert max(loud) >= max(quiet)
+    # Samples, not raw bytes: the largest *byte* is 0xFF at any volume.
+    assert _peak(loud) > 0
+    assert _peak(quiet) == pytest.approx(_peak(loud) / 10, abs=2)
 
 
 def test_synth_tones_returns_distinct_like_remove_error() -> None:
@@ -107,18 +116,6 @@ def test_play_tone_uses_sync_memory_playback(fake_winsound) -> None:
     feedback._play_tone(b"tonedata")
 
     assert fake_winsound.calls == [(b"tonedata", fake_winsound.SND_MEMORY)]
-
-
-def test_play_tone_would_crash_if_async_flag_were_reintroduced(
-    fake_winsound,
-) -> None:
-    """Regression guard: pins the exact crash 78f1e17 fixed, so a future
-    edit that reintroduces SND_ASYNC fails loudly in CI instead of on
-    every user's first like."""
-    with pytest.raises(RuntimeError, match="Cannot play asynchronously"):
-        fake_winsound.PlaySound(
-            b"tonedata", fake_winsound.SND_MEMORY | fake_winsound.SND_ASYNC
-        )
 
 
 def test_tray_at_rest_shows_the_logo_tile() -> None:

@@ -62,12 +62,27 @@ def test_two_presses_outside_window_do_not_match() -> None:
     assert trigger._last_press_ms == 1000
 
 
-def test_three_presses_spaced_widely_do_not_match() -> None:
+@pytest.mark.asyncio
+async def test_three_presses_spaced_widely_do_not_match() -> None:
     """Three single presses each > window apart must never emit."""
     trigger = VolumeButtonTrigger(double_tap_window_ms=200)
+    calls = 0
+
+    async def emit() -> None:
+        nonlocal calls
+        calls += 1
+
+    # The end state alone cannot tell "never matched" from "matched the
+    # first two, then stored the third" — so count the emits.
+    trigger._loop = asyncio.get_running_loop()
+    trigger._emit = emit
+
     trigger._on_volume_up(now_ms=0)
     trigger._on_volume_up(now_ms=500)
     trigger._on_volume_up(now_ms=1000)
+
+    await asyncio.sleep(0.05)
+    assert calls == 0
     # Last single press is the candidate; no match was ever consumed.
     assert trigger._last_press_ms == 1000
 

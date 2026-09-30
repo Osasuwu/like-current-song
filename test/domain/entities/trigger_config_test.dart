@@ -193,52 +193,5 @@ void main() {
         expect(copy.debounceMs, equals(original.debounceMs));
       });
     });
-
-    group('constructor', () {
-      test('stores pattern correctly', () {
-        const pattern = 'pause,play';
-        final config = TriggerConfig(
-          pattern: pattern,
-          windowMs: 5000,
-          debounceMs: 500,
-        );
-
-        expect(config.pattern, equals(pattern));
-      });
-
-      test('stores windowMs correctly', () {
-        const windowMs = 5000;
-        final config = TriggerConfig(
-          pattern: 'pause,play',
-          windowMs: windowMs,
-          debounceMs: 500,
-        );
-
-        expect(config.windowMs, equals(windowMs));
-      });
-
-      test('stores debounceMs correctly', () {
-        const debounceMs = 500;
-        final config = TriggerConfig(
-          pattern: 'pause,play',
-          windowMs: 5000,
-          debounceMs: debounceMs,
-        );
-
-        expect(config.debounceMs, equals(debounceMs));
-      });
-
-      test('creates instance with all fields', () {
-        final config = TriggerConfig(
-          pattern: 'test',
-          windowMs: 1000,
-          debounceMs: 100,
-        );
-
-        expect(config.pattern, equals('test'));
-        expect(config.windowMs, equals(1000));
-        expect(config.debounceMs, equals(100));
-      });
-    });
   });
 }

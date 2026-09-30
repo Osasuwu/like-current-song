@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from pathlib import Path
@@ -132,11 +133,16 @@ async def test_playlist_id_cached_across_runs() -> None:
 
 
 @pytest.mark.asyncio
-async def test_non_spotify_provider_is_noop() -> None:
+async def test_non_spotify_provider_is_noop(caplog) -> None:
     action = PromoteToBestAction(playlist_name="Best", threshold=3)
     ctx = _ctx(3)
     ctx.music_provider = object()  # not a SpotifyMusicProvider
-    await action.run(ctx)  # should not raise
+    with caplog.at_level(logging.DEBUG, logger="like_spotify.extensions"):
+        await action.run(ctx)
+
+    # "Did not raise" proves nothing here: without the capability guard the
+    # missing playlist method is swallowed into a warning.
+    assert caplog.records == []
 
 
 @pytest.mark.asyncio
@@ -174,5 +180,11 @@ async def test_auth_error_logged_not_raised(caplog) -> None:
     ctx.music_provider = provider
 
     # Must not raise.
-    await action.run(ctx)
+    with caplog.at_level(logging.WARNING, logger="like_spotify.extensions"):
+        await action.run(ctx)
     assert provider.add_calls == []
+    # Logged, and the user is told how to fix it.
+    assert [r.levelno for r in caplog.records] == [logging.WARNING]
+    message = caplog.records[0].getMessage()
+    assert "scope expired" in message
+    assert "like-current-song --setup" in message
