@@ -3,73 +3,91 @@ import 'package:like_spotify_mobile_app/domain/entities/app_log.dart';
 
 void main() {
   group('AppLog', () {
-    group('constructor', () {
-      test('stores at field correctly', () {
-        final now = DateTime.now();
-        final log = AppLog(at: now, message: 'Test message');
-
-        expect(log.at, equals(now));
-      });
-
-      test('stores message field correctly', () {
+    group('toLine', () {
+      test('writes every field as one JSON object', () {
         final log = AppLog(
-          at: DateTime.now(),
-          message: 'This is a test message',
+          at: DateTime.utc(2026, 4, 6, 10, 0, 1),
+          actionType: 'like',
+          targetId: 'trk1',
+          result: LogResult.failure,
+          httpCode: 429,
+          message: 'Rate limited\nretry later',
         );
 
-        expect(log.message, equals('This is a test message'));
+        expect(
+          log.toLine(),
+          equals(
+            '{"at":"2026-04-06T10:00:01.000Z","actionType":"like",'
+            '"targetId":"trk1","result":"failure","httpCode":429,'
+            r'"message":"Rate limited\nretry later"}',
+          ),
+        );
       });
 
-      test('creates instance with both fields', () {
-        final now = DateTime.now();
-        final message = 'Application started';
-        final log = AppLog(at: now, message: message);
+      test('leaves out targetId and httpCode when they are null', () {
+        final log = AppLog(
+          at: DateTime.utc(2026, 4, 6, 10, 0, 1),
+          message: 'Started',
+        );
 
-        expect(log.at, equals(now));
-        expect(log.message, equals(message));
-      });
-
-      test('handles empty message string', () {
-        final log = AppLog(at: DateTime.now(), message: '');
-
-        expect(log.message, equals(''));
-      });
-
-      test('handles multiline message', () {
-        final message = 'Line 1\nLine 2\nLine 3';
-        final log = AppLog(at: DateTime.now(), message: message);
-
-        expect(log.message, equals(message));
-      });
-
-      test('preserves different timestamps', () {
-        final time1 = DateTime(2026, 4, 6, 10, 0, 0);
-        final time2 = DateTime(2026, 4, 6, 10, 0, 1);
-
-        final log1 = AppLog(at: time1, message: 'First log');
-        final log2 = AppLog(at: time2, message: 'Second log');
-
-        expect(log1.at, equals(time1));
-        expect(log2.at, equals(time2));
-        expect(log1.at, isNot(equals(log2.at)));
+        expect(
+          log.toLine(),
+          equals(
+            '{"at":"2026-04-06T10:00:01.000Z","actionType":"legacy",'
+            '"result":"info","message":"Started"}',
+          ),
+        );
       });
     });
 
-    group('field access', () {
-      test('can access at field multiple times', () {
-        final now = DateTime.now();
-        final log = AppLog(at: now, message: 'Test');
+    group('fromLine', () {
+      test('reads back every field of a stored line', () {
+        final log = AppLog.fromLine(
+          '{"at":"2026-04-06T10:00:01.000Z","actionType":"like",'
+          '"targetId":"trk1","result":"failure","httpCode":429,'
+          r'"message":"Rate limited\nretry later"}',
+        );
 
-        expect(log.at, equals(now));
-        expect(log.at, equals(now));
+        expect(log.at, equals(DateTime.utc(2026, 4, 6, 10, 0, 1)));
+        expect(log.actionType, equals('like'));
+        expect(log.targetId, equals('trk1'));
+        expect(log.result, equals(LogResult.failure));
+        expect(log.httpCode, equals(429));
+        expect(log.message, equals('Rate limited\nretry later'));
       });
 
-      test('can access message field multiple times', () {
-        const message = 'Test message';
-        final log = AppLog(at: DateTime.now(), message: message);
+      test('fills defaults for keys an older version did not write', () {
+        final log = AppLog.fromLine('{"at":"2026-04-06T10:00:01.000Z"}');
 
-        expect(log.message, equals(message));
-        expect(log.message, equals(message));
+        expect(log.at, equals(DateTime.utc(2026, 4, 6, 10, 0, 1)));
+        expect(log.actionType, equals('legacy'));
+        expect(log.targetId, isNull);
+        expect(log.result, equals(LogResult.info));
+        expect(log.httpCode, isNull);
+        expect(log.message, equals(''));
+      });
+
+      test('reads an unknown result name as info', () {
+        final log = AppLog.fromLine(
+          '{"at":"2026-04-06T10:00:01.000Z","result":"partial","message":"m"}',
+        );
+
+        expect(log.result, equals(LogResult.info));
+      });
+
+      test('keeps a plain-text line from before JSON logs as the message', () {
+        final log = AppLog.fromLine('10:00 liked track trk1');
+
+        expect(log.actionType, equals('legacy'));
+        expect(log.result, equals(LogResult.info));
+        expect(log.message, equals('10:00 liked track trk1'));
+      });
+
+      test('keeps a line that is JSON but not an object as the message', () {
+        final log = AppLog.fromLine('[1,2]');
+
+        expect(log.actionType, equals('legacy'));
+        expect(log.message, equals('[1,2]'));
       });
     });
   });

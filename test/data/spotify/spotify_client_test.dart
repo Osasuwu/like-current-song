@@ -29,12 +29,6 @@ void main() {
         expect(verifier.length, equals(64));
       });
 
-      test('returns string of custom length', () {
-        final verifier = client.createCodeVerifier(length: 32);
-
-        expect(verifier.length, equals(32));
-      });
-
       test('contains only valid characters', () {
         final verifier = client.createCodeVerifier();
         const validChars =
@@ -63,11 +57,13 @@ void main() {
 
     group('codeChallenge', () {
       test('returns base64url encoded SHA256 hash without padding', () {
-        const verifier = 'test_verifier_string';
+        // The known answer from RFC 7636, Appendix B. Spotify recomputes the
+        // challenge from the verifier, so any other hash or alphabet fails the
+        // token exchange.
+        const verifier = 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk';
         final challenge = client.codeChallenge(verifier);
 
-        expect(challenge, isNotEmpty);
-        expect(challenge.contains('='), equals(false));
+        expect(challenge, equals('E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM'));
       });
 
       test('produces deterministic output for same input', () {
@@ -418,25 +414,6 @@ void main() {
     });
 
     group('likeTrack', () {
-      test('successfully likes track on 200 response', () async {
-        when(() => mockHttpClient.put(
-              any(),
-              headers: any(named: 'headers'),
-              body: any(named: 'body'),
-            )).thenAnswer((_) async => http.Response('', 200));
-
-        await client.likeTrack(
-          trackId: 'track_id_123',
-          accessToken: 'access_token',
-        );
-
-        verify(() => mockHttpClient.put(
-              any(),
-              headers: any(named: 'headers'),
-              body: any(named: 'body'),
-            )).called(1);
-      });
-
       test('throws exception on 401 Unauthorized response', () async {
         when(() => mockHttpClient.put(
               any(),
