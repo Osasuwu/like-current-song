@@ -1,4 +1,4 @@
-# CLAUDE.md — Like Current Song
+# AGENTS.md — Like Current Song
 
 ## What this is
 
@@ -21,7 +21,7 @@ quality: no local hacks, no "works for me".
 
 **Status**: feature-complete through v1.1.0, maintenance mode — lower priority
 than redrobot and jarvis. No advanced protocols (PM dispatch, parallel work)
-needed. Standard Claude Code practices apply.
+needed. Standard agent practices apply.
 
 ## Tech stack
 

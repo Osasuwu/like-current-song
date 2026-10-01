@@ -74,3 +74,6 @@ android/build/
 android/key.properties
 *.jks
 *.keystore
+
+# Personal Claude Code instructions (AGENTS.md is the shared rules file)
+CLAUDE.local.md
