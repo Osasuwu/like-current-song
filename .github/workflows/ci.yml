@@ -68,7 +68,8 @@ jobs:
 
       # Runtime deps (requests/keyboard/pystray/Pillow) come from the package;
       # pyinstaller in the [dev] extra is a build-only tool, not needed here.
-      - run: pip install . pytest pytest-asyncio
+      # pyyaml lets the workflow tests read .github/workflows/.
+      - run: pip install . pytest pytest-asyncio pyyaml
 
       - run: python -m pytest -q
 
