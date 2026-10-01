@@ -235,7 +235,7 @@ class Storage(ABC):
     """Cross-device counter + (optional) audit log.
 
     Phase 1 default: SupabaseStorage. Second impl: GoogleSheetsStorage (#25).
-    Two impls is the abstraction-honesty test (CLAUDE.md rule).
+    Two impls is the abstraction-honesty test.
     """
 
     @abstractmethod
