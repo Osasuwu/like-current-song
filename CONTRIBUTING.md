@@ -551,6 +551,57 @@ and a `pytest` job (windows, since the default host is Windows-bound). A PR
 must also carry a linked issue in its body (`Closes #123`) or the `[no-issue]`
 marker for trivial drive-bys — see `.github/workflows/pr-body-check.yml`.
 
+## Code review gate
+
+Every PR to `main` needs a green `verify-verdict` check. It is decided from
+review *evidence*, not from a comment:
+
+- `code-review.yml` runs an LLM reviewer on the PR and uploads a
+  `review-evidence` artifact (`review-evidence.json`, stamped with the PR's
+  head SHA and base branch). It never decides anything itself.
+- `code-gate-verdict.yml` runs from the **default branch** (it never checks out
+  PR code), reads the artifacts of the review runs bound to the head SHA and
+  posts `verify-verdict` as the `osasuwu-ci` GitHub App. The rule and its
+  provenance checks live in `.github/scripts/code_gate_verdict.py`; a PR cannot
+  change the verdict that judges it.
+
+`verify-verdict` is green when a successful review run for the head SHA carries
+a non-blocking artifact and no run for that SHA is blocking, or when every
+changed file is cosmetic. It is red when the reviewer declines to run, an
+artifact is missing or expired, or a finding blocks. The check's summary names
+the reason and the fix.
+
+**Cosmetic** (no review needed): `docs/**` markdown and images except
+`docs/reference/**`, the root `README.md`, `SECURITY.md`, `LICENSE*` and
+`THIRD_PARTY_LICENSES`, and png/jpg/gif/webp images anywhere. Everything else,
+including `docs/index.html` and `docs/style.css`, is code.
+
+**Gate machinery.** A PR that touches `code-review.yml`,
+`code-gate-verdict.yml`, `code_gate_verdict.py` or anything under
+`.github/actions/` is always red: its own review cannot be trusted, it is the
+thing under change. The maintainer unblocks it by an admin-merge after a
+review of the final SHA in a fresh session. This is the only sanctioned
+bypass; a second admin-merge around the same gate means the gate is fixed
+instead.
+
+**Fork and Dependabot PRs** get no automatic review (their runs carry no
+secrets), so `verify-verdict` stays red with a remediation message. A
+maintainer reads the diff, then dispatches the review for exactly that commit:
+
+```bash
+gh workflow run code-review.yml --ref main -f pr_number=<N> -f head_sha=<full 40-char sha>
+```
+
+The dispatch runs in the `untrusted-review` environment and counts only for
+that SHA; a later push needs a fresh dispatch.
+
+**One-time repository setup** (maintainer): install the `osasuwu-ci` GitHub App
+on the repo; create the `code-gate-verdict` and `untrusted-review`
+environments (deployments restricted to `main`); add the secrets
+`GATE_APP_ID` and `GATE_APP_PRIVATE_KEY` (the App) and
+`CLAUDE_CODE_OAUTH_TOKEN` (the reviewer); in branch protection require
+`verify-verdict` bound to the App's app id, with `strict: true`.
+
 ## Signing an Android release
 
 Day to day you need none of this: with no `android/key.properties` present,
