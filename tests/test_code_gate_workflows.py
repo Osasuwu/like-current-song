@@ -111,7 +111,10 @@ def test_only_the_verdict_step_holds_the_app_token():
 
 
 def test_review_concurrency_cancels_a_superseded_review():
-    assert REVIEW["concurrency"] == {
+    # Job-level: workflow-level concurrency is evaluated before the job `if`, so a
+    # skipped `edited` run would cancel the real review and leave no evidence.
+    assert "concurrency" not in REVIEW
+    assert REVIEW["jobs"]["review"]["concurrency"] == {
         "group": "code-review-${{ github.event.pull_request.number || inputs.pr_number }}",
         "cancel-in-progress": True,
     }

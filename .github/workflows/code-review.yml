@@ -33,13 +33,14 @@ on:
         required: true
         type: string
 
-# A newer push (or a dispatch) for the same PR supersedes the review in flight.
-concurrency:
-  group: code-review-${{ github.event.pull_request.number || inputs.pr_number }}
-  cancel-in-progress: true
-
 jobs:
   review:
+    # A newer push (or a dispatch) for the same PR supersedes the review in
+    # flight. Job-level, so it is evaluated after the `if` below: a skipped
+    # `edited` run never joins the group and cannot cancel the real review.
+    concurrency:
+      group: code-review-${{ github.event.pull_request.number || inputs.pr_number }}
+      cancel-in-progress: true
     # `edited` fires on every title/body edit; only a base-branch change alters
     # what is under review, so any other edit proceeds no further.
     if: github.event_name != 'pull_request' || github.event.action != 'edited' || github.event.changes.base
@@ -86,7 +87,7 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s\n' '.pr-head/' >> .git/info/exclude
-          python .github/scripts/code_gate_verdict.py prepare --head-dir .pr-head
+          python -I .github/scripts/code_gate_verdict.py prepare --head-dir .pr-head
 
       - name: Record skipped review
         if: steps.prepare.outputs.skip_reason != ''
@@ -94,7 +95,7 @@ jobs:
           HEAD_SHA: ${{ steps.prepare.outputs.head_sha }}
           BASE_REF: ${{ steps.prepare.outputs.base_ref }}
           SKIP_REASON: ${{ steps.prepare.outputs.skip_reason }}
-        run: python .github/scripts/code_gate_verdict.py skip --reason "$SKIP_REASON" --out review-evidence.json
+        run: python -I .github/scripts/code_gate_verdict.py skip --reason "$SKIP_REASON" --out review-evidence.json
 
       # The placeholder is not valid findings, so a reviewer that never records a
       # result leaves a file that fails validation rather than an empty "clean".
@@ -208,7 +209,7 @@ jobs:
         id: v1
         if: steps.prepare.outputs.skip_reason == ''
         continue-on-error: true
-        run: python .github/scripts/code_gate_verdict.py validate --findings "$FINDINGS"
+        run: python -I .github/scripts/code_gate_verdict.py validate --findings "$FINDINGS"
 
       - name: Reseed findings file for the retry
         if: steps.v1.outcome == 'failure'
@@ -330,18 +331,18 @@ jobs:
       # Nothing but the findings file may differ from the base checkout.
       - name: Check workspace is clean
         if: steps.prepare.outputs.skip_reason == ''
-        run: python .github/scripts/code_gate_verdict.py check-tree --findings "$FINDINGS"
+        run: python -I .github/scripts/code_gate_verdict.py check-tree --findings "$FINDINGS"
 
       - name: Validate findings
         if: steps.prepare.outputs.skip_reason == ''
-        run: python .github/scripts/code_gate_verdict.py validate --findings "$FINDINGS"
+        run: python -I .github/scripts/code_gate_verdict.py validate --findings "$FINDINGS"
 
       - name: Stamp review evidence
         if: steps.prepare.outputs.skip_reason == ''
         env:
           HEAD_SHA: ${{ steps.prepare.outputs.head_sha }}
           BASE_REF: ${{ steps.prepare.outputs.base_ref }}
-        run: python .github/scripts/code_gate_verdict.py stamp --findings "$FINDINGS" --out review-evidence.json
+        run: python -I .github/scripts/code_gate_verdict.py stamp --findings "$FINDINGS" --out review-evidence.json
 
       # 90 days: the verdict re-reads this on every later event for the SHA; an
       # expired artifact turns the gate red ("re-dispatch the review").

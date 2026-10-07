@@ -276,7 +276,7 @@ _EVIDENCE_MESSAGES = {
     "evidence-sha-mismatch": "A review artifact is stamped for a different commit than the one evaluated. Re-dispatch the review.",
     "evidence-base-mismatch": "A review artifact was produced against a different base branch. Re-dispatch the review.",
     "evidence-invalid": "A review artifact is malformed. Re-dispatch the review.",
-    "evidence-blocking": "A review run reported blocking findings. Fix them and push, or re-dispatch the review once resolved.",
+    "evidence-blocking": "A review run reported blocking findings for this commit; that stays in force for the SHA. Fix them and push a new commit.",
     "evidence-expired": "A review artifact has expired (90-day retention). Re-dispatch the review.",
     "evidence-missing": "A successful review run has no review-evidence artifact. Re-dispatch the review.",
     "evidence-none": "No successful review run is bound to this commit. Push to trigger one, or re-dispatch the review.",

@@ -57,7 +57,7 @@ jobs:
           RUN_TITLE: ${{ github.event.workflow_run.display_title }}
           RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           RUN_PULL_REQUESTS: ${{ toJSON(github.event.workflow_run.pull_requests) }}
-        run: python .github/scripts/code_gate_verdict.py resolve
+        run: python -I .github/scripts/code_gate_verdict.py resolve
 
   verdict:
     needs: resolve
@@ -91,4 +91,4 @@ jobs:
           GATE_APP_ID: ${{ secrets.GATE_APP_ID }}
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
           HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
-        run: python .github/scripts/code_gate_verdict.py verdict
+        run: python -I .github/scripts/code_gate_verdict.py verdict
