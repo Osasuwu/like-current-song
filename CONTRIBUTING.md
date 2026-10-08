@@ -559,7 +559,9 @@ review *evidence*, not from a comment:
 - `code-review.yml` runs an LLM reviewer on the PR and uploads a
   `review-evidence-<attempt>` artifact (`review-evidence.json`, stamped with
   the PR's head SHA and base branch), one per run attempt, never overwritten.
-  It never decides anything itself.
+  It never decides anything itself. The reviewer's tool subprocesses run with
+  their environment scrubbed of secrets, which needs bubblewrap: the job
+  installs it and fails at that step, by name, if it cannot (#240).
 - `code-gate-verdict.yml` runs from the **default branch** (it never checks out
   PR code), reads the artifacts of the review runs bound to the head SHA and
   posts `verify-verdict` as the `osasuwu-ci` GitHub App. The rule and its
@@ -581,9 +583,26 @@ expired or malformed evidence) clears as soon as a run for the same SHA comes
 back clean. Review evidence is kept 90 days, so an old open PR goes red as expired until its
 review is re-run (a push or a fresh dispatch).
 
+**Which runs count.** A `pull_request` review run counts for the PR it lists
+into `main`. If it also lists an open PR into another base on the same commit,
+it may have run that branch's copy of the review workflow, so it is evidence
+for no PR and the summary says so; a blocking artifact it carries still
+sticks. Close or retarget the other PR, or have a maintainer re-dispatch. A
+dispatched run counts for the PR number and SHA in its title only when the
+commit it ran from is `main`'s tip or one of its ancestors (#241), so it keeps
+counting after `main` moves on, and a dispatch from any other ref counts for
+nothing.
+
+**PRs into other bases.** Only a PR into `main` gets a `verify-verdict`. The
+check belongs to the commit, so two open PRs into `main` with the same head
+commit are red with `shared-head` until one is closed or gets its own commit
+(#230).
+
 **Cosmetic** (no review needed): `docs/**` markdown and images except
-`docs/reference/**`, the root `README.md`, `SECURITY.md`, `LICENSE*` and
-`THIRD_PARTY_LICENSES`, and png/jpg/gif/webp images anywhere. Everything else,
+`docs/reference/**`, the root `README.md`, `SECURITY.md`,
+`THIRD_PARTY_LICENSES` and the licence files `LICENSE`, `LICENSE.md`,
+`LICENSE.txt`, `LICENSE-APACHE` and `LICENSE-MIT` (by exact name), and
+png/jpg/gif/webp images anywhere. Everything else,
 including `docs/index.html` and `docs/style.css`, is code.
 
 **Gate machinery.** A PR that touches `code-review.yml`,
@@ -603,7 +622,7 @@ gh workflow run code-review.yml --ref main -f pr_number=<N> -f head_sha=<full 40
 ```
 
 The dispatch runs in the `untrusted-review` environment and counts only for
-that SHA; a later push needs a fresh dispatch. Dependabot PRs (grouped, monthly)
+that SHA, and only from `--ref main`; a later push needs a fresh dispatch. Dependabot PRs (grouped, monthly)
 take the same path.
 
 **One-time repository setup** (maintainer): install the `osasuwu-ci` GitHub App
