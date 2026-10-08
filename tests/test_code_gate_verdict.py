@@ -1106,6 +1106,46 @@ class _Resp:
     def read(self, amt):
         return self._body[:amt]
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+class _Opener:
+    def __init__(self, outcome):
+        self._outcome = outcome
+
+    def open(self, req, timeout=None):
+        if isinstance(self._outcome, Exception):
+            raise self._outcome
+        return self._outcome
+
+
+def test_download_rejects_a_cut_off_body_served_directly(monkeypatch):
+    monkeypatch.setattr(gate.urllib.request, "build_opener", lambda *h: _Opener(_Resp(b"PK-z", 6)))
+    with pytest.raises(gate.UnreadableArtifact):
+        gate.Api("tok").download("repos/o/r/actions/artifacts/1/zip")
+
+
+def test_download_rejects_a_cut_off_body_behind_the_redirect(monkeypatch):
+    redirect = urllib.error.HTTPError(
+        "https://api.github.com/x", 302, "Found", {"Location": "https://blob.example/z"}, None
+    )
+    seen = []
+
+    def urlopen(req, timeout=None):
+        seen.append(req)
+        return _Resp(b"PK-z", 6)
+
+    monkeypatch.setattr(gate.urllib.request, "build_opener", lambda *h: _Opener(redirect))
+    monkeypatch.setattr(gate.urllib.request, "urlopen", urlopen)
+    with pytest.raises(gate.UnreadableArtifact):
+        gate.Api("tok").download("repos/o/r/actions/artifacts/1/zip")
+    assert [r.full_url for r in seen] == ["https://blob.example/z"]
+    assert seen[0].get_header("Authorization") is None
+
 
 def test_read_capped_returns_a_whole_body():
     assert gate.read_capped(_Resp(b"PK-zip", content_length=6)) == b"PK-zip"
