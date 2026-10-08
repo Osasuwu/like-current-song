@@ -13,6 +13,16 @@ you sign in from its Settings window.
 
 ## [Unreleased]
 
+### Changed
+
+- **CI: the code-review gate now decides from evidence (#226).** The review
+  workflow uploads a `review-evidence` artifact and a base-pinned
+  `code-gate-verdict.yml` posts `verify-verdict` from it, so a PR can no longer
+  change the rule that judges it, and a review that never ran is red instead of
+  silently passing. Docs-only PRs skip the review; fork and Dependabot PRs need
+  a maintainer to dispatch it. Dependabot now opens one grouped PR per
+  ecosystem per month. See CONTRIBUTING.md, "Code review gate".
+
 ## [1.3.0] - 2026-09-29
 
 The desktop half no longer needs Python: each release now carries a
