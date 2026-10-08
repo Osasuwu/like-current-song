@@ -23,6 +23,17 @@ you sign in from its Settings window.
   a maintainer to dispatch it. Dependabot now opens one grouped PR per
   ecosystem per month. See CONTRIBUTING.md, "Code review gate".
 
+### Fixed
+
+- **CI: the code-review gate counts only review runs it can trust (#230,
+  #240, #241).** A review run that also lists a PR into another base branch,
+  or a dispatched review that did not run from `main`, no longer counts as
+  evidence. A PR into a base other than `main` gets no `verify-verdict`, and
+  two open PRs sharing one head commit are red with a reason. Licence files
+  are cosmetic by exact name only, so a file such as `LICENSE.py` is reviewed.
+  The review job installs bubblewrap, so the reviewer runs with its
+  subprocess environment scrubbed instead of crashing.
+
 ## [1.3.0] - 2026-09-29
 
 The desktop half no longer needs Python: each release now carries a
