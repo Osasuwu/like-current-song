@@ -2,7 +2,7 @@ name: Code Review
 
 # Produces review EVIDENCE only; it never decides anything. The `verify-verdict`
 # check is posted by code-gate-verdict.yml (base-pinned, run from the default
-# branch) from the `review-evidence` artifact uploaded here. Rule: "Review
+# branch) from the `review-evidence-<attempt>` artifact uploaded here. Rule: "Review
 # evidence" — .github/scripts/code_gate_verdict.py, CONTRIBUTING.md
 # ("Code review gate"). Design: Osasuwu/jarvis#1964, ported in #226.
 #
@@ -203,15 +203,18 @@ jobs:
           claude_args: |
             # Headless: any tool absent here is DENIED. Read verbs only, one
             # entry each: a wholesale `git` grant admits `git config`, `git -c`
-            # and `git grep -O`, which execute programs. The only write grant
+            # and `git grep -O`, which execute programs, and `node --check -r`
+            # runs a preload module. The only write grant
             # is `Edit` on the findings file (`Edit(path)` is the one
             # path-scoped write rule the harness consults; an unscoped `Write`
             # is deliberately absent). These patterns steer the reviewer; they
             # are not a boundary — the harness matches command text, so
-            # `git log --o''utput=<file>` passes the `--ou` deny. The boundaries
-            # are the read-only job token and the env scrub above.
+            # `git log --o''utput=<file>` passes the `--ou` deny. The read-only
+            # job token and the env scrub above bound what leaves the runner; a
+            # file written on the runner can still forge this job's evidence
+            # (#228).
             # (tests/test_code_review_allowed_tools.py pins both lists.)
-            --allowed-tools "Read,Grep,Glob,Edit(./.review/findings.json),Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git blame:*),Bash(git status:*),Bash(git rev-parse:*),Bash(git ls-files:*),Bash(git merge-base:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh label list:*),Bash(gh api repos/*/commits/*:*),Bash(gh api repos/*/compare/*:*),Bash(wc:*),Bash(head:*),Bash(tail:*),Bash(cat:*),Bash(cut:*),Bash(nl:*),Bash(tr:*),Bash(echo:*),Bash(python -m py_compile:*),Bash(python3 -m py_compile:*),Bash(bash -n:*),Bash(node --check:*)"
+            --allowed-tools "Read,Grep,Glob,Edit(./.review/findings.json),Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git blame:*),Bash(git status:*),Bash(git rev-parse:*),Bash(git ls-files:*),Bash(git merge-base:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh label list:*),Bash(gh api repos/*/commits/*:*),Bash(gh api repos/*/compare/*:*),Bash(wc:*),Bash(head:*),Bash(tail:*),Bash(cat:*),Bash(cut:*),Bash(nl:*),Bash(tr:*),Bash(echo:*),Bash(python -m py_compile:*),Bash(python3 -m py_compile:*)"
             --disallowed-tools "Bash(gh pr merge:*)" "Bash(gh pr close:*)" "Bash(gh pr edit:*)" "Bash(gh pr reopen:*)" "Bash(gh pr review:*)" "Bash(gh pr ready:*)" "Bash(gh pr create:*)" "Bash(gh pr lock:*)" "Bash(gh pr unlock:*)" "Bash(gh pr comment:*)" "Bash(gh issue create:*)" "Bash(gh issue edit:*)" "Bash(gh issue close:*)" "Bash(gh issue reopen:*)" "Bash(gh issue delete:*)" "Bash(gh issue lock:*)" "Bash(gh issue unlock:*)" "Bash(gh issue pin:*)" "Bash(gh issue unpin:*)" "Bash(gh issue transfer:*)" "Bash(gh issue comment:*)" "Bash(gh label create:*)" "Bash(gh label edit:*)" "Bash(gh label delete:*)" "Bash(git push:*)" "Bash(git commit:*)" "Bash(git merge:*)" "Bash(git reset:*)" "Bash(git rebase:*)" "Bash(git cherry-pick:*)" "Bash(git stash:*)" "Bash(git clean:*)" "Bash(git rm:*)" "Bash(git mv:*)" "Bash(git apply:*)" "Bash(git am:*)" "Bash(git checkout:*)" "Bash(git switch:*)" "Bash(git restore:*)" "Bash(git *--ou*)"
 
       - name: Validate findings (attempt 1)
@@ -318,15 +321,18 @@ jobs:
           claude_args: |
             # Headless: any tool absent here is DENIED. Read verbs only, one
             # entry each: a wholesale `git` grant admits `git config`, `git -c`
-            # and `git grep -O`, which execute programs. The only write grant
+            # and `git grep -O`, which execute programs, and `node --check -r`
+            # runs a preload module. The only write grant
             # is `Edit` on the findings file (`Edit(path)` is the one
             # path-scoped write rule the harness consults; an unscoped `Write`
             # is deliberately absent). These patterns steer the reviewer; they
             # are not a boundary — the harness matches command text, so
-            # `git log --o''utput=<file>` passes the `--ou` deny. The boundaries
-            # are the read-only job token and the env scrub above.
+            # `git log --o''utput=<file>` passes the `--ou` deny. The read-only
+            # job token and the env scrub above bound what leaves the runner; a
+            # file written on the runner can still forge this job's evidence
+            # (#228).
             # (tests/test_code_review_allowed_tools.py pins both lists.)
-            --allowed-tools "Read,Grep,Glob,Edit(./.review/findings.json),Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git blame:*),Bash(git status:*),Bash(git rev-parse:*),Bash(git ls-files:*),Bash(git merge-base:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh label list:*),Bash(gh api repos/*/commits/*:*),Bash(gh api repos/*/compare/*:*),Bash(wc:*),Bash(head:*),Bash(tail:*),Bash(cat:*),Bash(cut:*),Bash(nl:*),Bash(tr:*),Bash(echo:*),Bash(python -m py_compile:*),Bash(python3 -m py_compile:*),Bash(bash -n:*),Bash(node --check:*)"
+            --allowed-tools "Read,Grep,Glob,Edit(./.review/findings.json),Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git blame:*),Bash(git status:*),Bash(git rev-parse:*),Bash(git ls-files:*),Bash(git merge-base:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh label list:*),Bash(gh api repos/*/commits/*:*),Bash(gh api repos/*/compare/*:*),Bash(wc:*),Bash(head:*),Bash(tail:*),Bash(cat:*),Bash(cut:*),Bash(nl:*),Bash(tr:*),Bash(echo:*),Bash(python -m py_compile:*),Bash(python3 -m py_compile:*)"
             --disallowed-tools "Bash(gh pr merge:*)" "Bash(gh pr close:*)" "Bash(gh pr edit:*)" "Bash(gh pr reopen:*)" "Bash(gh pr review:*)" "Bash(gh pr ready:*)" "Bash(gh pr create:*)" "Bash(gh pr lock:*)" "Bash(gh pr unlock:*)" "Bash(gh pr comment:*)" "Bash(gh issue create:*)" "Bash(gh issue edit:*)" "Bash(gh issue close:*)" "Bash(gh issue reopen:*)" "Bash(gh issue delete:*)" "Bash(gh issue lock:*)" "Bash(gh issue unlock:*)" "Bash(gh issue pin:*)" "Bash(gh issue unpin:*)" "Bash(gh issue transfer:*)" "Bash(gh issue comment:*)" "Bash(gh label create:*)" "Bash(gh label edit:*)" "Bash(gh label delete:*)" "Bash(git push:*)" "Bash(git commit:*)" "Bash(git merge:*)" "Bash(git reset:*)" "Bash(git rebase:*)" "Bash(git cherry-pick:*)" "Bash(git stash:*)" "Bash(git clean:*)" "Bash(git rm:*)" "Bash(git mv:*)" "Bash(git apply:*)" "Bash(git am:*)" "Bash(git checkout:*)" "Bash(git switch:*)" "Bash(git restore:*)" "Bash(git *--ou*)"
 
       # Tripwire payload for silent no-review runs: the runner-local
@@ -357,12 +363,14 @@ jobs:
         run: python -I .github/scripts/code_gate_verdict.py stamp --findings "$FINDINGS" --out review-evidence.json
 
       # 90 days: the verdict re-reads this on every later event for the SHA; an
-      # expired artifact turns the gate red ("re-dispatch the review").
+      # expired artifact turns the gate red ("re-dispatch the review"). One
+      # artifact per attempt, never overwritten: a re-run must not replace the
+      # blocking evidence an earlier attempt left (the verdict reads them all).
       - name: Upload review evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: review-evidence
+          name: review-evidence-${{ github.run_attempt }}
           path: review-evidence.json
           retention-days: 90
-          overwrite: true
+          overwrite: false
           if-no-files-found: error

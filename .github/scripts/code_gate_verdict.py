@@ -7,9 +7,11 @@ evidence producer). Ported from Osasuwu/jarvis#1964 (locked design); like-curren
 The rule ("Review evidence"). `verify-verdict` is green iff
   (a) at least one successful `code-review.yml` run bound to the evaluated head
       SHA carries a valid, non-blocking `review-evidence.json` artifact, no
-      bound run is blocking (sticky: only a new commit lifts it) and none is
-      unfinished; an expired, missing, malformed or mismatched artifact is red
-      only until a clean run for the SHA supersedes it (`status: skipped`
+      artifact of any bound run or attempt is blocking (sticky: each attempt
+      uploads its own artifact, so neither a re-run nor a later clean run lifts
+      it, only a new commit does), none could not be downloaded, and no bound
+      run is unfinished; an expired, missing, malformed or mismatched artifact
+      is red only until a clean run for the SHA supersedes it (`status: skipped`
       artifacts are ignored), or
   (b) every changed file is cosmetic (see `is_cosmetic`).
 The gate never reads the PR comment, a timestamp, a heading or a lineage: the
@@ -36,6 +38,7 @@ Stdlib only: the jobs need no dependency install.
 
 import argparse
 import base64
+import http.client
 import io
 import json
 import os
@@ -53,6 +56,9 @@ API_ROOT = "https://api.github.com"
 REVIEW_WORKFLOW = ".github/workflows/code-review.yml"
 CHECK_NAME = "verify-verdict"
 EVIDENCE_ARTIFACT = "review-evidence"
+# One evidence artifact per run attempt (`review-evidence-<run_attempt>`, never
+# overwritten): a re-run cannot replace the evidence an earlier attempt left.
+EVIDENCE_ARTIFACT_NAME = re.compile(rf"{EVIDENCE_ARTIFACT}-[1-9][0-9]*")
 EVIDENCE_FILE = "review-evidence.json"
 EVIDENCE_SCHEMA = 1
 MAX_EVIDENCE_BYTES = 1 << 20
@@ -278,7 +284,8 @@ _EVIDENCE_MESSAGES = {
     "evidence-sha-mismatch": "A review artifact is stamped for a different commit than the one evaluated. Re-dispatch the review.",
     "evidence-base-mismatch": "A review artifact was produced against a different base branch. Re-dispatch the review.",
     "evidence-invalid": "A review artifact is malformed. Re-dispatch the review.",
-    "evidence-blocking": "A review run reported blocking findings for this commit; that stays in force for the SHA. Fix them and push a new commit.",
+    "evidence-blocking": "A review run reported blocking findings for this commit; that stays in force for the SHA, across re-runs. Fix them and push a new commit.",
+    "evidence-unreadable": "A review artifact could not be downloaded, so it may hide a blocking verdict. Re-run the verdict job.",
     "evidence-expired": "A review artifact has expired (90-day retention). Re-dispatch the review.",
     "evidence-missing": "A successful review run has no review-evidence artifact. Re-dispatch the review.",
     "evidence-none": "No successful review run is bound to this commit. Push to trigger one, or re-dispatch the review.",
@@ -308,7 +315,8 @@ def _judge_artifact(art, head_sha, base_ref):
 
 
 def evaluate_evidence(entries, pr_number, head_sha, base_ref, default_branch):
-    """The evidence half of the rule. `entries`: {run, artifact, state} per candidate run."""
+    """The evidence half of the rule. `entries`: {run, artifact, state}, one per
+    evidence artifact of a candidate run (see `load_entries`)."""
     reds = set()
     clean = 0
     for e in entries:
@@ -317,24 +325,36 @@ def evaluate_evidence(entries, pr_number, head_sha, base_ref, default_branch):
             continue
         if run.get("status") != "completed" or run.get("conclusion") == "action_required":
             return _verdict("evidence-pending")
-        if run.get("conclusion") != "success":
+        state = e.get("state")
+        if state == "unreadable":
+            reds.add("evidence-unreadable")
             continue
-        if e.get("state") == "expired":
-            reds.add("evidence-expired")
-        elif e.get("state") != "ok" or e.get("artifact") is None:
-            reds.add("evidence-missing")
+        if state == "expired":
+            result = "evidence-expired"
+        elif state != "ok" or e.get("artifact") is None:
+            result = "evidence-missing"
         else:
             result = _judge_artifact(e["artifact"], head_sha, base_ref)
-            if result == "clean":
-                clean += 1
-            elif result != "skipped":
+        if run.get("conclusion") != "success":
+            # The run's latest attempt failed or was cancelled. Blocking evidence an
+            # earlier attempt left still counts; nothing else from the run does.
+            if result == "evidence-blocking":
                 reds.add(result)
-    # Blocking is the one sticky red: a later clean run for the same SHA cannot lift
-    # it, the fix is a new commit. Every other red is a failure to produce evidence,
-    # not a verdict on the code, so a clean run for the SHA supersedes it — that is
-    # what "re-dispatch the review" in its message relies on.
+            continue
+        if result == "clean":
+            clean += 1
+        elif result != "skipped":
+            reds.add(result)
+    # Blocking is the one sticky red: a later clean run or attempt for the same SHA
+    # cannot lift it, the fix is a new commit. An artifact that could not be read
+    # might be a blocking one, so a clean run does not lift that either. Every other
+    # red is a failure to produce evidence, not a verdict on the code, so a clean
+    # run for the SHA supersedes it — that is what "re-dispatch the review" in its
+    # message relies on.
     if "evidence-blocking" in reds:
         return _verdict("evidence-blocking")
+    if "evidence-unreadable" in reds:
+        return _verdict("evidence-unreadable")
     if clean:
         return _verdict("evidence-clean")
     for code in _WORST_FIRST:
@@ -478,28 +498,36 @@ def read_evidence_zip(blob):
         return {"status": "malformed"}
 
 
-def load_entry(api, repo, run):
-    """One candidate run plus its artifact and the artifact's state (ok / missing / expired)."""
-    entry = {"run": run, "artifact": None, "state": "missing"}
-    if run.get("status") != "completed" or run.get("conclusion") != "success":
-        return entry
-    data = api(
-        "GET",
-        f"repos/{repo}/actions/runs/{run['id']}/artifacts?name={EVIDENCE_ARTIFACT}&per_page=100",
-    )
-    arts = data.get("artifacts", [])
+def load_entries(api, repo, run):
+    """A candidate run's entries: one per live evidence artifact (one per attempt).
+
+    State per entry: ok / unreadable (the download failed), or a single missing /
+    expired entry when the run has no live evidence artifact. A completed run is
+    read whatever its conclusion: an earlier attempt's blocking artifact outlives
+    a failed or cancelled re-run.
+    """
+    bare = {"run": run, "artifact": None, "state": "missing"}
+    if run.get("status") != "completed" or run.get("conclusion") == "action_required":
+        return [bare]
+    arts = [
+        a
+        for a in paged(api, f"repos/{repo}/actions/runs/{run['id']}/artifacts", key="artifacts")
+        if EVIDENCE_ARTIFACT_NAME.fullmatch(a.get("name") or "")
+    ]
     live = [a for a in arts if not a.get("expired")]
     if not live:
-        entry["state"] = "expired" if arts else "missing"
-        return entry
-    newest = max(live, key=lambda a: a.get("created_at") or "")
-    try:
-        blob = api.download(f"repos/{repo}/actions/artifacts/{newest['id']}/zip")
-    except urllib.error.HTTPError:
-        return entry
-    entry["artifact"] = read_evidence_zip(blob)
-    entry["state"] = "ok"
-    return entry
+        return [dict(bare, state="expired" if arts else "missing")]
+    entries = []
+    for a in live:
+        try:
+            blob = api.download(f"repos/{repo}/actions/artifacts/{a['id']}/zip")
+        except (OSError, http.client.HTTPException):
+            # URLError/HTTPError, a timeout, a reset or a truncated body: whatever
+            # the artifact said is unknown, so it must not read as "missing".
+            entries.append(dict(bare, state="unreadable"))
+            continue
+        entries.append(dict(bare, artifact=read_evidence_zip(blob), state="ok"))
+    return entries
 
 
 def gather_entries(api, repo, pr_number, head_sha, default_branch):
@@ -514,7 +542,7 @@ def gather_entries(api, repo, pr_number, head_sha, default_branch):
         for run in paged(api, f"{base}?{q}", key="workflow_runs", max_pages=MAX_RUN_PAGES):
             seen[run["id"]] = run
     runs = [r for r in seen.values() if run_qualifies(r, pr_number, head_sha, default_branch)]
-    return [load_entry(api, repo, r) for r in runs]
+    return [e for r in runs for e in load_entries(api, repo, r)]
 
 
 def post_check(api, repo, head_sha, verdict, app_id):

@@ -6,7 +6,10 @@ files) and every expected value is a literal worked out from the locked design,
 not read back from the module.
 """
 
+import http.client
 import importlib.util
+import json
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -557,6 +560,72 @@ def test_action_required_run_is_red():
     assert (got.green, got.code) == (False, "evidence-pending")
 
 
+# Each run attempt uploads its own artifact, so one run can yield several entries;
+# a run's `conclusion` is its latest attempt's.
+
+_BLOCKING = {"blocking": True, "findings": [{"class": "regression", "file": "a.py"}]}
+
+
+def test_blocking_attempt_is_not_lifted_by_a_clean_re_run_of_the_same_run():
+    run = _pr_run(id=1, run_attempt=2)
+    got = _ev([_entry(run, _artifact(**_BLOCKING)), _entry(run)])
+    assert (got.green, got.code) == (False, "evidence-blocking")
+
+
+@pytest.mark.parametrize("conclusion", ["failure", "cancelled"])
+def test_blocking_from_a_run_whose_re_run_did_not_succeed_still_counts(conclusion):
+    failed = _pr_run(id=1, run_attempt=2, conclusion=conclusion)
+    got = _ev([_entry(failed, _artifact(**_BLOCKING)), _entry(_dispatch_run(id=2))])
+    assert (got.green, got.code) == (False, "evidence-blocking")
+
+
+def test_clean_evidence_from_a_run_that_did_not_succeed_is_not_evidence():
+    got = _ev([_entry(_pr_run(id=1, run_attempt=2, conclusion="failure"))])
+    assert (got.green, got.code) == (False, "evidence-none")
+
+
+@pytest.mark.parametrize(
+    "art",
+    [
+        _artifact(sha=OTHER_SHA),
+        _artifact(blocking=True, findings=[]),
+        {"schema": 1, "status": "skipped", "sha": SHA, "base_ref": "main", "reason": "draft"},
+    ],
+    ids=["sha-mismatch", "invalid", "skipped"],
+)
+def test_non_blocking_evidence_from_a_failed_run_is_ignored(art):
+    failed = _pr_run(id=1, conclusion="failure")
+    got = _ev([_entry(failed, art), _entry(_dispatch_run(id=2))])
+    assert (got.green, got.code) == (True, "evidence-clean")
+
+
+def test_unreadable_artifact_alone_is_red():
+    got = _ev([_entry(_pr_run(), None, state="unreadable")])
+    assert (got.green, got.code) == (False, "evidence-unreadable")
+
+
+def test_unreadable_artifact_is_not_lifted_by_a_clean_run():
+    """It might be the blocking one; a clean run cannot prove otherwise."""
+    got = _ev([_entry(_pr_run(id=1), None, state="unreadable"), _entry(_dispatch_run(id=2))])
+    assert (got.green, got.code) == (False, "evidence-unreadable")
+
+
+def test_unreadable_artifact_of_a_failed_run_still_counts():
+    failed = _pr_run(id=1, conclusion="failure")
+    got = _ev([_entry(failed, None, state="unreadable"), _entry(_dispatch_run(id=2))])
+    assert (got.green, got.code) == (False, "evidence-unreadable")
+
+
+def test_blocking_outranks_unreadable():
+    got = _ev(
+        [
+            _entry(_pr_run(id=1), None, state="unreadable"),
+            _entry(_pr_run(id=2), _artifact(**_BLOCKING)),
+        ]
+    )
+    assert (got.green, got.code) == (False, "evidence-blocking")
+
+
 # --- evaluate_pr: the whole rule ------------------------------------------
 
 
@@ -740,13 +809,16 @@ def test_zip_with_invalid_json_is_malformed():
     assert gate.read_evidence_zip(_zip("review-evidence.json", "{nope")) == {"status": "malformed"}
 
 
-# --- load_entry (fake API) ------------------------------------------------
+# --- load_entries (fake API) ----------------------------------------------
 
 
 class FakeApi:
-    def __init__(self, responses=None, blob=b""):
+    """GETs answered by path prefix; downloads by artifact id from `blobs`, where
+    an exception instance is raised instead of returned."""
+
+    def __init__(self, responses=None, blobs=None):
         self.responses = responses or {}
-        self.blob = blob
+        self.blobs = blobs or {}
         self.calls = []
 
     def __call__(self, method, path, body=None):
@@ -760,63 +832,169 @@ class FakeApi:
 
     def download(self, path):
         self.calls.append(("DOWNLOAD", path, None))
-        return self.blob
+        blob = self.blobs[int(path.split("/")[-2])]
+        if isinstance(blob, BaseException):
+            raise blob
+        return blob
 
 
 ARTIFACTS_PATH = "repos/o/r/actions/runs/1001/artifacts"
 
 
-def test_load_entry_reads_the_live_artifact():
-    evidence = (
-        '{"schema": 1, "status": "reviewed", "sha": "x", "base_ref": "main",'
-        ' "blocking": false, "findings": []}'
-    )
-    api = FakeApi(
-        {
-            ARTIFACTS_PATH: {
-                "artifacts": [{"id": 55, "expired": False, "created_at": "2026-10-06T10:00:00Z"}]
+def _evidence_zip(sha=SHA, blocking=False):
+    findings = [{"class": "regression", "file": "a.py"}] if blocking else []
+    return _zip(
+        "review-evidence.json",
+        json.dumps(
+            {
+                "schema": 1,
+                "status": "reviewed",
+                "sha": sha,
+                "base_ref": "main",
+                "blocking": blocking,
+                "findings": findings,
             }
-        },
-        blob=_zip("review-evidence.json", evidence),
+        ),
     )
-    got = gate.load_entry(api, "o/r", _pr_run())
-    assert got["state"] == "ok"
-    assert got["artifact"]["blocking"] is False
-    assert ("DOWNLOAD", "repos/o/r/actions/artifacts/55/zip", None) in api.calls
 
 
-def test_load_entry_all_expired_is_expired():
-    api = FakeApi({ARTIFACTS_PATH: {"artifacts": [{"id": 55, "expired": True}]}})
-    assert gate.load_entry(api, "o/r", _pr_run())["state"] == "expired"
+def _art(id, name, expired=False):
+    return {"id": id, "name": name, "expired": expired}
 
 
-def test_load_entry_no_artifacts_is_missing():
-    api = FakeApi({ARTIFACTS_PATH: {"artifacts": []}})
-    assert gate.load_entry(api, "o/r", _pr_run())["state"] == "missing"
+def _downloads(api):
+    return sorted(int(path.split("/")[-2]) for m, path, _ in api.calls if m == "DOWNLOAD")
 
 
-def test_load_entry_skips_the_artifact_call_for_a_failed_run():
-    api = FakeApi()
-    got = gate.load_entry(api, "o/r", _pr_run(conclusion="failure"))
-    assert got["state"] == "missing"
-    assert api.calls == []
-
-
-def test_load_entry_prefers_the_newest_live_artifact():
+def test_load_entries_reads_every_live_attempt():
     api = FakeApi(
         {
             ARTIFACTS_PATH: {
                 "artifacts": [
-                    {"id": 1, "expired": False, "created_at": "2026-10-01T00:00:00Z"},
-                    {"id": 2, "expired": False, "created_at": "2026-10-05T00:00:00Z"},
-                    {"id": 3, "expired": True, "created_at": "2026-10-06T00:00:00Z"},
+                    _art(1, "review-evidence-1"),
+                    _art(2, "review-evidence-2"),
+                    _art(3, "review-evidence-3", expired=True),
                 ]
             }
         },
-        blob=_zip("review-evidence.json", "{}"),
+        blobs={1: _evidence_zip(blocking=True), 2: _evidence_zip()},
     )
-    gate.load_entry(api, "o/r", _pr_run())
-    assert ("DOWNLOAD", "repos/o/r/actions/artifacts/2/zip", None) in api.calls
+    got = gate.load_entries(api, "o/r", _pr_run())
+    assert [(e["state"], e["artifact"]["blocking"]) for e in got] == [("ok", True), ("ok", False)]
+    assert _downloads(api) == [1, 2]
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "claude-execution-output-1",
+        "review-evidence-x",
+        "review-evidence",  # the pre-#226-round-3 single, overwritable artifact
+        "review-evidence-0",
+        "review-evidence-1-extra",
+        "my-review-evidence-1",
+    ],
+)
+def test_load_entries_ignores_artifacts_not_named_review_evidence_attempt(name):
+    api = FakeApi(
+        {ARTIFACTS_PATH: {"artifacts": [_art(9, name), _art(1, "review-evidence-1")]}},
+        blobs={1: _evidence_zip()},
+    )
+    got = gate.load_entries(api, "o/r", _pr_run())
+    assert [e["state"] for e in got] == ["ok"]
+    assert _downloads(api) == [1]
+
+
+def test_load_entries_all_expired_is_one_expired_entry():
+    api = FakeApi(
+        {
+            ARTIFACTS_PATH: {
+                "artifacts": [
+                    _art(1, "review-evidence-1", expired=True),
+                    _art(2, "review-evidence-2", expired=True),
+                ]
+            }
+        }
+    )
+    got = gate.load_entries(api, "o/r", _pr_run())
+    assert [(e["state"], e["artifact"]) for e in got] == [("expired", None)]
+    assert _downloads(api) == []
+
+
+@pytest.mark.parametrize(
+    "artifacts", [[], [_art(4, "claude-execution-output-1")]], ids=["none", "only-other"]
+)
+def test_load_entries_without_evidence_is_one_missing_entry(artifacts):
+    api = FakeApi({ARTIFACTS_PATH: {"artifacts": artifacts}})
+    got = gate.load_entries(api, "o/r", _pr_run())
+    assert [(e["state"], e["artifact"]) for e in got] == [("missing", None)]
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        urllib.error.HTTPError("u", 500, "boom", {}, None),
+        urllib.error.URLError("dns"),
+        TimeoutError("read timed out"),
+        ConnectionResetError("reset"),
+        http.client.IncompleteRead(b"PK"),
+    ],
+    ids=["http", "url", "timeout", "reset", "truncated"],
+)
+def test_load_entries_failed_download_is_unreadable_not_missing(exc):
+    api = FakeApi(
+        {
+            ARTIFACTS_PATH: {
+                "artifacts": [_art(1, "review-evidence-1"), _art(2, "review-evidence-2")]
+            }
+        },
+        blobs={1: exc, 2: _evidence_zip()},
+    )
+    got = gate.load_entries(api, "o/r", _pr_run())
+    assert sorted(e["state"] for e in got) == ["ok", "unreadable"]
+    (unreadable,) = [e for e in got if e["state"] == "unreadable"]
+    assert unreadable["artifact"] is None
+
+
+@pytest.mark.parametrize("conclusion", ["failure", "cancelled", "timed_out"])
+def test_load_entries_reads_a_run_whose_latest_attempt_did_not_succeed(conclusion):
+    """An earlier attempt's blocking artifact outlives a failed or cancelled re-run."""
+    api = FakeApi(
+        {ARTIFACTS_PATH: {"artifacts": [_art(1, "review-evidence-1")]}},
+        blobs={1: _evidence_zip(blocking=True)},
+    )
+    got = gate.load_entries(api, "o/r", _pr_run(conclusion=conclusion))
+    assert [(e["state"], e["artifact"]["blocking"]) for e in got] == [("ok", True)]
+
+
+@pytest.mark.parametrize(
+    "status,conclusion",
+    [("in_progress", None), ("queued", None), ("completed", "action_required")],
+)
+def test_load_entries_makes_no_call_for_an_unfinished_or_unapproved_run(status, conclusion):
+    api = FakeApi()
+    got = gate.load_entries(api, "o/r", _pr_run(status=status, conclusion=conclusion))
+    assert [(e["state"], e["artifact"]) for e in got] == [("missing", None)]
+    assert api.calls == []
+
+
+def test_gather_then_evaluate_keeps_blocking_from_an_earlier_attempt():
+    """End to end over the API shape: attempt 1 blocking, the re-run (attempt 2)
+    clean and the run's conclusion success — the SHA stays blocked."""
+    runs_path = "repos/o/r/actions/workflows/code-review.yml/runs"
+    api = FakeApi(
+        {
+            runs_path: {"workflow_runs": [_pr_run(run_attempt=2)]},
+            ARTIFACTS_PATH: {
+                "artifacts": [_art(1, "review-evidence-1"), _art(2, "review-evidence-2")]
+            },
+        },
+        blobs={1: _evidence_zip(blocking=True), 2: _evidence_zip()},
+    )
+    entries = gate.gather_entries(api, "o/r", PR, SHA, "main")
+    assert len(entries) == 2
+    got = _ev(entries)
+    assert (got.green, got.code) == (False, "evidence-blocking")
 
 
 # --- fetch_pr_snapshot ----------------------------------------------------

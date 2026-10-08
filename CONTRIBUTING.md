@@ -557,8 +557,9 @@ Every PR to `main` needs a green `verify-verdict` check. It is decided from
 review *evidence*, not from a comment:
 
 - `code-review.yml` runs an LLM reviewer on the PR and uploads a
-  `review-evidence` artifact (`review-evidence.json`, stamped with the PR's
-  head SHA and base branch). It never decides anything itself.
+  `review-evidence-<attempt>` artifact (`review-evidence.json`, stamped with
+  the PR's head SHA and base branch), one per run attempt, never overwritten.
+  It never decides anything itself.
 - `code-gate-verdict.yml` runs from the **default branch** (it never checks out
   PR code), reads the artifacts of the review runs bound to the head SHA and
   posts `verify-verdict` as the `osasuwu-ci` GitHub App. The rule and its
@@ -570,10 +571,12 @@ a non-blocking artifact and no run for that SHA is blocking, or when every
 changed file is cosmetic. It is red when the reviewer declines to run, an
 artifact is missing or expired, or a finding blocks. The check's summary names
 the reason and the fix. A blocking artifact stays in force for its commit
-even if a later run for the same SHA is clean; the fix is a new commit. Every
-other red (missing, expired or malformed evidence) clears as soon as a run for
-the same SHA comes back clean. Review
-evidence is kept 90 days, so an old open PR goes red as expired until its
+even if a later run, or a re-run of the same run, for that SHA is clean, and
+even if the re-run failed or was cancelled; the fix is a new commit. An
+artifact the verdict could not download stays red, whatever else is clean,
+until the verdict job is re-run and reads it. Every other red (missing,
+expired or malformed evidence) clears as soon as a run for the same SHA comes
+back clean. Review evidence is kept 90 days, so an old open PR goes red as expired until its
 review is re-run (a push or a fresh dispatch).
 
 **Cosmetic** (no review needed): `docs/**` markdown and images except

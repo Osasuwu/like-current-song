@@ -10,9 +10,11 @@ not the file text.
 
 from __future__ import annotations
 
+import importlib.util
 import re
 from pathlib import Path
 
+import pytest
 import yaml
 
 WORKFLOWS = next(
@@ -146,12 +148,35 @@ def _upload_steps() -> list[dict]:
     ]
 
 
-def test_evidence_artifact_is_retained_90_days_and_overwritable():
-    (evidence,) = [s for s in _upload_steps() if s["with"]["name"] == "review-evidence"]
+EVIDENCE_UPLOAD_NAME = "review-evidence-${{ github.run_attempt }}"
+
+
+def test_evidence_artifact_is_retained_90_days_one_per_attempt():
+    """A re-run attempt uploads its own artifact and cannot overwrite an earlier
+    attempt's, so blocking evidence survives a re-run."""
+    (evidence,) = [s for s in _upload_steps() if s["with"]["name"] == EVIDENCE_UPLOAD_NAME]
     assert evidence["with"]["retention-days"] == 90
-    assert evidence["with"]["overwrite"] is True  # a re-run of the same run must not conflict
+    assert evidence["with"]["overwrite"] is False
     assert evidence["with"]["if-no-files-found"] == "error"
     assert "if" not in evidence, "every run uploads evidence, including skipped ones"
+
+
+@pytest.mark.parametrize("attempt", ["1", "2", "17"])
+def test_uploaded_evidence_name_is_what_the_verdict_reads(attempt):
+    """The verdict only reads artifacts whose name fullmatches its pattern; an
+    upload name it does not match would read as "missing" for every run."""
+    (evidence,) = [s for s in _upload_steps() if s["with"]["name"] == EVIDENCE_UPLOAD_NAME]
+    name = evidence["with"]["name"].replace("${{ github.run_attempt }}", attempt)
+    assert _gate().EVIDENCE_ARTIFACT_NAME.fullmatch(name)
+
+
+def _gate():
+    spec = importlib.util.spec_from_file_location(
+        "code_gate_verdict", WORKFLOWS.parent / "scripts" / "code_gate_verdict.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def test_second_reviewer_attempt_runs_only_when_the_first_findings_are_invalid():

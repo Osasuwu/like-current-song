@@ -35,8 +35,10 @@ FINDINGS_GRANT = f"Edit(./{FINDINGS_PATH})"
 
 # The exact allowlist. One entry per read verb: a wholesale `Bash(git:*)` admits
 # `git config core.fsmonitor=<cmd>`, `git -c alias.x='!cmd'` and `git grep -O<cmd>`,
-# all of which execute programs, and `sort -o`/`uniq in out` write files. Adding a
-# grant means adding it here, which is the review point.
+# all of which execute programs, and `sort -o`/`uniq in out` write files. A
+# "syntax check" is not read-only either: `node --check -r <file>` runs the preload
+# module, so `node --check` and `bash -n` stay out. Adding a grant means adding it
+# here, which is the review point.
 EXPECTED_ALLOWED = frozenset(
     {
         # Native file-reading tools; the reviewer prompt steers it to these.
@@ -78,8 +80,6 @@ EXPECTED_ALLOWED = frozenset(
         "Bash(echo:*)",
         "Bash(python -m py_compile:*)",
         "Bash(python3 -m py_compile:*)",
-        "Bash(bash -n:*)",
-        "Bash(node --check:*)",
     }
 )
 
