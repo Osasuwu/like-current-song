@@ -570,7 +570,9 @@ a non-blocking artifact and no run for that SHA is blocking, or when every
 changed file is cosmetic. It is red when the reviewer declines to run, an
 artifact is missing or expired, or a finding blocks. The check's summary names
 the reason and the fix. A blocking artifact stays in force for its commit
-even if a later run for the same SHA is clean; the fix is a new commit. Review
+even if a later run for the same SHA is clean; the fix is a new commit. Every
+other red (missing, expired or malformed evidence) clears as soon as a run for
+the same SHA comes back clean. Review
 evidence is kept 90 days, so an old open PR goes red as expired until its
 review is re-run (a push or a fresh dispatch).
 

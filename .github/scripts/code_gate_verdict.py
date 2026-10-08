@@ -6,9 +6,11 @@ evidence producer). Ported from Osasuwu/jarvis#1964 (locked design); like-curren
 
 The rule ("Review evidence"). `verify-verdict` is green iff
   (a) at least one successful `code-review.yml` run bound to the evaluated head
-      SHA carries a valid, non-blocking `review-evidence.json` artifact, and no
-      bound run is blocking, unfinished, expired or missing its artifact
-      (sticky-worst; `status: skipped` artifacts are ignored), or
+      SHA carries a valid, non-blocking `review-evidence.json` artifact, no
+      bound run is blocking (sticky: only a new commit lifts it) and none is
+      unfinished; an expired, missing, malformed or mismatched artifact is red
+      only until a clean run for the SHA supersedes it (`status: skipped`
+      artifacts are ignored), or
   (b) every changed file is cosmetic (see `is_cosmetic`).
 The gate never reads the PR comment, a timestamp, a heading or a lineage: the
 comment is for humans, the artifact is the machine-readable verdict.
@@ -327,10 +329,18 @@ def evaluate_evidence(entries, pr_number, head_sha, base_ref, default_branch):
                 clean += 1
             elif result != "skipped":
                 reds.add(result)
+    # Blocking is the one sticky red: a later clean run for the same SHA cannot lift
+    # it, the fix is a new commit. Every other red is a failure to produce evidence,
+    # not a verdict on the code, so a clean run for the SHA supersedes it — that is
+    # what "re-dispatch the review" in its message relies on.
+    if "evidence-blocking" in reds:
+        return _verdict("evidence-blocking")
+    if clean:
+        return _verdict("evidence-clean")
     for code in _WORST_FIRST:
         if code in reds:
             return _verdict(code)
-    return _verdict("evidence-clean" if clean else "evidence-none")
+    return _verdict("evidence-none")
 
 
 def evaluate_pr(pr, files, entries, default_branch):

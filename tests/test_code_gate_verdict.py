@@ -466,9 +466,46 @@ def test_sticky_worst_blocking_beats_a_later_clean_run():
     assert (got.green, got.code) == (False, "evidence-blocking")
 
 
-def test_sticky_worst_missing_artifact_beats_a_clean_run():
-    got = _ev([_entry(_pr_run(id=1)), _entry(_dispatch_run(id=2), None, state="missing")])
-    assert (got.green, got.code) == (False, "evidence-missing")
+# A non-blocking red is a failure to produce evidence, not a verdict on the code:
+# the remediation its message names ("re-dispatch the review") must be able to
+# turn the check green, so a clean run for the SHA supersedes it.
+_SUPERSEDABLE_REDS = {
+    "evidence-missing": lambda run: _entry(run, None, state="missing"),
+    "evidence-expired": lambda run: _entry(run, None, state="expired"),
+    "evidence-invalid": lambda run: _entry(run, _artifact(blocking=True, findings=[])),
+    "evidence-sha-mismatch": lambda run: _entry(run, _artifact(sha=OTHER_SHA)),
+    "evidence-base-mismatch": lambda run: _entry(run, _artifact(base_ref="release")),
+}
+
+
+@pytest.mark.parametrize("code", sorted(_SUPERSEDABLE_REDS))
+def test_clean_redispatch_supersedes_a_non_blocking_red(code):
+    red = _SUPERSEDABLE_REDS[code](_pr_run(id=1))
+    assert _ev([red]).code == code  # the red alone is what the fixture claims
+    got = _ev([red, _entry(_dispatch_run(id=2))])
+    assert (got.green, got.code) == (True, "evidence-clean")
+
+
+def test_blocking_stays_sticky_next_to_supersedable_reds_and_a_clean_run():
+    blocking = _artifact(blocking=True, findings=[{"class": "regression", "file": "a.py"}])
+    got = _ev(
+        [
+            _entry(_pr_run(id=1), blocking),
+            _entry(_pr_run(id=2), None, state="missing"),
+            _entry(_dispatch_run(id=3)),
+        ]
+    )
+    assert (got.green, got.code) == (False, "evidence-blocking")
+
+
+def test_worst_supersedable_red_reported_when_no_clean_run():
+    got = _ev(
+        [
+            _entry(_pr_run(id=1), None, state="missing"),
+            _entry(_pr_run(id=2), _artifact(sha=OTHER_SHA)),
+        ]
+    )
+    assert (got.green, got.code) == (False, "evidence-sha-mismatch")
 
 
 def test_artifact_for_another_sha_is_red():
