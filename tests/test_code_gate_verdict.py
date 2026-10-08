@@ -801,8 +801,26 @@ def test_zip_without_the_evidence_file_is_malformed():
     assert gate.read_evidence_zip(_zip("other.json", "{}")) == {"status": "malformed"}
 
 
-def test_non_zip_bytes_are_malformed():
-    assert gate.read_evidence_zip(b"not a zip") == {"status": "malformed"}
+def _corrupt(blob):
+    """Flip one byte of the stored payload: the zip still opens, its CRC no longer matches."""
+    i = blob.index(b'"status"')
+    return blob[:i] + b"X" + blob[i + 1 :]
+
+
+@pytest.mark.parametrize(
+    "blob",
+    [
+        b"not a zip",
+        _zip("review-evidence.json", '{"status": "skipped"}')[:-30],
+        _corrupt(_zip("review-evidence.json", '{"status": "skipped"}')),
+    ],
+    ids=["not-a-zip", "cut-off", "crc-mismatch"],
+)
+def test_unreadable_zip_raises_instead_of_reading_as_malformed(blob):
+    """upload-artifact never writes a bad zip, so one means a broken download: its
+    verdict is unknown, which is not the same as malformed (a clean run lifts that)."""
+    with pytest.raises(gate.UnreadableArtifact):
+        gate.read_evidence_zip(blob)
 
 
 def test_zip_with_invalid_json_is_malformed():
@@ -827,6 +845,8 @@ class FakeApi:
             return {}
         for prefix, value in self.responses.items():
             if path.startswith(prefix):
+                if isinstance(value, BaseException):
+                    raise value
                 return value
         raise AssertionError(f"unexpected API call {method} {path}")
 
@@ -867,6 +887,8 @@ def _downloads(api):
 
 
 def test_load_entries_reads_every_live_attempt():
+    """Expired attempt 3 is skipped: its verdict is gone. That is the known
+    retention bound on blocking stickiness (#236), not the intended end state."""
     api = FakeApi(
         {
             ARTIFACTS_PATH: {
@@ -954,6 +976,48 @@ def test_load_entries_failed_download_is_unreadable_not_missing(exc):
     assert sorted(e["state"] for e in got) == ["ok", "unreadable"]
     (unreadable,) = [e for e in got if e["state"] == "unreadable"]
     assert unreadable["artifact"] is None
+
+
+def test_cut_off_blocking_download_is_not_lifted_by_a_clean_attempt():
+    """`HTTPResponse.read(amt)` hands back a short body without raising. Attempt 1
+    blocking but cut off, attempt 2 clean: the SHA must not go green."""
+    api = FakeApi(
+        {
+            ARTIFACTS_PATH: {
+                "artifacts": [_art(1, "review-evidence-1"), _art(2, "review-evidence-2")]
+            }
+        },
+        blobs={1: _evidence_zip(blocking=True)[:-30], 2: _evidence_zip()},
+    )
+    got = gate.load_entries(api, "o/r", _pr_run())
+    assert sorted(e["state"] for e in got) == ["ok", "unreadable"]
+    verdict = _ev(got)
+    assert (verdict.green, verdict.code) == (False, "evidence-unreadable")
+
+
+class _Resp:
+    def __init__(self, body, content_length=None):
+        self._body = body
+        self.headers = {} if content_length is None else {"Content-Length": str(content_length)}
+
+    def read(self, amt):
+        return self._body[:amt]
+
+
+def test_read_capped_returns_a_whole_body():
+    assert gate.read_capped(_Resp(b"PK-zip", content_length=6)) == b"PK-zip"
+    assert gate.read_capped(_Resp(b"PK-zip")) == b"PK-zip"
+
+
+def test_read_capped_raises_on_a_body_shorter_than_its_content_length():
+    with pytest.raises(gate.UnreadableArtifact):
+        gate.read_capped(_Resp(b"PK-z", content_length=6))
+
+
+def test_read_capped_raises_on_an_oversized_body_instead_of_truncating_it():
+    with pytest.raises(gate.UnreadableArtifact):
+        gate.read_capped(_Resp(b"x" * 11), limit=10)
+    assert gate.read_capped(_Resp(b"x" * 10), limit=10) == b"x" * 10
 
 
 @pytest.mark.parametrize("conclusion", ["failure", "cancelled", "timed_out"])
@@ -1045,6 +1109,89 @@ def test_post_check_creates_only_when_the_app_has_none():
     method, path, body = api.calls[-1]
     assert (method, path) == ("POST", "repos/o/r/check-runs")
     assert (body["name"], body["head_sha"], body["conclusion"]) == ("verify-verdict", SHA, "success")
+
+
+# --- cmd_verdict (fake API) -----------------------------------------------
+
+
+def _run_verdict(monkeypatch, read_responses, blobs=None):
+    """cmd_verdict over a read API answering `read_responses` and a gate API whose
+    `verify-verdict` for the SHA is currently green (id 9, app 123)."""
+    read = FakeApi(read_responses, blobs)
+    write = FakeApi({CHECKS_PATH: {"check_runs": [{"id": 9, "app": {"id": 123}}]}})
+    apis = {"read-token": read, "gate-token": write}
+    monkeypatch.setattr(gate, "Api", lambda token: apis[token])
+    env = {
+        "GITHUB_REPOSITORY": "o/r",
+        "HEAD_SHA": SHA,
+        "GH_TOKEN": "read-token",
+        "GATE_TOKEN": "gate-token",
+        "GATE_APP_ID": "123",
+        "PR_NUMBER": str(PR),
+    }
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+    return write
+
+
+def _patched(write):
+    return [(path, body) for m, path, body in write.calls if m == "PATCH"]
+
+
+def _snapshot_responses(**extra):
+    pr = _pr(changed_files=1)
+    return {
+        **extra,
+        f"repos/o/r/pulls/{PR}/files": [{"filename": "a.py", "status": "modified"}],
+        f"repos/o/r/pulls/{PR}": pr,
+        "repos/o/r": {"default_branch": "main"},
+    }
+
+
+@pytest.mark.parametrize(
+    "where,responses",
+    [
+        (
+            "artifacts-listing",
+            _snapshot_responses(
+                **{
+                    "repos/o/r/actions/workflows/code-review.yml/runs": {
+                        "workflow_runs": [_pr_run()]
+                    },
+                    ARTIFACTS_PATH: ConnectionResetError("reset"),
+                }
+            ),
+        ),
+        ("pr-snapshot", {f"repos/o/r/pulls/{PR}": urllib.error.URLError("dns")}),
+    ],
+)
+def test_a_crashing_verdict_replaces_a_green_check_with_a_red_one(monkeypatch, where, responses):
+    """A crash must not leave the SHA's earlier green standing: it posts red, then fails the job."""
+    write = _run_verdict(monkeypatch, responses)
+    with pytest.raises(OSError):
+        gate.cmd_verdict(None)
+    ((path, body),) = _patched(write)
+    assert path == "repos/o/r/check-runs/9"
+    assert body["conclusion"] == "failure"
+    assert body["output"]["title"] == "verify-verdict: verdict-error"
+
+
+def test_a_completed_verdict_posts_its_result(monkeypatch):
+    write = _run_verdict(
+        monkeypatch,
+        _snapshot_responses(
+            **{
+                "repos/o/r/actions/workflows/code-review.yml/runs": {"workflow_runs": [_pr_run()]},
+                ARTIFACTS_PATH: {"artifacts": [_art(1, "review-evidence-1")]},
+            }
+        ),
+        blobs={1: _evidence_zip(blocking=True)},
+    )
+    assert gate.cmd_verdict(None) == 0
+    ((_, body),) = _patched(write)
+    assert body["output"]["title"] == "verify-verdict: evidence-blocking"
 
 
 # --- safe_relpath / build_diff --------------------------------------------

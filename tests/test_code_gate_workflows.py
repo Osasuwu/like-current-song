@@ -164,8 +164,9 @@ def test_evidence_artifact_is_retained_90_days_one_per_attempt():
 @pytest.mark.parametrize("attempt", ["1", "2", "17"])
 def test_uploaded_evidence_name_is_what_the_verdict_reads(attempt):
     """The verdict only reads artifacts whose name fullmatches its pattern; an
-    upload name it does not match would read as "missing" for every run."""
-    (evidence,) = [s for s in _upload_steps() if s["with"]["name"] == EVIDENCE_UPLOAD_NAME]
+    upload name it does not match would read as "missing" for every run. The step
+    is found by what it uploads, not by the name under test."""
+    (evidence,) = [s for s in _upload_steps() if s["with"]["path"] == "review-evidence.json"]
     name = evidence["with"]["name"].replace("${{ github.run_attempt }}", attempt)
     assert _gate().EVIDENCE_ARTIFACT_NAME.fullmatch(name)
 
