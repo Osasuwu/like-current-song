@@ -2,9 +2,13 @@
 
 The reviewer runs HEADLESS (`anthropics/claude-code-action@v1`): a tool absent
 from `--allowed-tools` is DENIED outright, there is no human to approve it. Both
-lists are the contract with the harness, so they are pinned here: the grants the
-reviewer needs, the wholesale `git`/`gh` read grants, the mutating verbs carved
-back out, and the one write grant, `Edit(./.review/findings.json)`.
+lists are the contract with the harness, so they are pinned here: the allowlist
+as an exact closed set of read verbs, the mutating verbs denied, and the one
+write grant, `Edit(./.review/findings.json)`.
+
+The patterns steer the reviewer; they are not a boundary (the harness matches
+command text, so a quoted flag slips past a deny). What bounds a reviewer talked
+into a write is the read-only job token it runs `gh` on, pinned here too.
 
 The reviewer no longer posts a PR comment; its only output is the findings file.
 `Edit(path)` is the one path-scoped write rule the harness consults (a
@@ -29,36 +33,58 @@ LIVE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "code-review.yml"
 FINDINGS_PATH = ".review/findings.json"
 FINDINGS_GRANT = f"Edit(./{FINDINGS_PATH})"
 
-REQUIRED_TOOLS = (
-    # Native file-reading tools; the reviewer prompt steers it to these.
-    "Read",
-    "Grep",
-    "Glob",
-    "Bash(wc:*)",
-    # `gh api` stays on narrow grants: its `-X <method>`/`--input` mutation flags can
-    # appear anywhere in the command line, so a prefix-matched disallow cannot catch
-    # every spelling the way it can for `gh pr`/`gh issue`.
-    "Bash(gh api repos/*/commits/*:*)",
-    "Bash(gh api repos/*/compare/*:*)",
-    # Headless permission matching splits compound commands on ; | && and newlines and
-    # checks each part, so an un-allowlisted `echo` prefix denies the whole command.
-    "Bash(echo:*)",
-    # The findings file is the reviewer's only output.
-    FINDINGS_GRANT,
+# The exact allowlist. One entry per read verb: a wholesale `Bash(git:*)` admits
+# `git config core.fsmonitor=<cmd>`, `git -c alias.x='!cmd'` and `git grep -O<cmd>`,
+# all of which execute programs, and `sort -o`/`uniq in out` write files. Adding a
+# grant means adding it here, which is the review point.
+EXPECTED_ALLOWED = frozenset(
+    {
+        # Native file-reading tools; the reviewer prompt steers it to these.
+        "Read",
+        "Grep",
+        "Glob",
+        # The findings file is the reviewer's only output.
+        FINDINGS_GRANT,
+        "Bash(git log:*)",
+        "Bash(git show:*)",
+        "Bash(git diff:*)",
+        "Bash(git blame:*)",
+        "Bash(git status:*)",
+        "Bash(git rev-parse:*)",
+        "Bash(git ls-files:*)",
+        "Bash(git merge-base:*)",
+        "Bash(gh pr view:*)",
+        "Bash(gh pr diff:*)",
+        "Bash(gh pr list:*)",
+        "Bash(gh pr checks:*)",
+        "Bash(gh issue view:*)",
+        "Bash(gh issue list:*)",
+        "Bash(gh search:*)",
+        "Bash(gh label list:*)",
+        # `gh api` stays on narrow path grants; the read-only token is what stops
+        # its `-X`/`-f` mutation flags.
+        "Bash(gh api repos/*/commits/*:*)",
+        "Bash(gh api repos/*/compare/*:*)",
+        "Bash(wc:*)",
+        "Bash(head:*)",
+        "Bash(tail:*)",
+        "Bash(cat:*)",
+        "Bash(cut:*)",
+        "Bash(nl:*)",
+        "Bash(tr:*)",
+        # Headless permission matching splits compound commands on ; | && and
+        # newlines and checks each part, so an un-allowlisted `echo` prefix
+        # denies the whole command.
+        "Bash(echo:*)",
+        "Bash(python -m py_compile:*)",
+        "Bash(python3 -m py_compile:*)",
+        "Bash(bash -n:*)",
+        "Bash(node --check:*)",
+    }
 )
 
-# Wholesale grants: the allowlist model of one entry per git/gh verb needed a patch
-# for every unenumerated read verb the reviewer reached for.
-WHOLESALE_GRANTS = (
-    "Bash(git:*)",
-    "Bash(gh pr:*)",
-    "Bash(gh issue:*)",
-    "Bash(gh search:*)",
-    "Bash(gh label:*)",
-)
-
-# The mutating verbs in the wholesale-granted noun-groups must stay carved out, or
-# the grants become a real mutation surface if the job token ever widens.
+# Mutating verbs stay denied as a second line behind the exact allowlist, so a
+# future wildcard grant does not silently reopen them.
 REQUIRED_DISALLOWED = (
     "Bash(gh pr merge:*)",
     "Bash(gh pr close:*)",
@@ -100,6 +126,8 @@ REQUIRED_DISALLOWED = (
     "Bash(git checkout:*)",
     "Bash(git switch:*)",
     "Bash(git restore:*)",
+    # `git log/show/diff/blame --output=<file>` writes any path on the runner.
+    "Bash(git *--ou*)",
 )
 
 _ALLOWED_TOOLS_RE = re.compile(r'--allowed-tools\s+"([^"]*)"')
@@ -123,33 +151,54 @@ def _disallowed_tools_blocks(path: Path) -> list[list[str]]:
 
 
 @pytest.mark.parametrize("path", [LIVE_WORKFLOW], ids=["live"])
-def test_required_git_tools_present(path: Path) -> None:
+def test_allowlist_is_exactly_the_read_set(path: Path) -> None:
+    """A missing grant is DENIED headless; an extra one widens what an injected
+    reviewer can run. Both directions go red."""
     for block in _allowed_tools_blocks(path):
-        for tool in REQUIRED_TOOLS:
-            assert tool in block, (
-                f"{path.name}: allowlist missing {tool!r} — headless action will "
-                f"DENY it. Allowlist was: {block}"
-            )
+        got = set(block.split(","))
+        assert got == EXPECTED_ALLOWED, (
+            f"{path.name}: allowlist drifted. Extra: {sorted(got - EXPECTED_ALLOWED)}; "
+            f"missing: {sorted(EXPECTED_ALLOWED - got)}"
+        )
 
 
-@pytest.mark.parametrize("path", [LIVE_WORKFLOW], ids=["live"])
-def test_wholesale_git_and_gh_grants_present(path: Path) -> None:
-    """Dropping a wholesale grant re-opens the per-verb whack-a-mole."""
-    for block in _allowed_tools_blocks(path):
-        for tool in WHOLESALE_GRANTS:
-            assert tool in block, (
-                f"{path.name}: allowlist missing wholesale grant {tool!r}. Allowlist was: {block}"
-            )
+def _reviewer_steps() -> list[dict]:
+    spec = yaml.safe_load(LIVE_WORKFLOW.read_text(encoding="utf-8"))
+    steps = [
+        s
+        for s in spec["jobs"]["review"]["steps"]
+        if str(s.get("uses", "")).startswith("anthropics/claude-code-action@")
+    ]
+    assert steps, "no claude-code-action step found"
+    return steps
+
+
+def test_reviewer_runs_gh_on_the_read_only_job_token() -> None:
+    """Without `github_token` the action mints a write-scoped Claude App token
+    over OIDC and hands it to the reviewer's `gh`."""
+    for step in _reviewer_steps():
+        assert step["with"].get("github_token") == "${{ secrets.GITHUB_TOKEN }}", step["name"]
+
+
+def test_review_job_token_is_read_only_and_has_no_oidc() -> None:
+    spec = yaml.safe_load(LIVE_WORKFLOW.read_text(encoding="utf-8"))
+    perms = spec["jobs"]["review"]["permissions"]
+    assert perms == {"contents": "read", "pull-requests": "read"}
+
+
+def test_reviewer_subprocess_env_is_scrubbed() -> None:
+    spec = yaml.safe_load(LIVE_WORKFLOW.read_text(encoding="utf-8"))
+    assert spec["jobs"]["review"]["env"]["CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"] == "1"
 
 
 @pytest.mark.parametrize("path", [LIVE_WORKFLOW], ids=["live"])
 def test_mutating_verbs_disallowed(path: Path) -> None:
-    """Every mutating verb of the wholesale-granted noun-groups stays disallowed."""
+    """Every mutating verb stays disallowed behind the exact allowlist."""
     for block in _disallowed_tools_blocks(path):
         for tool in REQUIRED_DISALLOWED:
             assert tool in block, (
-                f"{path.name}: --disallowed-tools missing {tool!r} — the wholesale "
-                f"allow grants make this a mutation surface without it. Disallowed-tools was: {block}"
+                f"{path.name}: --disallowed-tools missing {tool!r}. "
+                f"Disallowed-tools was: {block}"
             )
 
 
