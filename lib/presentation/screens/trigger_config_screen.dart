@@ -111,7 +111,10 @@ class _TriggerConfigScreenState extends ConsumerState<TriggerConfigScreen> {
           ),
           TextField(
             controller: _window,
-            decoration: const InputDecoration(labelText: 'Window (ms)'),
+            decoration: const InputDecoration(
+              labelText: 'Window (ms)',
+              helperText: 'At most ${AppConstants.maxWindowMs} ms',
+            ),
             keyboardType: TextInputType.number,
           ),
           TextField(

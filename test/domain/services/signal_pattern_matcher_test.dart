@@ -294,6 +294,30 @@ void main() {
 
         expect(match, equals(false));
       });
+
+      test('the window is capped at 1500 ms whatever the setting says', () {
+        // #248: a long window let an automatic pause and the resume that
+        // followed it seconds later read as the user's `pause, play`. A stored
+        // window above the cap is held to it. Mirrors the Kotlin case.
+        final t0 = DateTime.utc(2026, 1, 1);
+        var now = t0;
+        final config = TriggerConfig(
+          pattern: 'pause,play',
+          windowMs: 5000,
+          debounceMs: 500,
+        );
+
+        final atCap = SignalPatternMatcher(clock: () => now);
+        atCap.onEvent(event: 'pause', config: config);
+        now = t0.add(const Duration(milliseconds: 1500));
+        expect(atCap.onEvent(event: 'play', config: config), equals(true));
+
+        now = t0;
+        final pastCap = SignalPatternMatcher(clock: () => now);
+        pastCap.onEvent(event: 'pause', config: config);
+        now = t0.add(const Duration(milliseconds: 1501));
+        expect(pastCap.onEvent(event: 'play', config: config), equals(false));
+      });
     });
 
     group('pattern with spaces', () {

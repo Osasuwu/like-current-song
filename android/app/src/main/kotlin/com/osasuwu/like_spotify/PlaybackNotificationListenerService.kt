@@ -11,7 +11,7 @@ import androidx.core.app.NotificationManagerCompat
 class PlaybackNotificationListenerService : NotificationListenerService() {
     private lateinit var mediaSessionManager: MediaSessionManager
     private val callbacks = mutableMapOf<String, MediaController.Callback>()
-    private val lastStateByPackage = mutableMapOf<String, Int>()
+    private val stateFilter = PlaybackStateFilter()
 
     private val activeSessionsChangedListener = MediaSessionManager.OnActiveSessionsChangedListener { controllers ->
         attachControllers(controllers ?: emptyList())
@@ -48,6 +48,7 @@ class PlaybackNotificationListenerService : NotificationListenerService() {
                 ).find { it.sessionToken.toString() == token }
                 controller?.unregisterCallback(callback)
             }
+            stateFilter.forget(token)
         }
         callbacks.clear()
     }
@@ -74,6 +75,7 @@ class PlaybackNotificationListenerService : NotificationListenerService() {
 
         val toRemove = callbacks.keys.filter { it !in byToken.keys }
         toRemove.forEach { token ->
+            stateFilter.forget(token)
             val callback = callbacks.remove(token) ?: return@forEach
             byToken[token]?.unregisterCallback(callback)
         }
@@ -89,24 +91,12 @@ class PlaybackNotificationListenerService : NotificationListenerService() {
                     val packageName = controller.packageName ?: return
                     val rawState = state?.state ?: return
 
-                    val mapped = when (rawState) {
-                        android.media.session.PlaybackState.STATE_PLAYING -> "play"
-                        android.media.session.PlaybackState.STATE_PAUSED,
-                        android.media.session.PlaybackState.STATE_STOPPED,
-                        android.media.session.PlaybackState.STATE_NONE -> "pause"
-                        else -> null
-                    } ?: return
-
-                    val previous = lastStateByPackage[packageName]
-                    if (previous == rawState) {
-                        return
-                    }
-                    lastStateByPackage[packageName] = rawState
+                    val mapped = stateFilter.onState(token, rawState) ?: return
 
                     val service = this@PlaybackNotificationListenerService
                     // Remembered even for a service the trigger ignores: it is
                     // what automatic routing falls back to once playback stops.
-                    if (rawState == android.media.session.PlaybackState.STATE_PLAYING) {
+                    if (mapped == "play") {
                         MusicProvider.values()
                             .firstOrNull { it.ownsSession(packageName) }
                             ?.let { MusicProvider.recordPlaying(service, it) }

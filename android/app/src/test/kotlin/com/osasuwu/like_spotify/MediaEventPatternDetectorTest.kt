@@ -165,6 +165,20 @@ class MediaEventPatternDetectorTest {
         assertTrue(detector.onEvent("play", t0 + 50))
     }
 
+    @Test
+    fun `the window is capped at 1500 ms whatever the setting says`() {
+        // #248: a long window let an automatic pause and the resume that
+        // followed it seconds later read as the user's `pause, play`. A stored
+        // window above the cap is held to it.
+        val atCap = detector(listOf("pause", "play"), windowMs = 5_000L)
+        atCap.onEvent("pause", t0)
+        assertTrue(atCap.onEvent("play", t0 + 1_500))
+
+        val pastCap = detector(listOf("pause", "play"), windowMs = 5_000L)
+        pastCap.onEvent("pause", t0)
+        assertFalse(pastCap.onEvent("play", t0 + 1_501))
+    }
+
     // ---- the debounce -------------------------------------------------
 
     @Test
