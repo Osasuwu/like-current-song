@@ -89,7 +89,7 @@ void main() {
       test('accepts a pattern that has events', () {
         final config = TriggerConfig(
           pattern: 'pause,play',
-          windowMs: 5000,
+          windowMs: 1000,
           debounceMs: 500,
         );
 
@@ -99,7 +99,7 @@ void main() {
       test('rejects an empty pattern, saying what is missing', () {
         final config = TriggerConfig(
           pattern: '',
-          windowMs: 5000,
+          windowMs: 1000,
           debounceMs: 500,
         );
 
@@ -110,11 +110,32 @@ void main() {
       test('rejects a pattern that is only commas and whitespace', () {
         final config = TriggerConfig(
           pattern: ' , , ',
-          windowMs: 5000,
+          windowMs: 1000,
           debounceMs: 500,
         );
 
         expect(config.validate(), hasLength(1));
+      });
+
+      test('caps the window at 1500 ms, saying so (#248)', () {
+        // Past 1.5 s an automatic pause and the resume after it read as the
+        // user's `pause, play`. The limit and its message are the contract.
+        const atCap = TriggerConfig(
+          pattern: 'pause,play',
+          windowMs: 1500,
+          debounceMs: 500,
+        );
+        const pastCap = TriggerConfig(
+          pattern: 'pause,play',
+          windowMs: 1501,
+          debounceMs: 500,
+        );
+
+        expect(atCap.validate(), isEmpty);
+        expect(
+          pastCap.validate(),
+          equals(<String>['Trigger window can be at most 1500 ms.']),
+        );
       });
     });
 

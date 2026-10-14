@@ -5,8 +5,13 @@ import 'package:like_spotify_mobile_app/presentation/screens/trigger_config_scre
 import '../../helpers/screen_harness.dart';
 
 void main() {
-  /// Clears the pattern field, replaces it with [pattern], and presses Save.
-  Future<void> saveWithPattern(WidgetTester tester, String pattern) async {
+  /// Replaces the pattern field with [pattern] — and the window field with
+  /// [window], when given — and presses Save.
+  Future<void> saveWithPattern(
+    WidgetTester tester,
+    String pattern, {
+    String? window,
+  }) async {
     await tester.pumpWidget(hostScreen(const TriggerConfigScreen()));
     await tester.pumpAndSettle();
 
@@ -14,6 +19,12 @@ void main() {
       find.widgetWithText(TextField, 'Pattern'),
       pattern,
     );
+    if (window != null) {
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Window (ms)'),
+        window,
+      );
+    }
     // The Save button lives below the fold of a lazy ListView, so it has to be
     // scrolled into existence before it can be tapped.
     final save = find.widgetWithText(FilledButton, 'Save');
@@ -49,6 +60,14 @@ void main() {
           'for example pause,play.'),
       findsOneWidget,
     );
+    expect(find.text('Trigger configuration saved'), findsNothing);
+  });
+
+  testWidgets('refuses a window above 1500 ms and names the limit (#248)',
+      (tester) async {
+    await saveWithPattern(tester, 'pause,play', window: '1501');
+
+    expect(find.text('Trigger window can be at most 1500 ms.'), findsOneWidget);
     expect(find.text('Trigger configuration saved'), findsNothing);
   });
 }

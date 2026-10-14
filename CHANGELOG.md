@@ -25,6 +25,15 @@ you sign in from its Settings window.
 
 ### Fixed
 
+- **Android: no more likes from another app interrupting the music (#248).**
+  A notification sound, voice message or navigation prompt pauses the music and
+  resumes it, which used to read as your `pause, play`. Now only a real pause
+  counts (a player stopping or going idle does not), the trigger window is
+  capped at 1500 ms (the settings screen refuses more, and a longer stored value
+  is held to it), and on Android 8+ a match is dropped when another app's
+  player started around the pause. The Logs screen says so ("Trigger vetoed").
+  No new permission. The headset button and the notification shade's
+  play/pause still trigger.
 - **CI: the code-review gate counts only review runs it can trust (#230,
   #240, #241).** A review run that also lists a PR into another base branch,
   or a dispatched review that did not run from `main`, no longer counts as

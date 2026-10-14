@@ -12,6 +12,11 @@ class AppConstants {
 
   static const defaultPattern = 'pause,play';
   static const defaultWindowMs = 1000;
+
+  /// The longest trigger window allowed (#248). Past it, an automatic pause
+  /// and the resume that follows it seconds later read as the user's
+  /// `pause, play`. The Kotlin detector holds the same cap as `MAX_WINDOW_MS`.
+  static const maxWindowMs = 1500;
   static const defaultDebounceMs = 650;
   static const defaultFeedbackVolume = 100;
   /// Playlist names the extra actions used out of the box up to v1.0.3.

@@ -1,3 +1,4 @@
+import '../../core/app_constants.dart';
 import '../entities/trigger_config.dart';
 
 /// The Dart-side *executable specification* of the media-button pattern rules.
@@ -15,11 +16,17 @@ import '../entities/trigger_config.dart';
 /// `android/app/src/test/kotlin/com/osasuwu/like_spotify/MediaEventPatternDetectorTest.kt`,
 /// which mirror each other on purpose. Both suites are load-bearing.
 class SignalPatternMatcher {
+  /// [clock] is for tests: the Kotlin twin is handed each event's timestamp,
+  /// and this lets the Dart suite pin the same instants instead of sleeping.
+  SignalPatternMatcher({DateTime Function()? clock})
+      : _clock = clock ?? (() => DateTime.now().toUtc());
+
+  final DateTime Function() _clock;
   final List<_StampedEvent> _events = <_StampedEvent>[];
   DateTime? _lastTriggerAt;
 
   bool onEvent({required String event, required TriggerConfig config}) {
-    final now = DateTime.now().toUtc();
+    final now = _clock();
     if (event != 'play' && event != 'pause') {
       return false;
     }
@@ -34,8 +41,11 @@ class SignalPatternMatcher {
     }
 
     _events.add(_StampedEvent(event, now));
+    final windowMs = config.windowMs < AppConstants.maxWindowMs
+        ? config.windowMs
+        : AppConstants.maxWindowMs;
     _events.removeWhere(
-      (e) => now.difference(e.at).inMilliseconds > config.windowMs,
+      (e) => now.difference(e.at).inMilliseconds > windowMs,
     );
 
     if (_lastTriggerAt != null &&

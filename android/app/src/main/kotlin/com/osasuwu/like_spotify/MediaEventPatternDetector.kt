@@ -30,7 +30,8 @@ class MediaEventPatternDetector(
         }
 
         events.addLast(event to atMs)
-        while (events.isNotEmpty() && atMs - events.first().second > windowMsProvider()) {
+        val window = minOf(windowMsProvider(), MAX_WINDOW_MS)
+        while (events.isNotEmpty() && atMs - events.first().second > window) {
             events.removeFirst()
         }
 
@@ -45,6 +46,15 @@ class MediaEventPatternDetector(
             return true
         }
         return false
+    }
+
+    companion object {
+        /**
+         * The longest window honoured, whatever is stored (#248). Past it, an
+         * automatic pause and the resume that follows it seconds later read
+         * as the user's `pause, play`. Mirrors `AppConstants.maxWindowMs`.
+         */
+        const val MAX_WINDOW_MS = 1_500L
     }
 
     private fun matches(pattern: List<String>): Boolean {

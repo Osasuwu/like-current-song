@@ -10,8 +10,12 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.media.AudioManager
+import android.media.AudioPlaybackConfiguration
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
 import android.provider.Settings
@@ -27,6 +31,15 @@ class MediaButtonForegroundService : Service() {
     private lateinit var detector: MediaEventPatternDetector
     private var nextToggleIsPause = true
     private var stoppedByUser = false
+
+    /**
+     * Refuses a match another app's audio caused (#248). Fed by
+     * [playbackCallback]; both it and [onMediaEvent] run on the main thread.
+     */
+    private val veto = ExternalPlaybackVeto()
+
+    /** API 26+ only; null below, where the veto has no history and passes. */
+    private var playbackCallback: Any? = null
 
     /** Runs YouTube Music likes (binder polling + HTTP) off the main thread. */
     private val likeExecutor: ExecutorService = Executors.newSingleThreadExecutor()
@@ -56,6 +69,7 @@ class MediaButtonForegroundService : Service() {
             debounceMsProvider = { prefs().getLong(AppConstants.KEY_DEBOUNCE_MS, 650L) },
             patternProvider = { loadPattern() }
         )
+        watchActivePlayers()
 
         // NOT the path a headset press takes — see MediaButtonReceiver. Android
         // hands the media button to the session it considers the current
@@ -146,6 +160,13 @@ class MediaButtonForegroundService : Service() {
         runCatching {
             LocalBroadcastManager.getInstance(this).unregisterReceiver(listenerStateReceiver)
         }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            (playbackCallback as? AudioManager.AudioPlaybackCallback)?.let { callback ->
+                runCatching {
+                    getSystemService(AudioManager::class.java)?.unregisterAudioPlaybackCallback(callback)
+                }
+            }
+        }
         mediaSession.isActive = false
         mediaSession.release()
         if (stoppedByUser) {
@@ -163,8 +184,20 @@ class MediaButtonForegroundService : Service() {
 
     private fun onMediaEvent(event: String) {
         broadcastMediaEvent(event)
-        if (detector.onEvent(event, System.currentTimeMillis())) {
+        val now = System.currentTimeMillis()
+        if (detector.onEvent(event, now)) {
             log("Trigger matched: ${loadPattern().joinToString(" -> ")}")
+            val started = veto.startedPlayers(now)
+            if (started.isNotEmpty()) {
+                // An unwanted like is worse than a missed one: when another
+                // app's audio may have caused the pause, do nothing.
+                log(
+                    "Trigger vetoed: another app started playing around the pause " +
+                        "(usage ${started.joinToString { it.usage.toString() }})",
+                    actionType = "trigger_veto",
+                )
+                return
+            }
             if (MainActivity.isFlutterAttached) {
                 log("Delegating to Flutter (full workflow)")
                 val intent = Intent(AppConstants.ACTION_TRIGGER_LIKE)
@@ -233,6 +266,36 @@ class MediaButtonForegroundService : Service() {
             }
         }
         if (submitted.isFailure && wakeLock.isHeld) wakeLock.release()
+    }
+
+    /**
+     * Feeds [veto] the active-player list: seeded now, then on every change.
+     * No permission is needed — an ordinary app gets anonymised copies, which
+     * still keep each player's identity and usage.
+     */
+    private fun watchActivePlayers() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return
+        }
+        val audioManager = getSystemService(AudioManager::class.java) ?: return
+        fun record(configs: List<AudioPlaybackConfiguration>) {
+            veto.onPlayersChanged(
+                System.currentTimeMillis(),
+                configs.map { ExternalPlaybackVeto.ActivePlayer(it, it.audioAttributes.usage) },
+            )
+        }
+        runCatching {
+            record(audioManager.activePlaybackConfigurations)
+            val callback = object : AudioManager.AudioPlaybackCallback() {
+                override fun onPlaybackConfigChanged(configs: MutableList<AudioPlaybackConfiguration>) {
+                    record(configs)
+                }
+            }
+            audioManager.registerAudioPlaybackCallback(callback, Handler(Looper.getMainLooper()))
+            playbackCallback = callback
+        }.onFailure {
+            log("Cannot watch other apps' playback; the veto is off: ${it.message}", actionType = "trigger_veto")
+        }
     }
 
     private fun normalizeExternalEvent(event: String?): String? {
