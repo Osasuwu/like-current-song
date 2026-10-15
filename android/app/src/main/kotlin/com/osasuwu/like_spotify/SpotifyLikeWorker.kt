@@ -319,32 +319,61 @@ class SpotifyLikeWorker(
 
         val trackCount = runCatching { incrementTrackLikeCount(prefs, token, track.id) }
             .getOrElse { LocalCounters.increment(prefs, LocalCounters.Kind.TRACK, track.id) }
-        if (ruleConfig.bestEnabled &&
-            ruleConfig.bestPlaylistName.isNotBlank() &&
-            trackCount == ruleConfig.bestThreshold
-        ) {
+        if (ruleConfig.bestEnabled && ruleConfig.bestPlaylistName.isNotBlank()) {
+            val bestName = ruleConfig.bestPlaylistName
             runCatching {
-                val bestId = ensurePlaylist(prefs, ruleConfig.bestPlaylistName, token)
-                if (bestId != null) {
-                    val result = addTrackToPlaylist(bestId, track.uri, token)
-                    if (result.statusCode == 404) PlaylistCache.forget(prefs, ruleConfig.bestPlaylistName)
-                    if (result.success) {
-                        log(
-                            "Added to best playlist: ${ruleConfig.bestPlaylistName}",
-                            actionType = "best_add",
-                            targetId = track.id,
-                            result = "success",
-                            httpCode = result.statusCode
-                        )
-                    } else {
-                        log(
-                            "Best promotion failed",
-                            actionType = "best_add",
-                            targetId = track.id,
-                            result = "failure",
-                            httpCode = result.statusCode
-                        )
-                    }
+                // At or past the threshold, once per track, never a second
+                // copy: BestPromotion holds that rule and its tests (#245).
+                var bestId: String? = null
+                var addResult: ApiResult? = null
+                val outcome = BestPromotion.run(
+                    prefs,
+                    trackCount,
+                    ruleConfig.bestThreshold,
+                    track.id,
+                    isInPlaylist = {
+                        val id = ensurePlaylist(prefs, bestName, token)
+                        bestId = id
+                        id != null && playlistContainsTrack(prefs, bestName, id, track.id, token)
+                    },
+                    add = {
+                        val id = bestId
+                        if (id == null) {
+                            false
+                        } else {
+                            val result = addTrackToPlaylist(id, track.uri, token)
+                            if (result.statusCode == 404) PlaylistCache.forget(prefs, bestName)
+                            addResult = result
+                            result.success
+                        }
+                    },
+                )
+                when (outcome) {
+                    BestPromotion.Outcome.NOT_DUE -> Unit
+                    BestPromotion.Outcome.ADDED -> log(
+                        "Added to best playlist: $bestName",
+                        actionType = "best_add",
+                        targetId = track.id,
+                        result = "success",
+                        httpCode = addResult?.statusCode
+                    )
+                    BestPromotion.Outcome.ALREADY_IN_PLAYLIST -> log(
+                        "Already in best playlist: $bestName",
+                        actionType = "best_add",
+                        targetId = track.id,
+                        result = "info"
+                    )
+                    BestPromotion.Outcome.NOT_ADDED -> log(
+                        if (bestId == null) {
+                            "Best promotion failed: no playlist named \"$bestName\" and creating one failed"
+                        } else {
+                            "Best promotion failed"
+                        },
+                        actionType = "best_add",
+                        targetId = track.id,
+                        result = "failure",
+                        httpCode = addResult?.statusCode
+                    )
                 }
             }.onFailure {
                 log(
@@ -563,6 +592,35 @@ class SpotifyLikeWorker(
         val id = JSONObject(payload).optString("id").takeIf { it.isNotBlank() } ?: return null
         prefs.edit().putString(AppConstants.KEY_SPOTIFY_USER_ID, id).apply()
         return id
+    }
+
+    /**
+     * Whether [trackId] is in the playlist [playlistId] (named [name]) already,
+     * paging through all of it. Throws when Spotify refuses a page, so the
+     * caller logs the failure and remembers nothing; a 404 also drops the
+     * cached id, as the add does.
+     */
+    private fun playlistContainsTrack(
+        prefs: SharedPreferences,
+        name: String,
+        playlistId: String,
+        trackId: String,
+        token: String,
+    ): Boolean {
+        var url: String? = SpotifyPlaylistTracks.firstPageUrl(playlistId)
+        while (url != null) {
+            val connection = api(url, token, "GET")
+            val code = connection.responseCode
+            if (code !in 200..299) {
+                if (code == 404) PlaylistCache.forget(prefs, name)
+                throw IllegalStateException("reading the playlist failed with HTTP $code")
+            }
+            val body = readBody(connection) ?: throw IllegalStateException("reading the playlist returned no body")
+            val page = SpotifyPlaylistTracks.parsePage(body)
+            if (trackId in page.trackIds) return true
+            url = page.next
+        }
+        return false
     }
 
     private fun addTrackToPlaylist(playlistId: String, trackUri: String, token: String): ApiResult {

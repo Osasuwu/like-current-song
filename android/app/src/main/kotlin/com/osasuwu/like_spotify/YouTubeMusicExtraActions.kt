@@ -57,10 +57,8 @@ class YouTubeMusicExtraActions(
             // The shared counter already counted this like; the local map is
             // only the fallback for when there is no counter to ask.
             val count = sharedLikeCount ?: incrementLocalCount(LocalCounters.Kind.TRACK, match.videoId)
-            if (reachedThreshold(count, rules.bestThreshold)) {
-                runCatching { promoteToBest(rules.bestPlaylistName, match.videoId) }
-                    .onFailure { report("Best promotion failed", BEST_ACTION, it) }
-            }
+            runCatching { promoteToBest(rules.bestPlaylistName, match.videoId, count) }
+                .onFailure { report("Best promotion failed", BEST_ACTION, it) }
         }
 
         if (rules.followArtistEnabled) {
@@ -92,15 +90,7 @@ class YouTubeMusicExtraActions(
             log("Archive removal skipped: no playlist named \"$name\"", ARCHIVE_ACTION, "info", null)
             return
         }
-        val fields = encode("items(id,contentDetails/videoId)")
-        val body = apiCall(
-            "GET",
-            "${YouTubeDataApi.API_BASE}/playlistItems?part=contentDetails" +
-                "&playlistId=${encode(playlistId)}&videoId=${encode(videoId)}" +
-                "&maxResults=$PAGE_SIZE&fields=$fields",
-            null,
-        )
-        val itemIds = YouTubeDataApi.parsePlaylistItemIds(body, videoId)
+        val itemIds = playlistItemIds(playlistId, videoId)
         if (itemIds.isEmpty()) {
             log("Archive removal skipped: not in \"$name\"", ARCHIVE_ACTION, "info", null)
             return
@@ -138,8 +128,47 @@ class YouTubeMusicExtraActions(
         return true
     }
 
-    private fun promoteToBest(name: String, videoId: String) {
-        addToPlaylist(name, videoId, BEST_ACTION, "Added to best playlist")
+    /**
+     * The best-playlist rule for [videoId] at [count] likes: at or past the
+     * threshold, once per song, never a second copy -- [BestPromotion] holds
+     * the rule (#245). The membership check is one `playlistItems.list` call
+     * filtered to the video, 1 quota unit, and only runs when the rule is due.
+     */
+    private fun promoteToBest(name: String, videoId: String, count: Int) {
+        val outcome = BestPromotion.run(
+            prefs,
+            count,
+            rules.bestThreshold,
+            countKey(videoId),
+            isInPlaylist = { findPlaylist(name)?.let { playlistItemIds(it, videoId).isNotEmpty() } ?: false },
+            add = { addToPlaylist(name, videoId, BEST_ACTION, "Added to best playlist") },
+        )
+        when (outcome) {
+            BestPromotion.Outcome.ALREADY_IN_PLAYLIST ->
+                log("Already in best playlist: $name", BEST_ACTION, "info", null)
+            BestPromotion.Outcome.NOT_ADDED ->
+                log(
+                    "Best promotion failed: no playlist named \"$name\" and creating one failed",
+                    BEST_ACTION,
+                    "failure",
+                    null,
+                )
+            // ADDED logged itself in addToPlaylist; NOT_DUE has nothing to say.
+            BestPromotion.Outcome.ADDED, BestPromotion.Outcome.NOT_DUE -> Unit
+        }
+    }
+
+    /** The playlistItem ids in [playlistId] that hold [videoId]; empty when it is not there. */
+    private fun playlistItemIds(playlistId: String, videoId: String): List<String> {
+        val fields = encode("items(id,contentDetails/videoId)")
+        val body = apiCall(
+            "GET",
+            "${YouTubeDataApi.API_BASE}/playlistItems?part=contentDetails" +
+                "&playlistId=${encode(playlistId)}&videoId=${encode(videoId)}" +
+                "&maxResults=$PAGE_SIZE&fields=$fields",
+            null,
+        )
+        return YouTubeDataApi.parsePlaylistItemIds(body, videoId)
     }
 
     private fun followChannel(channelId: String) {
@@ -235,12 +264,6 @@ class YouTubeMusicExtraActions(
      * Whether to subscribe to [followedKey]'s channel now, by the same rule the
      * Spotify worker follows by -- [LocalCounters.shouldFollow] is where that
      * rule lives and where it is tested.
-     *
-     * Deliberately not [reachedThreshold], which the best-playlist rule shares
-     * and which fires on the exact count. Follow is the rule #197 broke -- a
-     * count that skipped past the threshold because the two stores were
-     * separate could never equal it again -- so it gets its own condition and
-     * the best rule keeps the behaviour it has.
      */
     private fun shouldFollow(count: Int, threshold: Int, followedKey: String): Boolean =
         LocalCounters.shouldFollow(count, threshold, LocalCounters.followedArtists(prefs), followedKey)
@@ -297,12 +320,6 @@ class YouTubeMusicExtraActions(
          * itself — it is part of the like, not an action that follows one.
          */
         const val LIKE_PLAYLIST_ACTION = "like_playlist_add"
-
-        /**
-         * A threshold action fires the once, exactly when the count reaches it
-         * — not on every like after. Same rule as the Spotify pipeline.
-         */
-        fun reachedThreshold(count: Int, threshold: Int): Boolean = count == threshold
 
         /**
          * Key for the local count maps, which the Spotify pipeline writes too.

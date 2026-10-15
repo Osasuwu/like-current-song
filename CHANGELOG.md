@@ -34,6 +34,17 @@ you sign in from its Settings window.
   player started around the pause. The Logs screen says so ("Trigger vetoed").
   No new permission. The headset button and the notification shade's
   play/pause still trigger.
+- **Best playlist: a track is promoted once its count is at or past the
+  threshold (#245).** The desktop, the Android Spotify path and the Android
+  YouTube Music path promoted only on the like that landed exactly on the
+  threshold, so a track whose count jumped past it (a lowered threshold, likes
+  counted on another device) never got in. Each now remembers which tracks it
+  promoted (`~/.like_spotify/promoted_tracks.json` on the desktop, app storage
+  on Android), so later likes don't add a track again, and an add that failed
+  is retried on the next like. Before adding, it checks the playlist: a track
+  already there is only remembered, never added a second time. After updating,
+  the first like of a track already past your threshold makes that check once;
+  a track you took out of the best playlist by hand is added back once.
 - **CI: the code-review gate counts only review runs it can trust (#230,
   #240, #241).** A review run that also lists a PR into another base branch,
   or a dispatched review that did not run from `main`, no longer counts as
