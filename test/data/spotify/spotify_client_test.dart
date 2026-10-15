@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:like_spotify_mobile_app/data/spotify/spotify_client.dart';
@@ -594,6 +596,120 @@ void main() {
               .having((e) => e.statusCode, 'statusCode', 404)
               .having((e) => e.message, 'message',
                   'Spotify follow artists failed: Gone')),
+        );
+      });
+    });
+
+    group('playlistContainsTrack', () {
+      const firstPage = 'https://api.spotify.com/v1/playlists/pl-1/tracks'
+          '?limit=100&fields=items(track(id)),next';
+
+      /// Stubs `get` with one body per URL and returns the URLs asked for.
+      List<String> stubPages(Map<String, http.Response> pages) {
+        final asked = <String>[];
+        when(() => mockHttpClient.get(any(), headers: any(named: 'headers')))
+            .thenAnswer((invocation) async {
+          final url = (invocation.positionalArguments.first as Uri).toString();
+          asked.add(url);
+          return pages[url] ?? http.Response('unexpected $url', 418);
+        });
+        return asked;
+      }
+
+      String page(List<String?> ids, {String? next}) => jsonEncode({
+            'items': [
+              for (final id in ids) {'track': id == null ? null : {'id': id}},
+            ],
+            'next': next,
+          });
+
+      test('finds a track on a later page, following next', () async {
+        const second = 'https://api.spotify.com/v1/playlists/pl-1/tracks'
+            '?offset=100&limit=100&fields=items(track(id)),next';
+        final asked = stubPages({
+          firstPage: http.Response(page(['a', 'b'], next: second), 200),
+          second: http.Response(page(['c', 'trk']), 200),
+        });
+
+        final found = await client.playlistContainsTrack('token',
+            playlistId: 'pl-1', trackId: 'trk');
+
+        expect(found, isTrue);
+        expect(asked, [firstPage, second]);
+      });
+
+      test('answers false once the last page is read', () async {
+        final asked = stubPages({
+          firstPage: http.Response(page(['a', 'b']), 200),
+        });
+
+        final found = await client.playlistContainsTrack('token',
+            playlistId: 'pl-1', trackId: 'trk');
+
+        expect(found, isFalse);
+        expect(asked, [firstPage]);
+      });
+
+      test('sends the token as a bearer header', () async {
+        stubPages({firstPage: http.Response(page([]), 200)});
+
+        await client.playlistContainsTrack('token',
+            playlistId: 'pl-1', trackId: 'trk');
+
+        final headers = verify(() => mockHttpClient.get(any(),
+                headers: captureAny(named: 'headers')))
+            .captured
+            .single as Map<String, String>;
+        expect(headers['Authorization'], 'Bearer token');
+      });
+
+      test('never follows a next link off the Spotify API host', () async {
+        // The token goes along with every page request, so a next link that
+        // points anywhere else is not followed.
+        final asked = stubPages({
+          firstPage: http.Response(
+              page(['a'], next: 'https://evil.example/steal?x=1'), 200),
+        });
+
+        final found = await client.playlistContainsTrack('token',
+            playlistId: 'pl-1', trackId: 'trk');
+
+        expect(found, isFalse);
+        expect(asked, [firstPage]);
+      });
+
+      test('skips local files and removed tracks without an id', () async {
+        stubPages({
+          firstPage: http.Response(
+              jsonEncode({
+                'items': [
+                  {'track': null},
+                  {
+                    'track': {'id': null}
+                  },
+                  {
+                    'track': {'id': 'trk'}
+                  },
+                ],
+                'next': null,
+              }),
+              200),
+        });
+
+        final found = await client.playlistContainsTrack('token',
+            playlistId: 'pl-1', trackId: 'trk');
+
+        expect(found, isTrue);
+      });
+
+      test('throws with the status when Spotify refuses a page', () async {
+        stubPages({firstPage: http.Response('Not found', 404)});
+
+        await expectLater(
+          () => client.playlistContainsTrack('token',
+              playlistId: 'pl-1', trackId: 'trk'),
+          throwsA(isA<SpotifyApiException>()
+              .having((e) => e.statusCode, 'statusCode', 404)),
         );
       });
     });
