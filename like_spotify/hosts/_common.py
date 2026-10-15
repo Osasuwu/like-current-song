@@ -86,6 +86,7 @@ SPOTIFY_TOKEN_FILE = _config_dir() / "spotify_token.json"
 GOOGLE_TOKEN_FILE = _config_dir() / "google_token.json"
 YOUTUBE_TOKEN_FILE = _config_dir() / "youtube_token.json"
 LIKE_COOLDOWN_FILE = _config_dir() / "like_cooldown.json"
+FOLLOWED_ARTISTS_FILE = _config_dir() / "followed_artists.json"
 
 
 def load_config() -> dict:
@@ -284,6 +285,7 @@ def _build_follow_artist_actions(
         return None, make_follow_artist_action(
             storage=storage,
             threshold=int(follow_cfg.get("threshold", 5)),
+            followed_path=FOLLOWED_ARTISTS_FILE,
         )
     except Exception:
         return None, None

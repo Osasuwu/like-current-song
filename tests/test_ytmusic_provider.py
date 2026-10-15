@@ -741,7 +741,9 @@ async def test_follow_artist_action_subscribes_at_threshold(
         ("POST", "subscriptions"): [FakeResponse(200, {"id": "sub"})],
     })
     storage = CountingStorage()
-    action = FollowArtistAction(storage=storage, threshold=2)
+    action = FollowArtistAction(
+        storage=storage, threshold=2, followed_path=tmp_path / "followed.json"
+    )
 
     await action.run(LikeContext(track=_yt_track("v1"), music_provider=provider))
     assert http.of("POST", "subscriptions") == []
