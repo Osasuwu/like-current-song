@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:like_spotify_mobile_app/data/settings/shared_prefs_settings_repository.dart';
 import 'package:like_spotify_mobile_app/data/spotify/spotify_client.dart';
 import 'package:like_spotify_mobile_app/data/spotify/spotify_models.dart'
     as models;
@@ -12,6 +13,7 @@ import 'package:like_spotify_mobile_app/domain/entities/track_info.dart';
 import 'package:like_spotify_mobile_app/domain/repositories/like_count_repository.dart';
 import 'package:like_spotify_mobile_app/domain/repositories/platform_service_repository.dart';
 import 'package:like_spotify_mobile_app/domain/repositories/settings_repository.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class MockSpotifyClient extends Mock implements SpotifyClient {}
 
@@ -97,6 +99,13 @@ void main() {
         .thenAnswer((_) async => <String>{});
     when(() => mockPlatform.markArtistFollowed(any()))
         .thenAnswer((_) async {});
+
+    // Default best stubs: nothing promoted yet; logging succeeds.
+    when(() => mockSettings.loadPromotedTracks())
+        .thenAnswer((_) async => <String>{});
+    when(() => mockSettings.markTrackPromoted(any()))
+        .thenAnswer((_) async {});
+    when(() => mockSettings.appendLog(any())).thenAnswer((_) async {});
   });
 
   group('likeTrack', () {
@@ -124,59 +133,195 @@ void main() {
           )).called(1);
     });
 
-    test('adds to best playlist when track reaches 3 likes', () async {
-      when(() => mockClient.likeTrack(
-            trackId: any(named: 'trackId'),
-            accessToken: any(named: 'accessToken'),
-          )).thenAnswer((_) async {});
-      when(() => mockLikeCount.incrementTrackLikeCount('track-123'))
-          .thenAnswer((_) async => 3);
-      when(() => mockLikeCount.incrementArtistLikeCount(any(),
-              trackId: any(named: 'trackId')))
-          .thenAnswer((_) async => 1);
-      when(() => mockSettings.loadRuleConfig()).thenAnswer(
-        (_) async => const RuleConfig(
-          archiveRemoveEnabled: true,
-          archivePlaylistName: '',
-          bestEnabled: true,
-          bestPlaylistName: 'Best Of',
-          bestThreshold: 3,
-          followArtistEnabled: true,
-          followArtistThreshold: 5,
-        ),
+    group('best playlist', () {
+      const bestConfig = RuleConfig(
+        archiveRemoveEnabled: true,
+        archivePlaylistName: '',
+        bestEnabled: true,
+        bestPlaylistName: 'Best Of',
+        bestThreshold: 3,
+        followArtistEnabled: true,
+        followArtistThreshold: 5,
       );
-      when(() => mockClient.getUserPlaylists(any(), offset: 0)).thenAnswer(
-        (_) async => const models.SpotifyPlaylistPage(
-          items: [models.SpotifyPlaylistItem(id: 'best-id', name: 'Best Of')],
-          total: 1,
-        ),
-      );
-      when(() => mockClient.addTracksToPlaylist(
-            any(),
+
+      void stubLikeAt(int trackCount) {
+        when(() => mockClient.likeTrack(
+              trackId: any(named: 'trackId'),
+              accessToken: any(named: 'accessToken'),
+            )).thenAnswer((_) async {});
+        when(() => mockLikeCount.incrementTrackLikeCount('track-123'))
+            .thenAnswer((_) async => trackCount);
+        when(() => mockLikeCount.incrementArtistLikeCount(any(),
+                trackId: any(named: 'trackId')))
+            .thenAnswer((_) async => 1);
+      }
+
+      void stubBestPlaylist({required bool containsTrack}) {
+        when(() => mockClient.getUserPlaylists(any(), offset: 0)).thenAnswer(
+          (_) async => const models.SpotifyPlaylistPage(
+            items: [models.SpotifyPlaylistItem(id: 'best-id', name: 'Best Of')],
+            total: 1,
+          ),
+        );
+        when(() => mockClient.playlistContainsTrack(any(),
+                playlistId: 'best-id', trackId: 'track-123'))
+            .thenAnswer((_) async => containsTrack);
+        when(() => mockClient.addTracksToPlaylist(
+              any(),
+              playlistId: 'best-id',
+              trackUris: ['spotify:track:track-123'],
+            )).thenAnswer((_) async {});
+      }
+
+      setUp(() {
+        when(() => mockSettings.loadRuleConfig())
+            .thenAnswer((_) async => bestConfig);
+      });
+
+      test('adds a track that reaches the threshold, and remembers it',
+          () async {
+        stubLikeAt(3);
+        stubBestPlaylist(containsTrack: false);
+
+        final result = await repo.likeTrack(trackInfo);
+
+        expect(result.addedToBest, true);
+        expect(result.trackLikeCount, 3);
+        verify(() => mockClient.addTracksToPlaylist(any(),
             playlistId: 'best-id',
-            trackUris: ['spotify:track:track-123'],
-          )).thenAnswer((_) async {});
+            trackUris: ['spotify:track:track-123'])).called(1);
+        verify(() => mockSettings.markTrackPromoted('track-123')).called(1);
+      });
 
-      final result = await repo.likeTrack(trackInfo);
+      test('adds a track whose count is already past the threshold', () async {
+        // A lowered threshold, or likes counted on another device, can carry a
+        // count past the threshold without ever landing on it (#245, #253).
+        stubLikeAt(5);
+        stubBestPlaylist(containsTrack: false);
 
-      expect(result.addedToBest, true);
-      expect(result.trackLikeCount, 3);
-    });
+        final result = await repo.likeTrack(trackInfo);
 
-    test('does not add to best when count is not exactly 3', () async {
-      when(() => mockClient.likeTrack(
-            trackId: any(named: 'trackId'),
-            accessToken: any(named: 'accessToken'),
-          )).thenAnswer((_) async {});
-      when(() => mockLikeCount.incrementTrackLikeCount('track-123'))
-          .thenAnswer((_) async => 4);
-      when(() => mockLikeCount.incrementArtistLikeCount(any(),
-              trackId: any(named: 'trackId')))
-          .thenAnswer((_) async => 1);
+        expect(result.addedToBest, true);
+        verify(() => mockClient.addTracksToPlaylist(any(),
+            playlistId: 'best-id',
+            trackUris: ['spotify:track:track-123'])).called(1);
+        verify(() => mockSettings.markTrackPromoted('track-123')).called(1);
+      });
 
-      final result = await repo.likeTrack(trackInfo);
+      test('does nothing below the threshold', () async {
+        stubLikeAt(2);
+        stubBestPlaylist(containsTrack: false);
 
-      expect(result.addedToBest, false);
+        final result = await repo.likeTrack(trackInfo);
+
+        expect(result.addedToBest, false);
+        verifyNever(() => mockClient.playlistContainsTrack(any(),
+            playlistId: any(named: 'playlistId'),
+            trackId: any(named: 'trackId')));
+        verifyNever(() => mockClient.addTracksToPlaylist(any(),
+            playlistId: any(named: 'playlistId'),
+            trackUris: any(named: 'trackUris')));
+        verifyNever(() => mockSettings.markTrackPromoted(any()));
+      });
+
+      test('does not add a track this device already promoted', () async {
+        stubLikeAt(4);
+        stubBestPlaylist(containsTrack: false);
+        when(() => mockSettings.loadPromotedTracks())
+            .thenAnswer((_) async => <String>{'track-123'});
+
+        final result = await repo.likeTrack(trackInfo);
+
+        expect(result.addedToBest, false);
+        verifyNever(() => mockClient.playlistContainsTrack(any(),
+            playlistId: any(named: 'playlistId'),
+            trackId: any(named: 'trackId')));
+        verifyNever(() => mockClient.addTracksToPlaylist(any(),
+            playlistId: any(named: 'playlistId'),
+            trackUris: any(named: 'trackUris')));
+        verifyNever(() => mockSettings.markTrackPromoted(any()));
+      });
+
+      test('only remembers a track that is in the playlist already', () async {
+        // Promoted by the background path, by another device, or before this
+        // memory existed: a second copy is the one thing this must not make.
+        stubLikeAt(4);
+        stubBestPlaylist(containsTrack: true);
+
+        final result = await repo.likeTrack(trackInfo);
+
+        expect(result.addedToBest, false);
+        verifyNever(() => mockClient.addTracksToPlaylist(any(),
+            playlistId: any(named: 'playlistId'),
+            trackUris: any(named: 'trackUris')));
+        verify(() => mockSettings.markTrackPromoted('track-123')).called(1);
+      });
+
+      test('does not remember an add Spotify refused, and logs it', () async {
+        stubLikeAt(3);
+        stubBestPlaylist(containsTrack: false);
+        when(() => mockClient.addTracksToPlaylist(any(),
+                playlistId: 'best-id',
+                trackUris: ['spotify:track:track-123']))
+            .thenThrow(SpotifyApiException(500, 'Server error'));
+
+        final result = await repo.likeTrack(trackInfo);
+
+        expect(result.addedToBest, false);
+        verifyNever(() => mockSettings.markTrackPromoted(any()));
+        final logged = verify(() => mockSettings.appendLog(captureAny()))
+            .captured
+            .cast<AppLog>()
+            .where((log) => log.actionType == 'best_add')
+            .toList();
+        expect(logged, hasLength(1));
+        expect(logged.single.result, LogResult.failure);
+        expect(logged.single.httpCode, 500);
+      });
+
+      test('does not add when the membership check fails', () async {
+        stubLikeAt(3);
+        stubBestPlaylist(containsTrack: false);
+        when(() => mockClient.playlistContainsTrack(any(),
+                playlistId: 'best-id', trackId: 'track-123'))
+            .thenThrow(SpotifyApiException(503, 'Unavailable'));
+
+        final result = await repo.likeTrack(trackInfo);
+
+        expect(result.addedToBest, false);
+        verifyNever(() => mockClient.addTracksToPlaylist(any(),
+            playlistId: any(named: 'playlistId'),
+            trackUris: any(named: 'trackUris')));
+        verifyNever(() => mockSettings.markTrackPromoted(any()));
+      });
+
+      test('a promoted track stays promoted across a restart', () async {
+        SharedPreferences.setMockInitialValues(<String, Object>{});
+        await SharedPrefsSettingsRepository().saveRuleConfig(bestConfig);
+        stubLikeAt(3);
+        stubBestPlaylist(containsTrack: false);
+
+        SpotifyMusicServiceRepository freshRepo() =>
+            SpotifyMusicServiceRepository(
+              spotifyClient: mockClient,
+              tokenStore: mockTokenStore,
+              platformServiceRepository: mockPlatform,
+              likeCountRepository: mockLikeCount,
+              settingsRepository: SharedPrefsSettingsRepository(),
+            );
+
+        expect((await freshRepo().likeTrack(trackInfo)).addedToBest, true);
+
+        // The app restarts: new instances, the same stored preferences. The
+        // playlist still reads as not containing the track, so only the
+        // memory can stop a second add.
+        stubLikeAt(4);
+        expect((await freshRepo().likeTrack(trackInfo)).addedToBest, false);
+
+        verify(() => mockClient.addTracksToPlaylist(any(),
+            playlistId: 'best-id',
+            trackUris: ['spotify:track:track-123'])).called(1);
+      });
     });
 
     test('auto-follows artist when they reach 5 likes', () async {

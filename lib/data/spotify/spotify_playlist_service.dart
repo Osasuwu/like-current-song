@@ -112,6 +112,31 @@ class SpotifyPlaylistService {
     }
   }
 
+  /// Whether the playlist called [name] holds [trackId] already.
+  ///
+  /// A playlist that does not exist holds nothing, so this answers false and
+  /// leaves creating it to the add. A 404 drops the cached id, as the add
+  /// does, and rethrows: the caller treats any failure as "could not look".
+  Future<bool> namedPlaylistContainsTrack(
+    String accessToken,
+    String name,
+    String trackId,
+  ) async {
+    final playlistId =
+        await ensurePlaylist(accessToken, name, createIfMissing: false);
+    if (playlistId == null) return false;
+    try {
+      return await _client.playlistContainsTrack(
+        accessToken,
+        playlistId: playlistId,
+        trackId: trackId,
+      );
+    } on SpotifyApiException catch (e) {
+      if (e.statusCode == 404) forgetPlaylist(name);
+      rethrow;
+    }
+  }
+
   /// Drops the cached id filed under [name], so the next lookup resolves it
   /// against Spotify instead of trusting an id the API has already rejected.
   void forgetPlaylist(String name) {

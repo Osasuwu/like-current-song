@@ -28,4 +28,10 @@ abstract class SettingsRepository {
   Future<void> savePendingLikes(List<PendingLike> likes);
   Future<void> addPendingLike(PendingLike like);
   Future<void> removePendingLike(String trackId);
+
+  /// Tracks the in-app like has put in the best playlist (or found there),
+  /// so that rule fires once per track however far past the threshold its
+  /// count goes (#253).
+  Future<Set<String>> loadPromotedTracks();
+  Future<void> markTrackPromoted(String trackId);
 }

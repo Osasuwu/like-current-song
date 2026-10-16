@@ -112,4 +112,26 @@ void main() {
       });
     }
   });
+
+  group('promoted tracks', () {
+    test('a fresh install has promoted nothing', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+
+      expect(await repo.loadPromotedTracks(), isEmpty);
+    });
+
+    test('a promoted track is remembered by a later instance', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+
+      await repo.markTrackPromoted('track-a');
+      await repo.markTrackPromoted('track-b');
+      await repo.markTrackPromoted('track-a');
+
+      expect(await SharedPrefsSettingsRepository().loadPromotedTracks(),
+          equals(<String>{'track-a', 'track-b'}));
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getStringList('promoted_tracks'),
+          unorderedEquals(<String>['track-a', 'track-b']));
+    });
+  });
 }

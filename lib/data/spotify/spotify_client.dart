@@ -403,6 +403,45 @@ class SpotifyClient {
     }
   }
 
+  /// GET /playlists/{playlistId}/tracks — whether [trackId] is in the
+  /// playlist, paging through all of it.
+  ///
+  /// A `next` link is followed only on the Spotify API host, because the
+  /// token goes with every page request. Items without a track id (local
+  /// files, removed tracks) are skipped. Throws [SpotifyApiException] when
+  /// Spotify refuses a page, so the caller can tell "not there" from "could
+  /// not look".
+  Future<bool> playlistContainsTrack(
+    String accessToken, {
+    required String playlistId,
+    required String trackId,
+  }) async {
+    String? url = '${AppConstants.spotifyApiBase}/playlists/$playlistId/tracks'
+        '?limit=100&fields=items(track(id)),next';
+    while (url != null) {
+      final response = await _http.get(
+        Uri.parse(url),
+        headers: <String, String>{'Authorization': 'Bearer $accessToken'},
+      ).timeout(_timeout);
+      if (response.statusCode < 200 || response.statusCode > 299) {
+        throw SpotifyApiException(response.statusCode, 'Spotify read playlist failed');
+      }
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      final items = json['items'] as List<dynamic>? ?? <dynamic>[];
+      for (final item in items) {
+        final track = (item as Map<String, dynamic>?)?['track'];
+        if (track is Map<String, dynamic> && track['id'] == trackId) {
+          return true;
+        }
+      }
+      final next = json['next'];
+      url = next is String && next.startsWith('https://api.spotify.com/')
+          ? next
+          : null;
+    }
+    return false;
+  }
+
   /// DELETE /playlists/{playlistId}/tracks — remove tracks by URI.
   Future<void> removeTracksFromPlaylist(
     String accessToken, {
