@@ -53,6 +53,12 @@ you sign in from its Settings window.
   are cosmetic by exact name only, so a file such as `LICENSE.py` is reviewed.
   The review job installs bubblewrap, so the reviewer runs with its
   subprocess environment scrubbed instead of crashing.
+- **CI: a blocking review stays red after its evidence is gone (#236).**
+  Re-running a review deletes the earlier attempts' artifacts, and artifacts
+  expire after 90 days, so a blocked commit could turn green on a later clean
+  run. `verify-verdict` now records what it has read in its own check run, so a
+  blocking result holds until a new commit. A review attempt whose evidence
+  vanished before the gate read it is red as `evidence-unobserved`.
 
 ## [1.3.0] - 2026-09-29
 
