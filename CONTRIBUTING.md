@@ -574,9 +574,13 @@ changed file is cosmetic. It is red when the reviewer declines to run, an
 artifact is missing or expired, or a finding blocks. The check's summary names
 the reason and the fix. A blocking artifact stays in force for its commit
 even if a later run, or a re-run of the same run, for that SHA is clean, and
-even if the re-run failed or was cancelled; the fix is a new commit. (Known
-limit, #236: this holds only while the blocking artifact is retained; once it
-expires a clean result for the same SHA turns it green.) An
+even if the re-run failed or was cancelled, and after the artifact itself is
+gone (a re-run deletes the earlier attempts' artifacts, and every artifact
+expires): the verdict records what it has read for the SHA in its own
+`verify-verdict` check run, which nobody else can write and which never
+expires. A review attempt that succeeded but whose artifact was gone before the
+verdict read it is red as `evidence-unobserved` for the same reason: it may
+have been blocking. Either way the fix is a new commit. An
 artifact the verdict could not download stays red, whatever else is clean,
 until the verdict job is re-run and reads it. Every other red (missing,
 expired or malformed evidence) clears as soon as a run for the same SHA comes

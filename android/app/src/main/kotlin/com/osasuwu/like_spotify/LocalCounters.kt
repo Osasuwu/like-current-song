@@ -6,10 +6,11 @@ import org.json.JSONObject
 
 /**
  * The per-install like bookkeeping: how often each track and each artist has
- * been liked, when each track was last liked, and which artists have already
- * been auto-followed.
+ * been liked, when each track was last liked, which artists have already been
+ * auto-followed, and which tracks have already been promoted to the best
+ * playlist.
  *
- * All four live in [AppConstants.PREFS] and nowhere else. The Flutter layer
+ * All of them live in [AppConstants.PREFS] and nowhere else. The Flutter layer
  * used to keep its own copies in the `shared_preferences` store, so a like made
  * in the app and a like made with the media button counted into two maps that
  * never met -- the follow-artist threshold and the like cooldown both stopped
@@ -92,7 +93,7 @@ object LocalCounters {
         return out
     }
 
-    /** The followed-artist set, stored as a JSON array. Degrades to empty. */
+    /** The followed-artist and promoted-track sets, stored as JSON arrays. Degrades to empty. */
     fun parseIds(raw: String?): Set<String> {
         val parsed = runCatching { JSONArray(raw ?: "[]") }.getOrDefault(JSONArray())
         val out = LinkedHashSet<String>(parsed.length())
@@ -181,6 +182,34 @@ object LocalCounters {
     fun markArtistFollowed(prefs: SharedPreferences, id: String) {
         val updated = followedArtists(prefs) + id
         prefs.edit().putString(AppConstants.KEY_FOLLOWED_ARTISTS, encodeIds(updated)).apply()
+    }
+
+    // ---- Promoted tracks ----------------------------------------------
+
+    /**
+     * The tracks this app has already put in the best playlist, keyed the way
+     * the track count is (`ytmusic:`-prefixed for YouTube Music). The twin of
+     * [followedArtists] for the best-playlist rule (#245).
+     */
+    fun promotedTracks(prefs: SharedPreferences): Set<String> =
+        parseIds(prefs.getString(AppConstants.KEY_PROMOTED_TRACKS, null))
+
+    /**
+     * Whether the best-playlist rule should fire for [id] right now: its count
+     * is at or past [threshold], and it is not in [promoted] already.
+     *
+     * The same shape as [shouldFollow], for the same reason: the rule used to
+     * be `count == threshold`, so a count that landed past the threshold --
+     * the user lowered it, or a like was counted where this device could not
+     * see it -- never promoted the track at all (#245).
+     */
+    fun shouldPromote(count: Int, threshold: Int, promoted: Set<String>, id: String): Boolean =
+        count >= threshold && id !in promoted
+
+    @Synchronized
+    fun markTrackPromoted(prefs: SharedPreferences, id: String) {
+        val updated = promotedTracks(prefs) + id
+        prefs.edit().putString(AppConstants.KEY_PROMOTED_TRACKS, encodeIds(updated)).apply()
     }
 
     // ---- Migration ----------------------------------------------

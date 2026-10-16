@@ -34,6 +34,17 @@ you sign in from its Settings window.
   player started around the pause. The Logs screen says so ("Trigger vetoed").
   No new permission. The headset button and the notification shade's
   play/pause still trigger.
+- **Best playlist: a track is promoted once its count is at or past the
+  threshold (#245).** The desktop, the Android Spotify path and the Android
+  YouTube Music path promoted only on the like that landed exactly on the
+  threshold, so a track whose count jumped past it (a lowered threshold, likes
+  counted on another device) never got in. Each now remembers which tracks it
+  promoted (`~/.like_spotify/promoted_tracks.json` on the desktop, app storage
+  on Android), so later likes don't add a track again, and an add that failed
+  is retried on the next like. Before adding, it checks the playlist: a track
+  already there is only remembered, never added a second time. After updating,
+  the first like of a track already past your threshold makes that check once;
+  a track you took out of the best playlist by hand is added back once.
 - **Android: a like from inside the app promotes to the best playlist at or
   past the threshold (#253).** The in-app like button and the pending-like
   queue promoted only on the like that landed exactly on the threshold, so a
@@ -52,6 +63,12 @@ you sign in from its Settings window.
   are cosmetic by exact name only, so a file such as `LICENSE.py` is reviewed.
   The review job installs bubblewrap, so the reviewer runs with its
   subprocess environment scrubbed instead of crashing.
+- **CI: a blocking review stays red after its evidence is gone (#236).**
+  Re-running a review deletes the earlier attempts' artifacts, and artifacts
+  expire after 90 days, so a blocked commit could turn green on a later clean
+  run. `verify-verdict` now records what it has read in its own check run, so a
+  blocking result holds until a new commit. A review attempt whose evidence
+  vanished before the gate read it is red as `evidence-unobserved`.
 
 ## [1.3.0] - 2026-09-29
 
