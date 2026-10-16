@@ -48,20 +48,29 @@ def test_verdict_permissions_are_exactly_three_reads():
         assert "permissions" not in job, f"job {name} must not widen the workflow permissions"
 
 
+# A schedule event carries no repository payload, so it checks out its own ref,
+# which for a schedule is always the default branch; every other event names the
+# default branch explicitly (for pull_request_target, `github.ref` is the PR's base).
+BASE_REF = (
+    "${{ github.event_name == 'schedule' && github.ref"
+    " || github.event.repository.default_branch }}"
+)
+
+
 def test_verdict_never_checks_out_the_pr_head():
     checkouts = [
         s for s in _steps(VERDICT) if str(s.get("uses", "")).startswith("actions/checkout@")
     ]
     assert len(checkouts) == 2  # resolve + verdict, both base-pinned
     for step in checkouts:
-        assert step["with"]["ref"] == "${{ github.event.repository.default_branch }}"
+        assert step["with"]["ref"] == BASE_REF
         assert step["with"]["sparse-checkout"] == ".github/scripts"
         assert step["with"]["persist-credentials"] is False
 
 
-def test_verdict_triggers_pull_request_target_and_review_workflow_run():
+def test_verdict_triggers_pull_request_target_review_workflow_run_and_a_daily_sweep():
     triggers = VERDICT[ON]
-    assert set(triggers) == {"pull_request_target", "workflow_run"}
+    assert set(triggers) == {"pull_request_target", "workflow_run", "schedule"}
     assert triggers["workflow_run"] == {"workflows": ["Code Review"], "types": ["completed"]}
     assert triggers["pull_request_target"]["types"] == [
         "opened",
@@ -70,11 +79,33 @@ def test_verdict_triggers_pull_request_target_and_review_workflow_run():
         "ready_for_review",
         "edited",
     ]
+    # #231: evidence expires with no event; once a day every open PR is re-decided.
+    ((cron,),) = [list(entry.values()) for entry in triggers["schedule"]]
+    minute, hour, dom, month, dow = cron.split()
+    assert (dom, month, dow) == ("*", "*", "*")
+    assert minute.isdigit() and hour.isdigit()
+
+
+def test_verdict_runs_once_per_resolved_target():
+    job = VERDICT["jobs"]["verdict"]
+    assert job["if"] == "needs.resolve.outputs.targets != '[]'"
+    assert job["strategy"] == {
+        "fail-fast": False,
+        "matrix": {"target": "${{ fromJSON(needs.resolve.outputs.targets) }}"},
+    }
+    assert VERDICT["jobs"]["resolve"]["outputs"] == {
+        "targets": "${{ steps.resolve.outputs.targets }}"
+    }
+    (step,) = [s for s in job["steps"] if s.get("name") == "Decide and post verify-verdict"]
+    assert step["env"]["PR_NUMBER"] == "${{ matrix.target.pr_number }}"
+    assert step["env"]["HEAD_SHA"] == "${{ matrix.target.head_sha }}"
 
 
 def test_verdict_concurrency_is_per_pr_and_sha_without_cancel():
+    """Per target, so a sweep's verdict and an event's verdict for one SHA never
+    interleave their ledger read and write."""
     assert VERDICT["jobs"]["verdict"]["concurrency"] == {
-        "group": "code-gate-${{ needs.resolve.outputs.pr_number }}-${{ needs.resolve.outputs.head_sha }}",
+        "group": "code-gate-${{ matrix.target.pr_number }}-${{ matrix.target.head_sha }}",
         "cancel-in-progress": False,
     }
 
@@ -220,6 +251,8 @@ def test_resolve_step_gets_the_default_branch():
     step reads DEFAULT_BRANCH, so without it every workflow_run resolve fails."""
     (step,) = [s for s in VERDICT["jobs"]["resolve"]["steps"] if s.get("id") == "resolve"]
     assert step["env"]["DEFAULT_BRANCH"] == "${{ github.event.repository.default_branch }}"
+    # The schedule sweep lists the open PRs itself, with the read-only job token.
+    assert step["env"]["GH_TOKEN"] == "${{ secrets.GITHUB_TOKEN }}"
 
 
 SCRUB = "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"

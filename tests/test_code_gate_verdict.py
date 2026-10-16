@@ -157,6 +157,7 @@ def _pr(**over):
         "number": PR,
         "draft": False,
         "changed_files": 1,
+        "created_at": "2026-10-01T12:00:00Z",
         "user": {"login": "Osasuwu", "type": "User"},
         "base": {"ref": "main", "repo": {"full_name": "Osasuwu/like-current-song"}},
         "head": {"sha": SHA, "repo": {"full_name": "Osasuwu/like-current-song"}},
@@ -873,7 +874,75 @@ def test_resolve_command_binds_the_pr_into_the_repos_default_branch(monkeypatch,
     for k, v in env.items():
         monkeypatch.setenv(k, v)
     assert gate.cmd_resolve(None) == 0
-    assert out.read_text(encoding="utf-8") == f"pr_number=7\nhead_sha={SHA}\n"
+    assert out.read_text(encoding="utf-8") == f'targets=[{{"pr_number":7,"head_sha":"{SHA}"}}]\n'
+
+
+def test_resolve_command_with_nothing_bound_emits_no_targets(monkeypatch, tmp_path):
+    out = tmp_path / "out"
+    env = {
+        "EVENT_NAME": "workflow_run",
+        "RUN_EVENT": "pull_request",
+        "RUN_HEAD_SHA": SHA,
+        "RUN_PULL_REQUESTS": "[]",
+        "DEFAULT_BRANCH": "main",
+        "GITHUB_OUTPUT": str(out),
+    }
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    assert gate.cmd_resolve(None) == 0
+    assert out.read_text(encoding="utf-8") == "targets=[]\n"
+
+
+SWEEP_PULLS = "repos/o/r/pulls?state=open&base=trunk&per_page=100&page="
+
+
+def _sweep(monkeypatch, tmp_path, open_prs):
+    """cmd_resolve on the daily schedule, over a repo whose default branch is `trunk`
+    and whose open PRs are `open_prs`, served 100 to a page."""
+    out = tmp_path / "out"
+    pages = [open_prs[i : i + 100] for i in range(0, len(open_prs) + 1, 100)]
+    responses = {f"{SWEEP_PULLS}{n}": page for n, page in enumerate(pages, start=1)}
+    api = FakeApi({**responses, "repos/o/r": {"default_branch": "trunk"}})
+    monkeypatch.setattr(gate, "Api", lambda token: api if token == "read-token" else None)
+    env = {
+        "EVENT_NAME": "schedule",
+        "GITHUB_REPOSITORY": "o/r",
+        "GH_TOKEN": "read-token",
+        "GITHUB_OUTPUT": str(out),
+    }
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    for k in ("RUN_EVENT", "PR_NUMBER", "HEAD_SHA", "DEFAULT_BRANCH"):
+        monkeypatch.delenv(k, raising=False)
+    return out
+
+
+def test_resolve_on_schedule_targets_every_open_pr_into_the_default_branch(monkeypatch, tmp_path):
+    """#231: an artifact expires without any event, so the daily sweep re-decides
+    every open PR at its current head, and an expired-only PR goes red."""
+    prs = [_open(9, sha=OTHER_SHA, base="trunk"), _open(7, base="trunk")]
+    out = _sweep(monkeypatch, tmp_path, prs)
+    assert gate.cmd_resolve(None) == 0
+    assert out.read_text(encoding="utf-8") == (
+        f'targets=[{{"pr_number":7,"head_sha":"{SHA}"}},'
+        f'{{"pr_number":9,"head_sha":"{OTHER_SHA}"}}]\n'
+    )
+
+
+def test_schedule_sweep_with_more_prs_than_one_matrix_holds_fails(monkeypatch, tmp_path):
+    """A workflow run holds at most 256 matrix jobs: sweeping only some PRs would
+    leave the rest unchecked without saying so."""
+    out = _sweep(monkeypatch, tmp_path, [_open(100 + i, base="trunk") for i in range(257)])
+    with pytest.raises(RuntimeError, match="257 open PRs"):
+        gate.cmd_resolve(None)
+    assert not out.exists()
+
+
+def test_schedule_sweep_of_256_prs_targets_them_all(monkeypatch, tmp_path):
+    out = _sweep(monkeypatch, tmp_path, [_open(100 + i, base="trunk") for i in range(256)])
+    assert gate.cmd_resolve(None) == 0
+    targets = json.loads(out.read_text(encoding="utf-8").removeprefix("targets="))
+    assert [t["pr_number"] for t in targets] == list(range(100, 356))
 
 
 def test_resolve_fork_pull_request_run_is_unbound():
@@ -1619,6 +1688,7 @@ def _run_verdict(monkeypatch, read_responses, blobs=None, checks=None):
         monkeypatch.setenv(k, v)
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
     monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+    write.read = read
     return write
 
 
@@ -1709,10 +1779,114 @@ def test_two_open_prs_on_one_head_post_shared_head(monkeypatch):
 def test_an_open_pr_listing_too_long_to_read_whole_fails_closed(monkeypatch):
     page = [_pr(number=100 + i, head={"sha": OTHER_SHA}) for i in range(100)]
     write = _run_verdict(monkeypatch, _snapshot_responses(**{OPEN_PULLS: page}))
-    with pytest.raises(RuntimeError, match="too many open PRs"):
+    with pytest.raises(RuntimeError, match="truncated"):
         gate.cmd_verdict(None)
     ((_, body),) = _patched(write)
-    assert body["output"]["title"] == "verify-verdict: verdict-error"
+    assert body["conclusion"] == "failure"
+    assert body["output"]["title"] == "verify-verdict: listing-truncated"
+    assert "repos/o/r/pulls" in body["output"]["summary"]
+
+
+# --- page caps fail closed (#237) -------------------------------------------
+
+
+def _pages(sizes):
+    """A list endpoint whose page N holds sizes[N-1] items (then nothing)."""
+    calls = []
+
+    def api(method, path, body=None):
+        calls.append(path)
+        page = int(re.search(r"[?&]page=(\d+)", path).group(1))
+        size = sizes[page - 1] if page <= len(sizes) else 0
+        return [{"n": (page, i)} for i in range(size)]
+
+    return api, calls
+
+
+def test_paged_raises_naming_the_listing_when_its_last_allowed_page_is_full():
+    """A full last page may go on: handing it on as the whole list is fail-open."""
+    api, calls = _pages([100, 100, 100, 7])
+    with pytest.raises(RuntimeError, match=r"repos/o/r/things.*truncated") as info:
+        gate.paged(api, "repos/o/r/things", max_pages=3)
+    assert isinstance(info.value, gate.ListingTruncated)
+    assert len(info.value.items) == 300
+    assert len(calls) == 3
+
+
+def test_paged_returns_a_listing_that_ends_inside_its_cap():
+    api, calls = _pages([100, 100, 40])
+    assert len(gate.paged(api, "repos/o/r/things", max_pages=3)) == 240
+    assert len(calls) == 3
+
+
+def _other_dispatches(n):
+    return [
+        _payload_dispatch(id=3000 + i, display_title=f"Code review PR #{900 + i} @ {SHA}")
+        for i in range(n)
+    ]
+
+
+DISPATCH_LISTING = f"{RUNS_PATH}?event=workflow_dispatch&branch=main&"
+
+
+def test_a_dispatch_listing_past_its_cap_is_red_naming_the_truncation_not_green(monkeypatch):
+    """The PR's own (blocking) dispatch could sit past the cap: a clean pull_request
+    run must not read green over a listing the verdict did not read whole."""
+    write = _run_verdict(
+        monkeypatch,
+        _snapshot_responses(
+            **{
+                f"{RUNS_PATH}?head_sha={SHA}&": {"workflow_runs": [_pr_run()]},
+                DISPATCH_LISTING: {"workflow_runs": _other_dispatches(100)},
+                ARTIFACTS_PATH: {"artifacts": [_art(1, "review-evidence-1")]},
+            }
+        ),
+        blobs={1: _evidence_zip()},
+    )
+    with pytest.raises(RuntimeError, match="truncated"):
+        gate.cmd_verdict(None)
+    ((_, body),) = _patched(write)
+    assert body["conclusion"] == "failure"
+    assert body["output"]["title"] == "verify-verdict: listing-truncated"
+    assert "event=workflow_dispatch" in body["output"]["summary"]
+    # The runs API serves at most 1000 results to a filtered query: 10 pages of 100.
+    listed = [p for _, p, _ in write.read.calls if p.startswith(DISPATCH_LISTING)]
+    assert len(listed) == 10
+
+
+def test_dispatch_listing_reads_only_runs_created_since_the_pr_could_be_dispatched(monkeypatch):
+    """A dispatch for the PR needs the PR to exist (prepare fetches it), and a run
+    lives at most 35 days, so older dispatches of other PRs are never read: the
+    PR's own are found however many came before it."""
+    write = _run_verdict(
+        monkeypatch,
+        _snapshot_responses(
+            **{
+                f"{RUNS_PATH}?head_sha={SHA}&": {"workflow_runs": [_pr_run()]},
+                DISPATCH_LISTING: {"workflow_runs": []},
+                ARTIFACTS_PATH: {"artifacts": [_art(1, "review-evidence-1")]},
+            }
+        ),
+        blobs={1: _evidence_zip()},
+    )
+    assert gate.cmd_verdict(None) == 0
+    assert _title(write) == "verify-verdict: evidence-clean"
+    (listed,) = [p for _, p, _ in write.read.calls if p.startswith(DISPATCH_LISTING)]
+    # PR created 2026-10-01T12:00:00Z, minus 35 days; `>=` and `:` percent-encoded.
+    assert "&created=%3E%3D2026-08-27T12%3A00%3A00Z&" in listed
+
+
+def test_post_check_with_a_check_run_listing_past_its_cap_posts_a_new_red_check():
+    """This App's check (and its ledger) could sit past the cap, under other apps'
+    same-named checks: the verdict posted is red, on a check of its own."""
+    foreign = [{"id": 5000 + i, "app": {"id": 15368}} for i in range(100)]
+    api = FakeApi({CHECKS_PATH: {"check_runs": foreign}})
+    how, posted = gate.post_check(api, "o/r", SHA, GREEN, 123)
+    assert (posted.green, posted.code) == (False, "listing-truncated")
+    method, path, body = api.calls[-1]
+    assert (method, path) == ("POST", "repos/o/r/check-runs")
+    assert body["conclusion"] == "failure"
+    assert body["output"]["title"] == "verify-verdict: listing-truncated"
 
 
 # --- cmd_verdict end to end: stickiness past the artifact (#236) -------------
@@ -1830,6 +2004,25 @@ def test_clean_read_then_expired_is_lifted_by_a_clean_redispatch(monkeypatch):
     )
     assert gate.cmd_verdict(None) == 0
     assert _title(write) == "verify-verdict: evidence-clean"
+
+
+def test_a_green_check_whose_only_evidence_expired_goes_red_expired(monkeypatch):
+    """#231: what the scheduled sweep relies on. Attempt 1 was read clean (green),
+    then expired; re-deciding the same SHA with no event posts red, expired."""
+    responses = _snapshot_responses(
+        **{
+            f"{RUNS_PATH}?head_sha={SHA}&": {"workflow_runs": [_pr_run(run_attempt=1)]},
+            DISPATCH_LISTING: {"workflow_runs": []},
+            ARTIFACTS_PATH: {"artifacts": [_art(1, "review-evidence-1", expired=True)]},
+        }
+    )
+    write = _run_verdict(
+        monkeypatch, responses, checks=[_check(text=_ledger_text(None, ["1001:1"]))]
+    )
+    assert gate.cmd_verdict(None) == 0
+    ((_, body),) = _patched(write)
+    assert body["conclusion"] == "failure"
+    assert body["output"]["title"] == "verify-verdict: evidence-expired"
 
 
 def test_a_crashing_verdict_keeps_the_ledger(monkeypatch):
