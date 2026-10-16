@@ -564,7 +564,8 @@ review *evidence*, not from a comment:
   installs it and fails at that step, by name, if it cannot (#240).
 - `code-gate-verdict.yml` runs from the **default branch** (it never checks out
   PR code), reads the artifacts of the review runs bound to the head SHA and
-  posts `verify-verdict` as the `osasuwu-ci` GitHub App. The rule and its
+  posts `verify-verdict` as the `osasuwu-ci` GitHub App, on every PR event, when
+  a review run completes, and once a day for every open PR into `main`. The rule and its
   provenance checks live in `.github/scripts/code_gate_verdict.py`; a PR cannot
   change the verdict that judges it.
 
@@ -584,8 +585,29 @@ have been blocking. Either way the fix is a new commit. An
 artifact the verdict could not download stays red, whatever else is clean,
 until the verdict job is re-run and reads it. Every other red (missing,
 expired or malformed evidence) clears as soon as a run for the same SHA comes
-back clean. Review evidence is kept 90 days, so an old open PR goes red as expired until its
-review is re-run (a push or a fresh dispatch).
+back clean.
+
+**Expiry.** Review evidence is kept 90 days, and nothing happens on the PR when
+it expires, so the verdict workflow also runs on a daily schedule
+(05:23 UTC) and re-decides the head of every open PR into `main` (#231). A PR
+whose only evidence has expired goes red as `evidence-expired` within a day of
+the expiry, with no push and no dispatch; a push or a fresh dispatch clears it.
+That bound is a day plus however late GitHub starts the scheduled run (it may
+delay it under load), and GitHub disables a repository's schedules after 60
+days without activity. A sweep over more than 256 open PRs (one job per PR)
+fails, sweeping none, and says so in its run.
+
+**Listing caps.** The verdict reads several paginated listings: the PR's
+files, the open PRs, the review runs, each run's artifacts and the commit's
+check runs. Each has a cap, and a listing that reaches its cap with its last
+page full is red as `listing-truncated`, naming the listing, never decided on
+the part that was read (#237). When the truncated listing is the commit's check
+runs, the verdict also posts a new red check, since its own earlier check may be
+among those it did not read. Dispatched review runs are listed
+from 35 days before the PR was opened (a dispatch needs the PR to exist, and a
+run lives at most 35 days), so other PRs' older dispatches cannot push a PR's
+own past the cap of 1000 runs; more than 1000 dispatches in that window is red
+too.
 
 **Which runs count.** A `pull_request` review run counts for the PR it lists
 into `main`. If it also lists an open PR into another base on the same commit,
