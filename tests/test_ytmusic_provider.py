@@ -696,9 +696,12 @@ async def test_promote_to_best_action_runs_against_youtube(
     http = FakeHttp(monkeypatch, {
         ("GET", "playlists"): [FakeResponse(200, _playlists_page())],
         ("POST", "playlists"): [FakeResponse(200, {"id": "best"})],
+        ("GET", "playlistItems"): [FakeResponse(200, _items_page())],
         ("POST", "playlistItems"): [FakeResponse(200, {"id": "item"})],
     })
-    await PromoteToBestAction("Best", threshold=3).run(
+    await PromoteToBestAction(
+        "Best", threshold=3, promoted_path=tmp_path / "promoted.json"
+    ).run(
         LikeContext(
             track=_yt_track("vid"), like_count=3, music_provider=_provider(tmp_path)
         )
@@ -706,6 +709,35 @@ async def test_promote_to_best_action_runs_against_youtube(
     (insert,) = http.of("POST", "playlistItems")
     assert insert["json"]["snippet"]["playlistId"] == "best"
     assert insert["json"]["snippet"]["resourceId"]["videoId"] == "vid"
+
+
+@pytest.mark.asyncio
+async def test_promote_to_best_skips_a_video_already_in_the_youtube_playlist(
+    monkeypatch, tmp_path
+) -> None:
+    """Past the threshold and not remembered — promoted by another device, or
+    before the memory existed (#245). YouTube accepts a second insert of the
+    same video, so the playlist is read first."""
+    from like_spotify.core.types import LikeContext
+    from like_spotify.extensions.promote_to_best import PromoteToBestAction
+
+    http = FakeHttp(monkeypatch, {
+        ("GET", "playlists"): [FakeResponse(200, _playlists_page(("best", "Best")))],
+        ("GET", "playlistItems"): [
+            FakeResponse(200, _items_page(("item-1", "other"), ("item-2", "vid")))
+        ],
+    })
+    await PromoteToBestAction(
+        "Best", threshold=3, promoted_path=tmp_path / "promoted.json"
+    ).run(
+        LikeContext(
+            track=_yt_track("vid"), like_count=5, music_provider=_provider(tmp_path)
+        )
+    )
+    assert http.of("POST", "playlistItems") == []
+    assert [c["params"]["playlistId"] for c in http.of("GET", "playlistItems")] == [
+        "best"
+    ]
 
 
 @pytest.mark.asyncio

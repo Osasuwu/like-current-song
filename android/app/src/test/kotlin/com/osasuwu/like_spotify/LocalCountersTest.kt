@@ -217,4 +217,42 @@ class LocalCountersTest {
         assertFalse(LocalCounters.shouldFollow(5, 5, setOf("ytmusic:UC123"), "ytmusic:UC123"))
         assertTrue(LocalCounters.shouldFollow(5, 5, setOf("ytmusic:UC123"), "UC123"))
     }
+
+    // ---- shouldPromote (#245) -------------------------------------------------
+
+    @Test
+    fun `a track short of the threshold is not promoted`() {
+        assertFalse(LocalCounters.shouldPromote(2, 3, emptySet(), "trk-a"))
+    }
+
+    @Test
+    fun `a track exactly on the threshold is promoted`() {
+        assertTrue(LocalCounters.shouldPromote(3, 3, emptySet(), "trk-a"))
+    }
+
+    @Test
+    fun `a count that landed past the threshold still promotes`() {
+        // The case `==` could not serve: a lowered threshold, or likes
+        // counted on another device through the shared sheet.
+        assertTrue(LocalCounters.shouldPromote(8, 3, emptySet(), "trk-a"))
+    }
+
+    @Test
+    fun `a track already promoted is not promoted again`() {
+        assertFalse(LocalCounters.shouldPromote(8, 3, setOf("trk-a"), "trk-a"))
+    }
+
+    @Test
+    fun `being promoted says nothing about the track beside it`() {
+        assertTrue(LocalCounters.shouldPromote(3, 3, setOf("trk-a"), "trk-b"))
+    }
+
+    @Test
+    fun `a promoted track survives a round trip through storage`() {
+        val prefs = FakeSharedPreferences()
+        LocalCounters.markTrackPromoted(prefs, "trk-a")
+        LocalCounters.markTrackPromoted(prefs, "ytmusic:vid")
+        assertEquals(setOf("trk-a", "ytmusic:vid"), LocalCounters.promotedTracks(prefs))
+        assertEquals(emptySet<String>(), LocalCounters.followedArtists(prefs))
+    }
 }
