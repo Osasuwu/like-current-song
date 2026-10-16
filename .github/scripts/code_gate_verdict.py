@@ -37,6 +37,11 @@ One commit, one check. `verify-verdict` attaches to the head commit, not the PR
 (#230): a PR into another base posts nothing, and two open PRs into the default
 branch on one head SHA make the check red until one of them moves or closes.
 
+Expiry and listing caps. Evidence expires with no event, so the verdict workflow
+also runs daily and re-decides every open PR into the default branch (#231). A
+listing the verdict depends on that reaches its page cap is red as
+`listing-truncated`, never read as whole (`paged`, #237).
+
 Gate machinery. A PR touching the review workflow, the verdict workflow, this
 script or a local action is always red: its own review cannot be trusted, since
 it is the thing under change. The sanctioned unblock is a human review-blind
@@ -50,6 +55,7 @@ Stdlib only: the jobs need no dependency install.
 
 import argparse
 import base64
+import datetime
 import http.client
 import io
 import json
@@ -124,9 +130,17 @@ _IGNORED_CONCLUSIONS = frozenset(
     {"failure", "cancelled", "timed_out", "skipped", "neutral", "stale", "startup_failure"}
 )
 
-MAX_RUN_PAGES = 3
+# A listing that reaches its cap is red, never read as whole (`paged`, #237).
+MAX_RUN_PAGES = 10  # the runs API serves at most 1000 results to a filtered query
 MAX_PR_PAGES = 10
 MAX_FILE_PAGES = 30  # the PR files API serves at most 3000 files
+MAX_CHECK_PAGES = 10
+# A dispatch for a PR can only produce evidence once the PR exists (`prepare`
+# fetches it), and a workflow run lives at most 35 days, approval wait included;
+# so dispatch runs created before the PR, less that, are never read (#237).
+DISPATCH_LOOKBACK_DAYS = 35
+# The daily sweep runs one matrix job per open PR; a workflow run holds 256 (#231).
+MAX_SWEEP_TARGETS = 256
 MAX_HEAD_FILES = 200
 MAX_HEAD_FILE_BYTES = 1 << 20
 MAX_HEAD_TOTAL_BYTES = 20 << 20
@@ -643,8 +657,27 @@ def read_capped(resp, limit=MAX_ARTIFACT_BYTES):
     return body
 
 
+class ListingTruncated(RuntimeError):
+    """A listing the verdict depends on did not end within its page cap (#237).
+
+    `items` holds what was read; it is not the whole list."""
+
+    def __init__(self, path, max_pages, per_page, items):
+        super().__init__(
+            f"listing {path} truncated: its last allowed page ({max_pages} of "
+            f"{per_page}) was full, so it may go on unread"
+        )
+        self.items = items
+
+
 def paged(api, path, key=None, per_page=100, max_pages=10):
-    """All items of a paginated list endpoint (up to `max_pages`)."""
+    """All items of a paginated list endpoint.
+
+    A listing whose last allowed page is still full raises `ListingTruncated`
+    rather than be handed on as whole: what it leaves unread could be the one
+    item that decides the verdict. A page past the cap is not probed, since an
+    endpoint that stops serving at a result limit (the runs API, 1000) would read
+    empty there and look complete."""
     joiner = "&" if "?" in path else "?"
     items = []
     for page in range(1, max_pages + 1):
@@ -652,8 +685,8 @@ def paged(api, path, key=None, per_page=100, max_pages=10):
         batch = data[key] if key else data
         items.extend(batch)
         if len(batch) < per_page:
-            break
-    return items
+            return items
+    raise ListingTruncated(path, max_pages, per_page, items)
 
 
 def fetch_pr_snapshot(api, repo, number):
@@ -746,12 +779,25 @@ def load_entries(api, repo, run):
     return entries or [bare]
 
 
-def gather_entries(api, repo, pr_number, head_sha, default_branch):
-    """Candidate runs for this PR/SHA, loaded only when they pass provenance."""
+def dispatch_window_start(pr_created_at):
+    """The `created` lower bound for the PR's dispatch runs (see DISPATCH_LOOKBACK_DAYS)."""
+    created = datetime.datetime.strptime(pr_created_at, "%Y-%m-%dT%H:%M:%SZ")
+    start = created - datetime.timedelta(days=DISPATCH_LOOKBACK_DAYS)
+    return start.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def gather_entries(api, repo, pr_number, head_sha, default_branch, pr_created_at):
+    """Candidate runs for this PR/SHA, loaded only when they pass provenance.
+
+    A dispatch run's head is the default branch's commit, not the PR's, so the
+    PR's dispatches are listed among every PR's: only those created since the PR
+    could be dispatched are listed, so other PRs' older dispatches cannot push its
+    own past the cap (#237)."""
     base = f"repos/{repo}/actions/workflows/{REVIEW_WORKFLOW.rsplit('/', 1)[1]}/runs"
+    since = urllib.parse.quote(">=" + dispatch_window_start(pr_created_at), safe="")
     queries = (
         f"head_sha={head_sha}",
-        f"event=workflow_dispatch&branch={urllib.parse.quote(default_branch)}",
+        f"event=workflow_dispatch&branch={urllib.parse.quote(default_branch)}&created={since}",
     )
     seen = {}
     for q in queries:
@@ -817,42 +863,61 @@ def shared_head_verdict(pr, open_prs):
     )
 
 
+def truncated_verdict(exc):
+    """Red for a listing the verdict depends on that it could not read whole (#237)."""
+    return Verdict(
+        False,
+        "listing-truncated",
+        f"A listing the verdict depends on is longer than it reads ({exc}). What it "
+        "left unread could hold blocking evidence or a sticky red, so the verdict is "
+        "red rather than decided on part of the list. See CONTRIBUTING.md, "
+        "'Code review gate'.",
+    )
+
+
 def post_check(api, repo, head_sha, verdict, app_id, observation=None):
     """PATCH this App's `verify-verdict` check runs for the SHA; create one only if
     none exists. The ledger they carry is merged, updated with `observation` and
     written back, and a sticky red it holds is what gets posted.
 
+    A check-run listing past its cap may hide this App's check and its ledger
+    under other apps' same-named checks: the verdict is then red, posted on a
+    new check run as well as on every one of this App's that was read (#237).
+
     Returns (how, the verdict posted)."""
-    existing = api(
-        "GET",
-        f"repos/{repo}/commits/{head_sha}/check-runs"
-        f"?check_name={CHECK_NAME}&filter=all&per_page=100",
-    )
+    truncated = None
+    try:
+        existing = paged(
+            api,
+            f"repos/{repo}/commits/{head_sha}/check-runs?check_name={CHECK_NAME}&filter=all",
+            key="check_runs",
+            max_pages=MAX_CHECK_PAGES,
+        )
+    except ListingTruncated as exc:
+        existing, truncated = exc.items, exc
     # Only this App's check runs: another app's same-named check can neither lift
     # nor plant a sticky red.
-    mine = [
-        c
-        for c in existing.get("check_runs", [])
-        if str((c.get("app") or {}).get("id")) == str(app_id)
-    ]
+    mine = [c for c in existing if str((c.get("app") or {}).get("id")) == str(app_id)]
     verdict, ledger = apply_ledger(
         verdict,
         merge_ledgers(parse_ledger(c) for c in mine),
         observation or Observation(frozenset(), frozenset(), False),
     )
+    if truncated is not None:
+        verdict = truncated_verdict(truncated)
     output = {
         "title": f"{CHECK_NAME}: {verdict.code}",
         "summary": verdict.message,
         "text": ledger_text(ledger),
     }
     conclusion = "success" if verdict.green else "failure"
-    if mine:
-        for c in mine:
-            api(
-                "PATCH",
-                f"repos/{repo}/check-runs/{c['id']}",
-                {"status": "completed", "conclusion": conclusion, "output": output},
-            )
+    for c in mine:
+        api(
+            "PATCH",
+            f"repos/{repo}/check-runs/{c['id']}",
+            {"status": "completed", "conclusion": conclusion, "output": output},
+        )
+    if mine and truncated is None:
         return "patched", verdict
     api(
         "POST",
@@ -1032,26 +1097,51 @@ def cmd_skip(args):
     return 0
 
 
-def cmd_resolve(_args):
-    """Verdict workflow: which PR and SHA does this event concern?"""
-    event = os.environ["EVENT_NAME"]
-    if event == "pull_request_target":
-        target = (int(os.environ["PR_NUMBER"]), os.environ["HEAD_SHA"])
-    else:
-        target = resolve_run_target(
-            os.environ["RUN_EVENT"],
-            os.environ.get("RUN_TITLE", ""),
-            os.environ.get("RUN_HEAD_SHA", ""),
-            json.loads(os.environ.get("RUN_PULL_REQUESTS") or "[]"),
-            os.environ["DEFAULT_BRANCH"],
+def sweep_targets(api, repo):
+    """Every open PR into the default branch, for the daily sweep (#231).
+
+    Evidence expires with no event to say so; re-deciding each open PR's head
+    once a day is what turns an expired-only green red."""
+    default_branch = api("GET", f"repos/{repo}")["default_branch"]
+    open_prs = paged(
+        api,
+        f"repos/{repo}/pulls?state=open&base={urllib.parse.quote(default_branch)}",
+        max_pages=MAX_PR_PAGES,
+    )
+    if len(open_prs) > MAX_SWEEP_TARGETS:
+        raise RuntimeError(
+            f"{len(open_prs)} open PRs: the sweep runs one matrix job per PR and a "
+            f"workflow run holds {MAX_SWEEP_TARGETS}, so none is swept"
         )
-    if target is None:
-        print("event is not bound to a PR; nothing to evaluate")
-        _output("pr_number", "")
-        _output("head_sha", "")
-        return 0
-    _output("pr_number", target[0])
-    _output("head_sha", target[1])
+    return sorted(
+        ({"pr_number": p["number"], "head_sha": p["head"]["sha"]} for p in open_prs),
+        key=lambda t: t["pr_number"],
+    )
+
+
+def cmd_resolve(_args):
+    """Verdict workflow: which PRs and SHAs does this event concern?
+
+    Emits `targets`, a JSON list of {pr_number, head_sha}: one for a PR event,
+    every open PR for the schedule, none for an event bound to no PR."""
+    event = os.environ["EVENT_NAME"]
+    if event == "schedule":
+        targets = sweep_targets(Api(os.environ["GH_TOKEN"]), os.environ["GITHUB_REPOSITORY"])
+    else:
+        if event == "pull_request_target":
+            target = (int(os.environ["PR_NUMBER"]), os.environ["HEAD_SHA"])
+        else:
+            target = resolve_run_target(
+                os.environ["RUN_EVENT"],
+                os.environ.get("RUN_TITLE", ""),
+                os.environ.get("RUN_HEAD_SHA", ""),
+                json.loads(os.environ.get("RUN_PULL_REQUESTS") or "[]"),
+                os.environ["DEFAULT_BRANCH"],
+            )
+        if target is None:
+            print("event is not bound to a PR; nothing to evaluate")
+        targets = [] if target is None else [{"pr_number": target[0], "head_sha": target[1]}]
+    _output("targets", json.dumps(targets, separators=(",", ":")))
     return 0
 
 
@@ -1078,13 +1168,17 @@ def cmd_verdict(_args):
             f"repos/{repo}/pulls?state=open&base={urllib.parse.quote(default_branch)}",
             max_pages=MAX_PR_PAGES,
         )
-        if len(open_prs) >= 100 * MAX_PR_PAGES:
-            raise RuntimeError("too many open PRs to check for a shared head")
         verdict = shared_head_verdict(pr, open_prs)
         if verdict is None:
-            entries = gather_entries(read, repo, number, head_sha, default_branch)
+            entries = gather_entries(
+                read, repo, number, head_sha, default_branch, pr["created_at"]
+            )
             observation = observe(entries, number, head_sha, pr["base"]["ref"], default_branch)
             verdict = evaluate_pr(pr, files, entries, default_branch)
+    except ListingTruncated as exc:
+        # Fail closed, and say why: re-running cannot fix a listing past its cap.
+        failure = exc
+        verdict = truncated_verdict(exc)
     except Exception as exc:
         # Fail closed: a crash must not leave an earlier green check standing for
         # this SHA (attempt 1 clean, the re-run blocking, its listing reset).

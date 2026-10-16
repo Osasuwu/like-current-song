@@ -13,6 +13,17 @@ you sign in from its Settings window.
 
 ## [Unreleased]
 
+### Fixed
+
+- **CI: the code-review gate no longer fails open on expiry or long listings
+  (#231, #237).** Review evidence expires after 90 days with no event on the PR,
+  so a green `verify-verdict` stayed green over evidence that was gone; a daily
+  run now re-decides every open PR, turning it red as `evidence-expired` within
+  a day. The verdict also read only the first pages of its run and check-run
+  listings and decided on that part; a listing that reaches its cap is now red
+  as `listing-truncated`, and a PR's dispatched reviews are found however many
+  other PRs dispatched before it. See CONTRIBUTING.md, "Code review gate".
+
 ## [1.3.1] - 2026-10-16
 
 Android: other apps' audio interruptions no longer like your track, and a

@@ -1300,7 +1300,7 @@ def test_gather_then_evaluate_keeps_blocking_from_an_earlier_attempt():
         },
         blobs={1: _evidence_zip(blocking=True), 2: _evidence_zip()},
     )
-    entries = gate.gather_entries(api, "o/r", PR, SHA, "main")
+    entries = gate.gather_entries(api, "o/r", PR, SHA, "main", _pr()["created_at"])
     assert len(entries) == 2
     got = _ev(entries)
     assert (got.green, got.code) == (False, "evidence-blocking")
@@ -1332,7 +1332,7 @@ def _gather(runs, compare):
         },
         blobs={1: _evidence_zip()},
     )
-    return api, gate.gather_entries(api, "o/r", PR, SHA, "main")
+    return api, gate.gather_entries(api, "o/r", PR, SHA, "main", _pr()["created_at"])
 
 
 def _compares(api):
@@ -1375,7 +1375,7 @@ def test_history_is_checked_only_for_dispatch_runs_titled_for_this_pr_and_sha():
         },
         blobs={1: _evidence_zip()},
     )
-    entries = gate.gather_entries(api, "o/r", PR, SHA, "main")
+    entries = gate.gather_entries(api, "o/r", PR, SHA, "main", _pr()["created_at"])
     assert _compares(api) == []
     assert [e["run"]["id"] for e in entries] == [1001]
 
@@ -1389,7 +1389,7 @@ def test_gather_loads_a_foreign_base_run_so_its_blocking_verdict_sticks():
         },
         blobs={1: _evidence_zip(blocking=True)},
     )
-    got = _ev(gate.gather_entries(api, "o/r", PR, SHA, "main"))
+    got = _ev(gate.gather_entries(api, "o/r", PR, SHA, "main", _pr()["created_at"]))
     assert (got.green, got.code) == (False, "evidence-blocking")
 
 
@@ -1887,6 +1887,22 @@ def test_post_check_with_a_check_run_listing_past_its_cap_posts_a_new_red_check(
     assert (method, path) == ("POST", "repos/o/r/check-runs")
     assert body["conclusion"] == "failure"
     assert body["output"]["title"] == "verify-verdict: listing-truncated"
+
+
+def test_post_check_past_its_cap_reddens_the_read_check_of_ours_and_posts_a_new_one():
+    """The check of ours that was read goes red too, and a new red one is posted:
+    another of ours past the cap could be the one branch protection reads."""
+    foreign = {"check_runs": [{"id": 5000 + i, "app": {"id": 15368}} for i in range(100)]}
+    first = {"check_runs": [*foreign["check_runs"][:99], _check(id=77)]}
+    page = f"{CHECKS_PATH}?check_name=verify-verdict&filter=all&per_page=100&page="
+    # First prefix match wins: page 10 before page 1, which it would also match.
+    api = FakeApi({f"{page}10": foreign, f"{page}1": first, CHECKS_PATH: foreign})
+    gate.post_check(api, "o/r", SHA, GREEN, 123)
+    writes = [(m, p, b["conclusion"]) for m, p, b in api.calls if m != "GET"]
+    assert writes == [
+        ("PATCH", "repos/o/r/check-runs/77", "failure"),
+        ("POST", "repos/o/r/check-runs", "failure"),
+    ]
 
 
 # --- cmd_verdict end to end: stickiness past the artifact (#236) -------------

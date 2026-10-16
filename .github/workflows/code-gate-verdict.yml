@@ -21,6 +21,12 @@ on:
   workflow_run:
     workflows: ["Code Review"]
     types: [completed]
+  # Daily sweep (#231): review evidence expires with no event to say so, so once
+  # a day every open PR into the default branch is re-decided, and a green that
+  # rests on expired evidence alone goes red. GitHub may start a scheduled run
+  # late, and disables schedules in a repo with no activity for 60 days.
+  schedule:
+    - cron: "23 5 * * *"
 
 permissions:
   contents: read
@@ -28,23 +34,24 @@ permissions:
   pull-requests: read
 
 jobs:
-  # No network, no secrets: parses event data into (pr_number, head_sha). An
-  # empty output means the event is not bound to a PR into the default branch
-  # (e.g. a fork's `pull_request` run, whose `pull_requests[]` is empty) and
-  # nothing follows.
+  # Parses event data into `targets`, a JSON list of {pr_number, head_sha}: one
+  # for a PR event, none when the event is not bound to a PR into the default
+  # branch (e.g. a fork's `pull_request` run, whose `pull_requests[]` is empty).
+  # On the schedule it lists every open PR into the default branch with the
+  # read-only job token; no other secret is in reach.
   resolve:
     # `edited` fires on every title/body edit; only a base-branch change alters
     # the evaluation.
     if: github.event_name != 'pull_request_target' || github.event.action != 'edited' || github.event.changes.base
     runs-on: ubuntu-latest
     outputs:
-      pr_number: ${{ steps.resolve.outputs.pr_number }}
-      head_sha: ${{ steps.resolve.outputs.head_sha }}
+      targets: ${{ steps.resolve.outputs.targets }}
     steps:
-      # Base-pinned: default branch, scripts only. Never the PR head.
+      # Base-pinned: default branch, scripts only. Never the PR head. A schedule
+      # event carries no repository payload; its own ref is the default branch.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ github.event_name == 'schedule' && github.ref || github.event.repository.default_branch }}
           sparse-checkout: .github/scripts
           persist-credentials: false
 
@@ -59,22 +66,28 @@ jobs:
           RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           RUN_PULL_REQUESTS: ${{ toJSON(github.event.workflow_run.pull_requests) }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python -I .github/scripts/code_gate_verdict.py resolve
 
   verdict:
     needs: resolve
-    if: needs.resolve.outputs.pr_number != ''
+    if: needs.resolve.outputs.targets != '[]'
+    # One job per target; one PR's failure must not cancel the sweep's others.
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.resolve.outputs.targets) }}
     runs-on: ubuntu-latest
     # Serialize per (PR, SHA) without cancelling: a verdict that is mid-post must
-    # finish, and the next event for the same SHA simply re-decides it.
+    # finish, and the next event (or the sweep) for the same SHA re-decides it.
     concurrency:
-      group: code-gate-${{ needs.resolve.outputs.pr_number }}-${{ needs.resolve.outputs.head_sha }}
+      group: code-gate-${{ matrix.target.pr_number }}-${{ matrix.target.head_sha }}
       cancel-in-progress: false
     environment: code-gate-verdict
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ github.event_name == 'schedule' && github.ref || github.event.repository.default_branch }}
           sparse-checkout: .github/scripts
           persist-credentials: false
 
@@ -91,6 +104,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GATE_TOKEN: ${{ steps.app.outputs.token }}
           GATE_APP_ID: ${{ secrets.GATE_APP_ID }}
-          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
-          HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+          PR_NUMBER: ${{ matrix.target.pr_number }}
+          HEAD_SHA: ${{ matrix.target.head_sha }}
         run: python -I .github/scripts/code_gate_verdict.py verdict
