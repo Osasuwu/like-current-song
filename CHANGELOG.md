@@ -13,6 +13,14 @@ you sign in from its Settings window.
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-10-16
+
+Android: other apps' audio interruptions no longer like your track, and a
+like from inside the app reaches the best playlist even when the count jumps
+past the threshold. Desktop and Windows exe: follow-artist and the best
+playlist fire at or past their threshold instead of only exactly on it, and
+each remembers what it already did.
+
 ### Changed
 
 - **CI: the code-review gate now decides from evidence (#226).** The review
@@ -972,7 +980,8 @@ First tagged release.
   via `trigger.feedback_volume` in `~/.like_spotify/config.json`.
 - Matching Android feedback-volume setting in the Trigger configuration screen.
 
-[Unreleased]: https://github.com/Osasuwu/like-current-song/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/Osasuwu/like-current-song/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/Osasuwu/like-current-song/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/Osasuwu/like-current-song/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/Osasuwu/like-current-song/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/Osasuwu/like-current-song/compare/v1.0.3...v1.1.0
