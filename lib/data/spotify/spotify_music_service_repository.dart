@@ -342,18 +342,37 @@ class SpotifyMusicServiceRepository implements MusicServiceRepository {
     // 4. Increment like count (always, regardless of best rule state)
     final trackLikeCount = await _likeCountRepository.incrementTrackLikeCount(trackInfo.trackId);
 
-    // 5. Add to best playlist at configured threshold
+    // 5. Best playlist: at or past the threshold, once per track, never a
+    // second copy. A count can jump past the threshold without landing on it
+    // (a lowered threshold, likes counted on another device), so `==` left
+    // such tracks out for good (#253; the native paths are #245/#252). The
+    // memory is written only once the track is in the playlist, so a failed
+    // add is retried on the next like. It is per store and starts empty, so
+    // the playlist is checked first: a track already there (the background
+    // path, another device, or a promotion from before this memory) is only
+    // remembered.
     var addedToBest = false;
     if (ruleConfig.bestEnabled &&
-        trackLikeCount == ruleConfig.bestThreshold &&
+        trackLikeCount >= ruleConfig.bestThreshold &&
         ruleConfig.bestPlaylistName.isNotEmpty) {
       try {
-        await _playlistService.addTrackToNamedPlaylist(
-          accessToken,
-          ruleConfig.bestPlaylistName,
-          trackInfo.trackUri,
-        );
-        addedToBest = true;
+        final promoted = await _settingsRepository.loadPromotedTracks();
+        if (!promoted.contains(trackInfo.trackId)) {
+          final alreadyThere = await _playlistService.namedPlaylistContainsTrack(
+            accessToken,
+            ruleConfig.bestPlaylistName,
+            trackInfo.trackId,
+          );
+          if (!alreadyThere) {
+            await _playlistService.addTrackToNamedPlaylist(
+              accessToken,
+              ruleConfig.bestPlaylistName,
+              trackInfo.trackUri,
+            );
+            addedToBest = true;
+          }
+          await _settingsRepository.markTrackPromoted(trackInfo.trackId);
+        }
       } catch (e) {
         debugPrint('Best add failed: $e');
         await _settingsRepository.appendLog(AppLog(

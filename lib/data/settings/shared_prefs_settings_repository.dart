@@ -27,6 +27,10 @@ class SharedPrefsSettingsRepository implements SettingsRepository {
   static const _keyMusicRoutingMode = 'music_routing_mode';
   static const _keyLogs = 'logs';
   static const _keyPendingLikes = 'pending_likes';
+  // Flutter's own store, so it never shares a file with the native
+  // `promoted_tracks` the background path keeps; the playlist check before
+  // each add is what keeps the two from adding a track twice (#253).
+  static const _keyPromotedTracks = 'promoted_tracks';
 
   @override
   Future<TriggerConfig> loadTriggerConfig() async {
@@ -210,5 +214,19 @@ class SharedPrefsSettingsRepository implements SettingsRepository {
     final likes = await loadPendingLikes();
     final filtered = likes.where((l) => l.trackId != trackId).toList();
     await savePendingLikes(filtered);
+  }
+
+  @override
+  Future<Set<String>> loadPromotedTracks() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList(_keyPromotedTracks)?.toSet() ?? <String>{};
+  }
+
+  @override
+  Future<void> markTrackPromoted(String trackId) async {
+    final promoted = await loadPromotedTracks();
+    if (!promoted.add(trackId)) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_keyPromotedTracks, promoted.toList());
   }
 }

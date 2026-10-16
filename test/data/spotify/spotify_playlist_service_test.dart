@@ -322,4 +322,79 @@ void main() {
       verify(() => mockClient.getUserPlaylists(token, offset: 0)).called(1);
     });
   });
+
+  group('namedPlaylistContainsTrack', () {
+    test('asks the resolved playlist for the track', () async {
+      when(() => mockClient.getUserPlaylists(token, offset: 0)).thenAnswer(
+        (_) async => const SpotifyPlaylistPage(
+          items: [SpotifyPlaylistItem(id: 'pl-1', name: 'Best')],
+          total: 1,
+        ),
+      );
+      when(() => mockClient.playlistContainsTrack(token,
+          playlistId: 'pl-1', trackId: 'trk')).thenAnswer((_) async => true);
+
+      expect(await service.namedPlaylistContainsTrack(token, 'Best', 'trk'),
+          isTrue);
+    });
+
+    test('answers false for a playlist that does not exist, creating nothing',
+        () async {
+      when(() => mockClient.getUserPlaylists(token, offset: 0)).thenAnswer(
+        (_) async => const SpotifyPlaylistPage(items: [], total: 0),
+      );
+
+      expect(await service.namedPlaylistContainsTrack(token, 'Best', 'trk'),
+          isFalse);
+      verifyNever(() => mockClient.createPlaylist(token,
+          userId: any(named: 'userId'), name: any(named: 'name')));
+      verifyNever(() => mockClient.playlistContainsTrack(token,
+          playlistId: any(named: 'playlistId'),
+          trackId: any(named: 'trackId')));
+    });
+
+    test('drops a stale cached id on 404 and rethrows', () async {
+      when(() => mockClient.getUserPlaylists(token, offset: 0)).thenAnswer(
+        (_) async => const SpotifyPlaylistPage(
+          items: [SpotifyPlaylistItem(id: 'pl-1', name: 'Best')],
+          total: 1,
+        ),
+      );
+      when(() => mockClient.playlistContainsTrack(token,
+              playlistId: 'pl-1', trackId: 'trk'))
+          .thenThrow(SpotifyApiException(404, 'Not found'));
+
+      await expectLater(
+        () => service.namedPlaylistContainsTrack(token, 'Best', 'trk'),
+        throwsA(isA<SpotifyApiException>()
+            .having((e) => e.statusCode, 'statusCode', 404)),
+      );
+
+      // The next lookup asks Spotify again instead of reusing the dead id.
+      await service.findPlaylistByName(token, 'Best');
+      verify(() => mockClient.getUserPlaylists(token, offset: 0)).called(2);
+    });
+
+    test('keeps the cache and rethrows on a failure that is not a 404',
+        () async {
+      when(() => mockClient.getUserPlaylists(token, offset: 0)).thenAnswer(
+        (_) async => const SpotifyPlaylistPage(
+          items: [SpotifyPlaylistItem(id: 'pl-1', name: 'Best')],
+          total: 1,
+        ),
+      );
+      when(() => mockClient.playlistContainsTrack(token,
+              playlistId: 'pl-1', trackId: 'trk'))
+          .thenThrow(SpotifyApiException(500, 'Server error'));
+
+      await expectLater(
+        () => service.namedPlaylistContainsTrack(token, 'Best', 'trk'),
+        throwsA(isA<SpotifyApiException>()
+            .having((e) => e.statusCode, 'statusCode', 500)),
+      );
+
+      await service.findPlaylistByName(token, 'Best');
+      verify(() => mockClient.getUserPlaylists(token, offset: 0)).called(1);
+    });
+  });
 }
