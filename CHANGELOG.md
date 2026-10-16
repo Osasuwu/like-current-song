@@ -25,6 +25,16 @@ you sign in from its Settings window.
 
 ### Fixed
 
+- **Desktop: follow-artist follows once the count is at or past the threshold
+  (#244).** It fired only when an artist's distinct-track count equalled the
+  threshold exactly, so an artist whose count landed past it (tracks recorded
+  from the phone, a lowered threshold, a row pasted into `ArtistTracks`) was
+  never followed. Android made the same change in #197. The desktop now
+  remembers whom it followed in `~/.like_spotify/followed_artists.json`, so
+  later likes don't follow again, and a follow that failed is retried on the
+  next like. On the first like after updating, an artist already past your
+  threshold is followed once — including one you unfollowed after an earlier
+  auto-follow.
 - **Android: no more likes from another app interrupting the music (#248).**
   A notification sound, voice message or navigation prompt pauses the music and
   resumes it, which used to read as your `pause, play`. Now only a real pause

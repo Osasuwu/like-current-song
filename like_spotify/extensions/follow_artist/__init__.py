@@ -1,23 +1,33 @@
-"""FollowArtistAction — default flavor PostLikeAction (#26).
+"""FollowArtistAction — default flavor PostLikeAction (#26, #244).
 
-Records each (user, artist, track) liked combination in Storage; when
-a distinct-track count for an artist crosses a configured threshold
-(default 5), auto-follow that artist. Idempotency is owned by
-`Storage.record_artist_track` (returns the same count when called
-twice with the same triple).
+Records each (user, artist, track) liked combination in Storage; once an
+artist's distinct-track count is at or past a configured threshold
+(default 5) and this app has not followed them yet, auto-follow that
+artist. Counting a re-liked track only once is owned by
+`Storage.record_artist_track` (returns the same count when called twice
+with the same triple).
 
-Triggers ONLY when the post-record count EQUALS the threshold, so a
-6th, 7th… liked track from the same artist does NOT re-follow.
+"At or past", not "equals": the count can land past the threshold without
+ever sitting on it — another device recorded some of the artist's tracks in
+the shared sheet, the user lowered the threshold below a count they already
+have, a row was pasted into the sheet by hand. An exact-match rule never
+follows that artist at all (#244, the desktop port of Android's #197).
+What keeps a 6th, 7th… liked track from re-following is the followed-memory:
+a small JSON list under the config dir of the artists this app has followed,
+written only after a follow went through, so a failed follow is retried on
+the next like. It is per device, like Android's `followed_artists`.
 
 Runs against any `PlaylistCapableProvider` (Spotify follows the artist,
 YouTube Music subscribes to the artist's channel); other providers are a
 silent no-op. Storage absence is also a silent no-op
-— without a persistent counter we have no idempotency guarantee.
+— without a persistent counter there is nothing to compare to the threshold.
 """
 
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 
 from like_spotify.core.actions import PostLikeAction
 from like_spotify.core.errors import AuthError
@@ -31,14 +41,57 @@ DEFAULT_THRESHOLD = 5
 logger = logging.getLogger(__name__)
 
 
+class _FollowedStore:
+    """Local JSON list of the artists this app has auto-followed.
+
+    Keys are `<provider>:<artist_id>`: a Spotify artist id and a YouTube
+    channel id share no namespace, and switching provider must not make one
+    look followed on the other. An unreadable file reads as empty — the cost
+    is one repeat follow call, which both providers accept as a no-op.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+
+    def contains(self, key: str) -> bool:
+        return key in self._load()
+
+    def add(self, key: str) -> None:
+        state = self._load()
+        if key in state:
+            return
+        state.add(key)
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            self._path.write_text(json.dumps(sorted(state)), encoding="utf-8")
+        except OSError:
+            logger.warning("follow-artist: failed to persist state to %s", self._path)
+
+    def _load(self) -> set[str]:
+        try:
+            data = json.loads(self._path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return set()
+        if not isinstance(data, list):
+            return set()
+        return {item for item in data if isinstance(item, str)}
+
+
 class FollowArtistAction(PostLikeAction):
-    def __init__(self, storage: Storage, threshold: int = DEFAULT_THRESHOLD) -> None:
+    def __init__(
+        self,
+        storage: Storage,
+        threshold: int = DEFAULT_THRESHOLD,
+        *,
+        followed_path: Path,
+    ) -> None:
         if storage is None:
             raise ValueError("storage is required (per-artist counter source)")
         if threshold < 1:
             raise ValueError("threshold must be >= 1")
         self._storage = storage
         self._threshold = threshold
+        self._followed = _FollowedStore(followed_path)
 
     async def run(self, ctx: LikeContext) -> None:
         provider = ctx.music_provider
@@ -67,7 +120,8 @@ class FollowArtistAction(PostLikeAction):
                 )
                 continue
 
-            if count != self._threshold:
+            followed_key = f"{ctx.track.provider}:{artist_id}"
+            if count < self._threshold or self._followed.contains(followed_key):
                 continue
 
             try:
@@ -78,11 +132,16 @@ class FollowArtistAction(PostLikeAction):
                     "`like-current-song --setup` to grant follow scope",
                     e,
                 )
+                continue
             except Exception as e:
                 logger.warning("follow-artist API failed (%s): %s", artist_id, e)
+                continue
+            self._followed.add(followed_key)
 
 
 def POST_LIKE_ACTION(
-    storage: Storage, threshold: int = DEFAULT_THRESHOLD
+    storage: Storage, threshold: int = DEFAULT_THRESHOLD, *, followed_path: Path
 ) -> FollowArtistAction:
-    return FollowArtistAction(storage=storage, threshold=threshold)
+    return FollowArtistAction(
+        storage=storage, threshold=threshold, followed_path=followed_path
+    )
