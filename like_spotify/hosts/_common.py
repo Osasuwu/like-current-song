@@ -87,6 +87,7 @@ GOOGLE_TOKEN_FILE = _config_dir() / "google_token.json"
 YOUTUBE_TOKEN_FILE = _config_dir() / "youtube_token.json"
 LIKE_COOLDOWN_FILE = _config_dir() / "like_cooldown.json"
 FOLLOWED_ARTISTS_FILE = _config_dir() / "followed_artists.json"
+PROMOTED_TRACKS_FILE = _config_dir() / "promoted_tracks.json"
 
 
 def load_config() -> dict:
@@ -264,6 +265,7 @@ def _build_promote_to_best_actions(
         return None, make_promote_to_best_action(
             playlist_name=best_name,
             threshold=int(best_cfg.get("threshold", 3)),
+            promoted_path=PROMOTED_TRACKS_FILE,
         )
     except Exception:
         return None, None

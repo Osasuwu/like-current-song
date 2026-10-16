@@ -85,6 +85,9 @@ object AppConstants {
     /** Artists already auto-followed, so the threshold rule fires once per artist. */
     const val KEY_FOLLOWED_ARTISTS = "followed_artists"
 
+    /** Tracks already promoted to the best playlist, so that rule fires once per track (#245). */
+    const val KEY_PROMOTED_TRACKS = "promoted_tracks"
+
     /**
      * Set once the counters Dart kept in its own store before #197 have been
      * folded in. The fold adds the two stores together, which is right exactly
