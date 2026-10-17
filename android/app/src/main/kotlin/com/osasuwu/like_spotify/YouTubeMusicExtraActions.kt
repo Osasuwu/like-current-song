@@ -68,10 +68,13 @@ class YouTubeMusicExtraActions(
                 log("Auto-follow skipped: the match is not the artist's own channel", FOLLOW_ACTION, "info", null)
             } else {
                 val followedKey = countKey(channelId)
-                // The local count moves either way, as on Spotify; the sheet
-                // keys the artist by the bare channel id, like the desktop.
-                val localCount = incrementLocalCount(LocalCounters.Kind.ARTIST, channelId)
-                val count = sharedArtistTrackCount(channelId, match.videoId) ?: localCount
+                // The like tally moves either way, as on Spotify, for the stats
+                // screen; the follow rule counts distinct videos (#243). The
+                // sheet keys the artist by the bare channel id, like the desktop.
+                incrementLocalCount(LocalCounters.Kind.ARTIST, channelId)
+                val count = LocalCounters.artistFollowCount(prefs, followedKey, match.videoId) {
+                    sharedArtistTrackCount(channelId, match.videoId)
+                }
                 if (shouldFollow(count, rules.followArtistThreshold, followedKey)) {
                     runCatching {
                         followChannel(channelId)

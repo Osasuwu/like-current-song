@@ -23,6 +23,15 @@ you sign in from its Settings window.
   listings and decided on that part; a listing that reaches its cap is now red
   as `listing-truncated`, and a PR's dispatched reviews are found however many
   other PRs dispatched before it. See CONTRIBUTING.md, "Code review gate".
+- **Android: without a counter sheet, follow-artist counts distinct tracks,
+  not likes (#243).** The fallback kept on the phone counted every like, so
+  liking one track N times followed its artist. It now counts each track once
+  per artist, on Spotify and YouTube Music, both in the app and from media
+  buttons; with a sheet nothing changes. The Stats screen still shows likes
+  per artist. After the update the count starts from zero, because the old
+  tallies cannot say which tracks they were: no one is followed for likes made
+  before it, and an artist not yet followed needs N distinct tracks liked from
+  then on.
 
 ## [1.3.1] - 2026-10-16
 

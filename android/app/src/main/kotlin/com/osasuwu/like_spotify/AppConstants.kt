@@ -85,6 +85,14 @@ object AppConstants {
     /** Artists already auto-followed, so the threshold rule fires once per artist. */
     const val KEY_FOLLOWED_ARTISTS = "followed_artists"
 
+    /**
+     * The distinct tracks liked per artist on this device, which the
+     * follow-artist rule counts when there is no shared counter sheet (#243).
+     * Keyed the way [KEY_FOLLOWED_ARTISTS] is (`ytmusic:`-prefixed for YouTube
+     * Music). New in #243 and never seeded from [KEY_ARTIST_LIKE_COUNTS].
+     */
+    const val KEY_ARTIST_LIKED_TRACKS = "artist_liked_tracks"
+
     /** Tracks already promoted to the best playlist, so that rule fires once per track (#245). */
     const val KEY_PROMOTED_TRACKS = "promoted_tracks"
 

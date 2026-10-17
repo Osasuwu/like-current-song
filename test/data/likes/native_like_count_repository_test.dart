@@ -51,6 +51,31 @@ void main() {
       });
     });
 
+    test('with a track, an artist like answers the distinct-track count',
+        () async {
+      // #243: follow-artist decides on this answer, so with no sheet it must
+      // be how many distinct tracks were liked, not how many likes. The tally
+      // still moves, for the Stats screen.
+      answer((call) => call.method == 'recordLocalArtistTrack' ? 1 : 6);
+
+      expect(
+        await repo.incrementArtistLikeCount('artist-1', trackId: 'track-1'),
+        1,
+      );
+      expect(calls.map((c) => c.method), <String>[
+        'incrementLocalCount',
+        'recordLocalArtistTrack',
+      ]);
+      expect(calls.first.arguments, <String, dynamic>{
+        'kind': 'artist',
+        'id': 'artist-1',
+      });
+      expect(calls.last.arguments, <String, dynamic>{
+        'id': 'artist-1',
+        'trackId': 'track-1',
+      });
+    });
+
     test('reads a track count', () async {
       answer((_) => 2);
 

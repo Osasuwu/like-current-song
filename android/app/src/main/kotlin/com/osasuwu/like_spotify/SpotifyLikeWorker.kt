@@ -389,11 +389,14 @@ class SpotifyLikeWorker(
         // collaboration is as much a like for the guest as for the headliner,
         // which is how the Dart and desktop halves have always counted it.
         track.artistIds.forEach { artistId ->
-            // The local count backs the stats screen, so it moves either way;
-            // the follow decision prefers the shared sheet when there is one.
-            val localCount = LocalCounters.increment(prefs, LocalCounters.Kind.ARTIST, artistId)
+            // The like tally backs the stats screen, so it moves either way.
+            // The follow decision counts distinct tracks: the shared sheet's
+            // when there is one, else this device's -- never likes (#243).
+            LocalCounters.increment(prefs, LocalCounters.Kind.ARTIST, artistId)
             if (!ruleConfig.followArtistEnabled) return@forEach
-            val artistCount = sharedArtistTrackCount(prefs, token, artistId, track.id) ?: localCount
+            val artistCount = LocalCounters.artistFollowCount(prefs, artistId, track.id) {
+                sharedArtistTrackCount(prefs, token, artistId, track.id)
+            }
             val shouldFollow = LocalCounters.shouldFollow(
                 artistCount,
                 ruleConfig.followArtistThreshold,

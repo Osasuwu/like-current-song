@@ -184,6 +184,64 @@ object LocalCounters {
         prefs.edit().putString(AppConstants.KEY_FOLLOWED_ARTISTS, encodeIds(updated)).apply()
     }
 
+    // ---- Distinct tracks per artist (#243) ----------------------------------------------
+
+    /**
+     * The distinct tracks liked per artist, stored as a JSON object of arrays.
+     * Degrades to empty like [parseCounts].
+     */
+    fun parseArtistTracks(raw: String?): Map<String, Set<String>> {
+        val json = runCatching { JSONObject(raw ?: "{}") }.getOrDefault(JSONObject())
+        val out = LinkedHashMap<String, Set<String>>(json.length())
+        json.keys().forEach { key -> out[key] = parseIds(json.optJSONArray(key)?.toString()) }
+        return out
+    }
+
+    fun encodeArtistTracks(tracks: Map<String, Set<String>>): String {
+        val json = JSONObject()
+        tracks.forEach { (artist, ids) -> json.put(artist, JSONArray(encodeIds(ids))) }
+        return json.toString()
+    }
+
+    /**
+     * Records that [trackId] by the artist stored under [artistKey] was liked,
+     * and returns how many distinct tracks of that artist this device has
+     * seen liked. Liking a track again adds nothing.
+     *
+     * This is what the follow-artist rule counts when there is no shared
+     * sheet. It used to count the artist's like tally instead, so one track
+     * liked five times followed the artist at a threshold of five (#243). The
+     * tally stays as it is: the stats screen reads it as likes per artist.
+     *
+     * The set starts empty on an upgraded install and is never seeded from
+     * the tally -- a tally says nothing about how many tracks it covers, and
+     * an inflated one is exactly what must not follow anyone.
+     */
+    @Synchronized
+    fun recordArtistTrack(prefs: SharedPreferences, artistKey: String, trackId: String): Int {
+        val all = parseArtistTracks(prefs.getString(AppConstants.KEY_ARTIST_LIKED_TRACKS, null))
+        val tracks = (all[artistKey] ?: emptySet()) + trackId
+        prefs.edit()
+            .putString(AppConstants.KEY_ARTIST_LIKED_TRACKS, encodeArtistTracks(all + (artistKey to tracks)))
+            .apply()
+        return tracks.size
+    }
+
+    /**
+     * The count the follow-artist rule compares with its threshold, for a like
+     * of [trackId] by the artist under [artistKey]: [shared] -- the counter
+     * sheet's distinct-track count -- when it answers, else this device's
+     * distinct-track count. Both background paths ask this, so a missing sheet
+     * never falls back on likes.
+     *
+     * The track is recorded here either way, so a device that loses its sheet
+     * later falls back on a set that is short rather than inflated.
+     */
+    fun artistFollowCount(prefs: SharedPreferences, artistKey: String, trackId: String, shared: () -> Int?): Int {
+        val local = recordArtistTrack(prefs, artistKey, trackId)
+        return shared() ?: local
+    }
+
     // ---- Promoted tracks ----------------------------------------------
 
     /**
