@@ -39,6 +39,7 @@ class YouTubeMusicExtraActionsTest {
                     members += Regex("\"videoId\":\"([^\"]+)\"").find(body.orEmpty())!!.groupValues[1]
                     "{}"
                 }
+                "POST /subscriptions" -> "{}"
                 else -> error("unexpected call: $method $url")
             }
         }
@@ -112,6 +113,54 @@ class YouTubeMusicExtraActionsTest {
         assertEquals(emptySet<String>(), api.members)
         like(prefs, api, count = 4)
         assertEquals(setOf("vid"), api.members)
+    }
+
+    // ---- follow artist (#243) -------------------------------------------------
+
+    private fun followRuleOn(threshold: Int = 3) = FakeSharedPreferences().apply {
+        values[AppConstants.KEY_RULE_FOLLOW_ARTIST_ENABLED] = true
+        values[AppConstants.KEY_RULE_FOLLOW_ARTIST_THRESHOLD] = threshold
+    }
+
+    private fun likeVideo(
+        prefs: FakeSharedPreferences,
+        api: FakeDataApi,
+        videoId: String,
+        sharedArtistTrackCount: (String, String) -> Int? = { _, _ -> null },
+    ) = YouTubeMusicExtraActions(prefs, api::call, { _, _, _, _ -> }, sharedArtistTrackCount)
+        .run(YouTubeDataApi.Match(videoId, "UCartist"), sharedLikeCount = null)
+
+    @Test
+    fun `without a sheet one video liked again and again never follows its artist`() {
+        val prefs = followRuleOn(threshold = 3)
+        val api = FakeDataApi()
+        repeat(6) { likeVideo(prefs, api, "vid-a") }
+        assertEquals(0, api.count("POST /subscriptions"))
+    }
+
+    @Test
+    fun `without a sheet the third distinct video of an artist follows them, once`() {
+        val prefs = followRuleOn(threshold = 3)
+        val api = FakeDataApi()
+        likeVideo(prefs, api, "vid-a")
+        likeVideo(prefs, api, "vid-b")
+        likeVideo(prefs, api, "vid-a")
+        assertEquals(0, api.count("POST /subscriptions"))
+        likeVideo(prefs, api, "vid-c")
+        assertEquals(1, api.count("POST /subscriptions"))
+        likeVideo(prefs, api, "vid-d")
+        assertEquals(1, api.count("POST /subscriptions"))
+        assertEquals(setOf("ytmusic:UCartist"), LocalCounters.followedArtists(prefs))
+    }
+
+    @Test
+    fun `with a sheet its distinct-track count decides, asked by bare channel and video`() {
+        val prefs = followRuleOn(threshold = 3)
+        val api = FakeDataApi()
+        val asked = mutableListOf<String>()
+        likeVideo(prefs, api, "vid-a") { channel, video -> asked += "$channel/$video"; 3 }
+        assertEquals(listOf("UCartist/vid-a"), asked)
+        assertEquals(1, api.count("POST /subscriptions"))
     }
 
     // ---- countKey -------------------------------------------------

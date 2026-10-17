@@ -493,8 +493,8 @@ Both rules count in the shared sheet on both halves, so a track liked on the
 phone and one liked at the computer add up toward the same threshold.
 Follow-artist counts distinct tracks per artist, wherever each was liked.
 The two do differ without a counter: promote-to-best then stays inactive,
-while follow-artist falls back to a count kept on each device — likes rather
-than distinct tracks, and not shared.
+while follow-artist falls back to a count kept on each device — distinct
+tracks as well, but not shared.
 
 The counter is a **Google Sheet you own**. There is no service to sign up for,
 no database to run, and no backend operated by this project — the numbers are

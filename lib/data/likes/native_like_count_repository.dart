@@ -30,9 +30,23 @@ class NativeLikeCountRepository implements LikeCountRepository {
   @override
   Future<int> getTrackLikeCount(String trackId) => _getCount(_trackKind, trackId);
 
+  /// The tally always moves, for the Stats screen. With [trackId] the answer
+  /// is how many distinct tracks by [artistId] this device has seen liked —
+  /// what follow-artist decides on when there is no shared sheet — so one
+  /// track liked over and over never follows its artist (#243).
   @override
-  Future<int> incrementArtistLikeCount(String artistId, {String? trackId}) =>
-      _increment(_artistKind, artistId);
+  Future<int> incrementArtistLikeCount(
+    String artistId, {
+    String? trackId,
+  }) async {
+    final tally = await _increment(_artistKind, artistId);
+    if (trackId == null) return tally;
+    final distinct = await _channel.invokeMethod<int>(
+      'recordLocalArtistTrack',
+      <String, dynamic>{'id': artistId, 'trackId': trackId},
+    );
+    return distinct ?? 0;
+  }
 
   @override
   Future<int> getArtistLikeCount(String artistId) =>

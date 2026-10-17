@@ -7,8 +7,10 @@ abstract class LikeCountRepository {
   /// With [trackId] — passed only while follow-artist is on — an
   /// implementation backed by the shared counter sheet records the
   /// (artist, track) pair there and answers how many distinct tracks by the
-  /// artist were liked on any device, the number the desktop follows on. A
-  /// local store has no such set and answers its own tally either way.
+  /// artist were liked on any device, the number the desktop follows on. The
+  /// native local store answers the same thing for this device alone, so the
+  /// fallback with no sheet never counts likes (#243); without [trackId] it
+  /// answers its like tally.
   Future<int> incrementArtistLikeCount(String artistId, {String? trackId});
   Future<int> getArtistLikeCount(String artistId);
   Future<Map<String, int>> loadAllTrackLikeCounts();

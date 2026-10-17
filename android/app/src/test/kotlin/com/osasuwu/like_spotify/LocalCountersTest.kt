@@ -255,4 +255,64 @@ class LocalCountersTest {
         assertEquals(setOf("trk-a", "ytmusic:vid"), LocalCounters.promotedTracks(prefs))
         assertEquals(emptySet<String>(), LocalCounters.followedArtists(prefs))
     }
+
+    // ---- recordArtistTrack (#243) -------------------------------------------------
+
+    @Test
+    fun `liking one track again is still one distinct track for its artist`() {
+        val prefs = FakeSharedPreferences()
+        assertEquals(1, LocalCounters.recordArtistTrack(prefs, "artist-1", "trk-a"))
+        assertEquals(1, LocalCounters.recordArtistTrack(prefs, "artist-1", "trk-a"))
+        assertEquals(1, LocalCounters.recordArtistTrack(prefs, "artist-1", "trk-a"))
+    }
+
+    @Test
+    fun `each distinct track counts once, per artist`() {
+        val prefs = FakeSharedPreferences()
+        LocalCounters.recordArtistTrack(prefs, "artist-1", "trk-a")
+        assertEquals(2, LocalCounters.recordArtistTrack(prefs, "artist-1", "trk-b"))
+        assertEquals(1, LocalCounters.recordArtistTrack(prefs, "artist-2", "trk-a"))
+        assertEquals(3, LocalCounters.recordArtistTrack(prefs, "artist-1", "trk-c"))
+    }
+
+    @Test
+    fun `old like counts give an upgraded install no distinct tracks`() {
+        // AC4: the like tally a past version counted is not a track count, so
+        // it seeds nothing -- the set starts empty whatever the tally says.
+        val prefs = FakeSharedPreferences()
+        prefs.values[AppConstants.KEY_ARTIST_LIKE_COUNTS] = """{"artist-1":40}"""
+        assertEquals(1, LocalCounters.recordArtistTrack(prefs, "artist-1", "trk-a"))
+    }
+
+    @Test
+    fun `unreadable stored artist tracks degrade to empty instead of throwing`() {
+        val prefs = FakeSharedPreferences()
+        prefs.values[AppConstants.KEY_ARTIST_LIKED_TRACKS] = """{"artist-1":["trk-a", """
+        assertEquals(1, LocalCounters.recordArtistTrack(prefs, "artist-1", "trk-b"))
+    }
+
+    // ---- artistFollowCount (#243) -------------------------------------------------
+
+    @Test
+    fun `without a sheet the follow count is the distinct-track count`() {
+        val prefs = FakeSharedPreferences()
+        repeat(4) { LocalCounters.artistFollowCount(prefs, "artist-1", "trk-a") { null } }
+        assertEquals(1, LocalCounters.artistFollowCount(prefs, "artist-1", "trk-a") { null })
+        assertEquals(2, LocalCounters.artistFollowCount(prefs, "artist-1", "trk-b") { null })
+    }
+
+    @Test
+    fun `the sheet's answer is the follow count when there is one`() {
+        val prefs = FakeSharedPreferences()
+        assertEquals(7, LocalCounters.artistFollowCount(prefs, "artist-1", "trk-a") { 7 })
+    }
+
+    @Test
+    fun `a track the sheet counted is still recorded on this device`() {
+        // So losing the sheet later falls back on a set that is short, never
+        // inflated.
+        val prefs = FakeSharedPreferences()
+        LocalCounters.artistFollowCount(prefs, "artist-1", "trk-a") { 7 }
+        assertEquals(2, LocalCounters.artistFollowCount(prefs, "artist-1", "trk-b") { null })
+    }
 }

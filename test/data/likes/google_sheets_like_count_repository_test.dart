@@ -6,6 +6,7 @@ import 'package:http/testing.dart';
 import 'package:like_spotify_mobile_app/data/likes/google_sheets_like_count_repository.dart';
 import 'package:like_spotify_mobile_app/data/likes/shared_prefs_like_count_repository.dart';
 import 'package:like_spotify_mobile_app/domain/entities/app_log.dart';
+import 'package:like_spotify_mobile_app/domain/repositories/like_count_repository.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -53,6 +54,7 @@ void main() {
     Future<String?> Function()? readAccessToken,
     Future<String?> Function()? userIdGetter,
     Future<void> Function(AppLog log)? appendLog,
+    LikeCountRepository? localCounts,
   }) =>
       GoogleSheetsLikeCountRepository(
         readSpreadsheetId: readSpreadsheetId ?? () async => spreadsheetId,
@@ -61,7 +63,7 @@ void main() {
         appendLog: appendLog ?? ((log) async => logs.add(log)),
         // The local fallback is the native store in the app; here it is the
         // preferences-backed one, which a unit test can actually run.
-        localCounts: SharedPrefsLikeCountRepository(),
+        localCounts: localCounts ?? SharedPrefsLikeCountRepository(),
         httpClient: client,
       );
 
@@ -560,6 +562,30 @@ void main() {
       expect(logs, isEmpty);
     });
 
+    test('the fallback asks this device for distinct tracks, not likes',
+        () async {
+      // #243: the native store answers distinct tracks when it is given the
+      // track; the fallback has to give it the track.
+      final spy = artistSheet(<List<String>>[]);
+      final repo = repoOver(
+        spy.client,
+        spreadsheetId: '',
+        localCounts: _DistinctTracksLocal(),
+      );
+
+      for (final track in <String>['track-a', 'track-a', 'track-a']) {
+        expect(
+          await repo.incrementArtistLikeCount('artist-1', trackId: track),
+          1,
+        );
+      }
+      expect(
+        await repo.incrementArtistLikeCount('artist-1', trackId: 'track-b'),
+        2,
+      );
+      expect(await repo.getArtistLikeCount('artist-1'), 4);
+    });
+
     test('a sheet without the tab falls back and names the missing tab',
         () async {
       final spy = recordingClient(
@@ -650,4 +676,19 @@ void main() {
       expect(GoogleSheetsLikeCountRepository.rowFromA1Range('Likes'), 0);
     });
   });
+}
+
+/// The native store's contract for an artist like, on the preferences-backed
+/// store a unit test can run: the tally always moves, and with a track the
+/// answer is how many distinct tracks by the artist this device has seen.
+class _DistinctTracksLocal extends SharedPrefsLikeCountRepository {
+  final _tracks = <String, Set<String>>{};
+
+  @override
+  Future<int> incrementArtistLikeCount(String artistId, {String? trackId}) async {
+    final tally = await super.incrementArtistLikeCount(artistId);
+    if (trackId == null) return tally;
+    final tracks = _tracks.putIfAbsent(artistId, () => <String>{})..add(trackId);
+    return tracks.length;
+  }
 }

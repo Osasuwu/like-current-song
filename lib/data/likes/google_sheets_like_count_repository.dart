@@ -555,7 +555,12 @@ class GoogleSheetsLikeCountRepository implements LikeCountRepository {
     String artistId, {
     String? trackId,
   }) async {
-    final local = await _local.incrementArtistLikeCount(artistId);
+    // With the track, the local answer is this device's distinct-track count,
+    // so a sheet that does not answer never falls back on likes (#243).
+    final local = await _local.incrementArtistLikeCount(
+      artistId,
+      trackId: trackId,
+    );
     if (trackId == null) return local;
     final shared = await _serialized(
       () => _remoteArtistTrack(artistId, trackId),

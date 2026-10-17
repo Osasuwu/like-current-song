@@ -371,6 +371,19 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 					}
 				}
 
+				// The follow-artist fallback when there is no shared sheet: how
+				// many distinct tracks by the artist this device has seen liked
+				// (#243). The like tally is incrementLocalCount's, apart.
+				"recordLocalArtistTrack" -> {
+					val id = call.argument<String>("id")?.takeIf { it.isNotBlank() }
+					val trackId = call.argument<String>("trackId")?.takeIf { it.isNotBlank() }
+					if (id == null || trackId == null) {
+						result.error(INVALID_ARGS, "recordLocalArtistTrack needs a non-blank id and trackId", null)
+					} else {
+						result.success(LocalCounters.recordArtistTrack(prefs(), id, trackId))
+					}
+				}
+
 				"getLocalCount" -> {
 					val kind = LocalCounters.Kind.fromId(call.argument<String>("kind"))
 					val id = call.argument<String>("id")?.takeIf { it.isNotBlank() }
