@@ -18,8 +18,9 @@ The rule ("Review evidence"). `verify-verdict` is green iff
       is red only until a clean run for the SHA supersedes it (`status: skipped`
       artifacts are ignored), or
   (b) every changed file is cosmetic (see `is_cosmetic`).
-The gate never reads the PR comment, a timestamp, a heading or a lineage: the
-comment is for humans, the artifact is the machine-readable verdict.
+The gate never reads a timestamp, a heading, a lineage or a finding's
+`description`: the description is shown to humans in the check summary, the
+artifact's `blocking` and `findings` are the machine-readable verdict.
 
 Run provenance. A `pull_request` run counts only when `run.pull_requests[]`
 contains the PR and every PR it lists is into the default branch (a fork's run
@@ -64,6 +65,7 @@ import re
 import subprocess
 import sys
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -153,11 +155,13 @@ class Verdict(NamedTuple):
 
 
 class Observation(NamedTuple):
-    """What one evaluation read, for the ledger (see `observe`)."""
+    """What one evaluation read, for the ledger and the summary (see `observe`)."""
 
     seen: frozenset
     unseen: frozenset
     blocking: bool
+    # (run id, attempt, run html_url or None, findings) per blocking attempt read.
+    findings: tuple = ()
 
 
 # --- classification -------------------------------------------------------
@@ -465,8 +469,9 @@ def empty_ledger():
 
 def observe(entries, pr_number, head_sha, base_ref, default_branch):
     """What these entries tell the ledger: the attempts read now (`seen`), the
-    attempts whose evidence is gone (`unseen`), and whether any read is blocking."""
-    seen, unseen, blocking = set(), set(), False
+    attempts whose evidence is gone (`unseen`), and whether any read is blocking;
+    and, for the summary, what each blocking attempt found, in attempt order."""
+    seen, unseen, blocking, found = set(), set(), False, []
     for e in entries:
         key = e.get("key")
         if not key or not run_provenance(e["run"], pr_number, head_sha, default_branch):
@@ -476,9 +481,15 @@ def observe(entries, pr_number, head_sha, base_ref, default_branch):
             seen.add(key)
             if _judge_artifact(e["artifact"], head_sha, base_ref) == "evidence-blocking":
                 blocking = True
+                run_id, _, attempt = key.rpartition(":")
+                if run_id.isdigit() and attempt.isdigit():  # display only: never raise here
+                    found.append(
+                        (int(run_id), int(attempt), e["run"].get("html_url"), e["artifact"]["findings"])
+                    )
         elif state in ("missing", "expired"):
             unseen.add(key)
-    return Observation(frozenset(seen), frozenset(unseen), blocking)
+    found.sort(key=lambda group: group[:2])
+    return Observation(frozenset(seen), frozenset(unseen), blocking, tuple(found))
 
 
 def parse_ledger(check):
@@ -538,6 +549,100 @@ def apply_ledger(verdict, ledger, observation):
 def ledger_text(ledger):
     body = json.dumps(ledger, sort_keys=True, separators=(",", ":"))
     return f"<!-- code-gate-ledger {body} -->"
+
+
+# --- the summary a blocked author reads (#232) ------------------------------
+
+# GitHub rejects a check-run summary over 65535 characters. The budget is kept in
+# UTF-8 bytes, never fewer than characters, with room left for the footer.
+MAX_SUMMARY_BYTES = 60000
+MAX_DESCRIPTION_CHARS = 500
+MAX_FILE_CHARS = 300
+_MD_PUNCT = re.compile(r"([!-/:-@\[-`{-~])")  # every ASCII punctuation character
+_RUN_URL = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/actions/runs/[0-9]+")
+_NO_FINDINGS = (
+    "The blocking findings are in no artifact this verdict could read (a re-run"
+    " deleted it, or it expired); the ledger keeps the verdict in force for this commit."
+)
+_FULL_LIST = (
+    "The full list is in the `review-evidence-<attempt>` artifact of each Code review"
+    " run for this commit."
+)
+
+
+def _bytes(text):
+    return len(text.encode("utf-8"))
+
+
+def _inert(text, limit):
+    """(markdown-inert one-line text, whether it was cut). The reviewer wrote it
+    after reading untrusted PR content: whitespace collapses, control and format
+    characters (bidi overrides included) go, and every ASCII punctuation character
+    is backslash-escaped, so no link, image, HTML, heading or code span survives."""
+    text = " ".join(text.split())
+    text = "".join(ch for ch in text if unicodedata.category(ch) not in ("Cc", "Cf"))
+    cut = len(text) > limit
+    if cut:
+        text = text[: limit - 1] + "…"
+    return _MD_PUNCT.sub(r"\\\1", text), cut
+
+
+def _finding_line(finding):
+    file, file_cut = _inert(str(finding.get("file")), MAX_FILE_CHARS)
+    description = finding.get("description")
+    if isinstance(description, str) and description.strip():
+        description, desc_cut = _inert(description, MAX_DESCRIPTION_CHARS)
+    else:
+        description, desc_cut = "(no description given)", False
+    return f"- `{finding.get('class')}` · {file} — {description}", file_cut or desc_cut
+
+
+def _attempt_header(run_id, attempt, url):
+    where = f"Review run {run_id}, attempt {attempt}"
+    if isinstance(url, str) and _RUN_URL.fullmatch(url):
+        where += f" ([log]({url}/attempts/{attempt}))"
+    return f"{where}, artifact `{EVIDENCE_ARTIFACT}-{attempt}`:"
+
+
+def verdict_summary(verdict, observation=None):
+    """The check-run summary: the verdict's message, and for `evidence-blocking`
+    each finding's class, file and description, per attempt, within
+    `MAX_SUMMARY_BYTES`; what is cut or left out is counted and the artifact named."""
+    if verdict.code != "evidence-blocking":
+        return verdict.message
+    groups = observation.findings if observation else ()
+    if not groups:
+        return f"{verdict.message}\n\n{_NO_FINDINGS}"
+    lines = [verdict.message, "", "#### Blocking findings"]
+    used = _bytes("\n".join(lines))
+    budget = MAX_SUMMARY_BYTES - 1000  # the footer's room
+    shown = total = 0
+    cut = full = False
+    for run_id, attempt, url, findings in groups:
+        header = ["", _attempt_header(run_id, attempt, url)]
+        for finding in findings:
+            total += 1
+            if full:
+                continue
+            line, short = _finding_line(finding)
+            add = header + [line]
+            cost = sum(_bytes(x) + 1 for x in add)
+            if used + cost > budget:
+                full = True
+                continue
+            lines += add
+            used += cost
+            header = []
+            shown += 1
+            cut = cut or short
+    notes = []
+    if cut:
+        notes.append("Some findings above are cut short.")
+    if total > shown:
+        notes.append(f"{total - shown} more findings are not shown.")
+    if notes:
+        lines += ["", " ".join(notes + [_FULL_LIST])]
+    return "\n".join(lines)
 
 
 def evaluate_pr(pr, files, entries, default_branch):
@@ -907,7 +1012,7 @@ def post_check(api, repo, head_sha, verdict, app_id, observation=None):
         verdict = truncated_verdict(truncated)
     output = {
         "title": f"{CHECK_NAME}: {verdict.code}",
-        "summary": verdict.message,
+        "summary": verdict_summary(verdict, observation),
         "text": ledger_text(ledger),
     }
     conclusion = "success" if verdict.green else "failure"
@@ -1200,7 +1305,8 @@ def cmd_verdict(_args):
         observation,
     )
     _summary(
-        f"### {CHECK_NAME}: {'green' if verdict.green else 'red'} — `{verdict.code}`\n\n{verdict.message}"
+        f"### {CHECK_NAME}: {'green' if verdict.green else 'red'} — `{verdict.code}`\n\n"
+        + verdict_summary(verdict, observation)
     )
     print(f"{CHECK_NAME} {how}: green={verdict.green} code={verdict.code}")
     if failure is not None:

@@ -95,7 +95,7 @@ REQUIRED_DISALLOWED = (
     "Bash(gh pr create:*)",
     "Bash(gh pr lock:*)",
     "Bash(gh pr unlock:*)",
-    # The PR comment is for humans and not produced by this job.
+    # No PR comment: the job's only output is the findings file.
     "Bash(gh pr comment:*)",
     "Bash(gh issue create:*)",
     "Bash(gh issue edit:*)",
