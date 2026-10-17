@@ -624,7 +624,10 @@ commit it ran from is `main`'s tip or one of its ancestors (#241), so it keeps
 counting after `main` moves on, and a dispatch from any other ref counts for
 nothing.
 
-**PRs into other bases.** Only a PR into `main` gets a `verify-verdict`. The
+**PRs into other bases.** Only a PR into `main` gets a `verify-verdict`, so
+the `pull_request` review run of a PR into another base skips the reviewer
+(`base-not-default`), unless an open PR into `main` has the same head commit,
+whose verdict reads that run (#234). The
 check belongs to the commit, so two open PRs into `main` with the same head
 commit are red with `shared-head` until one is closed or gets its own commit
 (#230).
@@ -639,7 +642,8 @@ including `docs/index.html` and `docs/style.css`, is code.
 **Gate machinery.** A PR that touches `code-review.yml`,
 `code-gate-verdict.yml`, `code_gate_verdict.py` or anything under
 `.github/actions/` is always red: its own review cannot be trusted, it is the
-thing under change. The maintainer unblocks it by an admin-merge after a
+thing under change. Its review run skips the reviewer (`gate-machinery`), since
+no evidence could clear it (#234). The maintainer unblocks it by an admin-merge after a
 review of the final SHA in a fresh session. This is the only sanctioned
 bypass; a second admin-merge around the same gate means the gate is fixed
 instead.
@@ -654,7 +658,9 @@ gh workflow run code-review.yml --ref main -f pr_number=<N> -f head_sha=<full 40
 
 The dispatch runs in the `untrusted-review` environment and counts only for
 that SHA, and only from `--ref main`; a later push needs a fresh dispatch. Dependabot PRs (grouped, monthly)
-take the same path.
+take the same path. A PR whose fork was deleted has no head repository to read
+the change from: its review, dispatched or not, skips with `head-repo-deleted`
+(#233), so it cannot pass the gate; close it.
 
 **One-time repository setup** (maintainer): install the `osasuwu-ci` GitHub App
 on the repo; create the `code-gate-verdict` and `untrusted-review`

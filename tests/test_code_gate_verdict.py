@@ -815,7 +815,7 @@ def test_fork_pr_all_cosmetic_is_green():
 
 
 def _skip(pr, files, event="pull_request"):
-    return gate.review_skip_reason(pr, files, event)
+    return gate.review_skip_reason(pr, files, event, "main")
 
 
 def test_skip_reason_draft():
@@ -842,6 +842,95 @@ def test_untrusted_pr_is_reviewed_when_a_maintainer_dispatches():
 
 def test_trusted_code_change_is_reviewed():
     assert _skip(_pr(changed_files=1), _files("src/a.py")) == ""
+
+
+def test_gate_machinery_change_skips_the_reviewer():
+    """#234: the verdict ignores evidence on a gate-machinery PR (a human merges
+    it), so the reviewer would spend quota on an artifact nobody reads."""
+    assert _skip(_pr(changed_files=2), _files("src/a.py", ".github/scripts/code_gate_verdict.py")) == (
+        "gate-machinery"
+    )
+
+
+# --- cmd_prepare ----------------------------------------------------------
+
+
+def _run_prepare(monkeypatch, tmp_path, pr, event, files=None, **responses):
+    """cmd_prepare over a read API serving `pr` and its `files`; returns
+    (exit code, the step outputs it wrote, the head dir)."""
+    files = _files("src/a.py") if files is None else files
+    api = FakeApi({f"repos/o/r/pulls/{PR}/files": files, f"repos/o/r/pulls/{PR}": pr, **responses})
+    monkeypatch.setattr(gate, "Api", lambda token: api)
+    out = tmp_path / "github_output"
+    env = {
+        "GITHUB_REPOSITORY": "o/r",
+        "GH_TOKEN": "read-token",
+        "PR_NUMBER": str(PR),
+        "EXPECTED_HEAD_SHA": SHA,
+        "EVENT_NAME": event,
+        "DEFAULT_BRANCH": "main",
+        "GITHUB_OUTPUT": str(out),
+    }
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    head_dir = tmp_path / "head"
+    code = gate.main(["prepare", "--head-dir", str(head_dir)])
+    outputs = dict(line.split("=", 1) for line in out.read_text(encoding="utf-8").splitlines())
+    return code, outputs, head_dir
+
+
+def test_dispatch_for_a_pr_whose_fork_was_deleted_skips_with_a_stated_reason(
+    monkeypatch, tmp_path
+):
+    """#233: GitHub serves `head.repo: null` once the fork is deleted. The review
+    is skipped and says why, instead of dying on a TypeError with no evidence."""
+    pr = _pr(changed_files=1, head={"sha": SHA, "repo": None})
+    code, outputs, head_dir = _run_prepare(monkeypatch, tmp_path, pr, "workflow_dispatch")
+    assert code == 0
+    assert outputs == {"head_sha": SHA, "base_ref": "main", "skip_reason": "head-repo-deleted"}
+    assert not head_dir.exists()
+
+
+_RELEASE = {"ref": "release", "repo": {"full_name": "Osasuwu/like-current-song"}}
+_OPEN_INTO_MAIN = "repos/o/r/pulls?state=open&base=main"
+
+
+def test_pull_request_run_into_another_base_skips_the_reviewer(monkeypatch, tmp_path):
+    """#234: evidence binds to the default-branch base, so a `pull_request` run
+    for a PR into `release` would produce an artifact the verdict discards."""
+    code, outputs, head_dir = _run_prepare(
+        monkeypatch, tmp_path, _pr(base=_RELEASE), "pull_request", **{_OPEN_INTO_MAIN: []}
+    )
+    assert code == 0
+    assert outputs == {"head_sha": SHA, "base_ref": "release", "skip_reason": "base-not-default"}
+    assert not head_dir.exists()
+
+
+def test_run_into_another_base_is_reviewed_when_a_default_branch_pr_shares_its_head(
+    monkeypatch, tmp_path
+):
+    """The run lists both PRs, so the default-branch PR's verdict reads it as
+    foreign-base, where a blocking review still sticks. Skipping it would turn
+    that sticky red into one a clean dispatch clears."""
+    sibling = {"number": PR + 1, "head": {"sha": SHA}}
+    code, outputs, head_dir = _run_prepare(
+        monkeypatch, tmp_path, _pr(base=_RELEASE), "pull_request", **{_OPEN_INTO_MAIN: [sibling]}
+    )
+    assert code == 0
+    assert outputs["skip_reason"] == ""
+    assert (head_dir / "changes.txt").exists()
+
+
+def test_run_into_another_base_is_reviewed_when_the_default_branch_prs_cannot_all_be_read(
+    monkeypatch, tmp_path
+):
+    """A truncated listing might hide the PR that shares the head: review."""
+    others = [{"number": 1000 + i, "head": {"sha": "b" * 40}} for i in range(100)]
+    code, outputs, _ = _run_prepare(
+        monkeypatch, tmp_path, _pr(base=_RELEASE), "pull_request", **{_OPEN_INTO_MAIN: others}
+    )
+    assert code == 0
+    assert outputs["skip_reason"] == ""
 
 
 # --- resolve_run_target ---------------------------------------------------
