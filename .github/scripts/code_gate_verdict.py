@@ -127,11 +127,6 @@ _ROOT_COSMETIC = frozenset(
     }
 )
 
-# Runs that finished without producing a verdict: no evidence either way.
-_IGNORED_CONCLUSIONS = frozenset(
-    {"failure", "cancelled", "timed_out", "skipped", "neutral", "stale", "startup_failure"}
-)
-
 # A listing that reaches its cap is red, never read as whole (`paged`, #237).
 MAX_RUN_PAGES = 10  # the runs API serves at most 1000 results to a filtered query
 MAX_PR_PAGES = 10
@@ -277,14 +272,36 @@ def build_skipped_evidence(sha, base_ref, reason):
     }
 
 
-def review_skip_reason(pr, files, event_name):
-    """Why the review job runs no reviewer for this PR ('' = review it)."""
+def review_skip_reason(pr, files, event_name, default_branch, default_pr_on_head=False):
+    """Why the review job runs no reviewer for this PR ('' = review it).
+
+    Each reason is a case whose evidence the verdict never reads as a pass, so the
+    reviewer would spend quota on nothing (#234). `default_pr_on_head`: an open PR
+    into the default branch has this PR's head SHA (see `default_pr_shares_head`).
+    """
     if is_draft(pr):
         return "draft"
     if len(files) != pr.get("changed_files"):
         return "files-incomplete"
+    if is_gate_machinery(changed_paths(files)):
+        # `evaluate_pr` is red here whatever the evidence says: a human merges it.
+        return "gate-machinery"
     if not classify_paths(changed_paths(files))["code"]:
         return "cosmetic"
+    if not ((pr.get("head") or {}).get("repo") or {}).get("full_name"):
+        # A deleted fork: GitHub serves `head.repo: null`, so there is no
+        # repository to stage the head content from (#233).
+        return "head-repo-deleted"
+    if (
+        event_name == "pull_request"
+        and pr["base"]["ref"] != default_branch
+        and not default_pr_on_head
+    ):
+        # Evidence binds to the default-branch base, and a PR into another base
+        # gets no verdict. A run that also lists a default-branch PR on the same
+        # head is reviewed: that PR reads it as foreign-base, where a blocking
+        # review still sticks.
+        return "base-not-default"
     if event_name == "pull_request" and is_untrusted_author(pr):
         return "untrusted"
     return ""
@@ -1127,6 +1144,20 @@ def _summary(text):
             fh.write(text + "\n")
 
 
+def default_pr_shares_head(api, repo, default_branch, head_sha):
+    """Is an open PR into the default branch at `head_sha`? A listing too long to
+    read whole answers yes, so the doubt falls on the side of reviewing."""
+    try:
+        open_prs = paged(
+            api,
+            f"repos/{repo}/pulls?state=open&base={urllib.parse.quote(default_branch)}",
+            max_pages=MAX_PR_PAGES,
+        )
+    except ListingTruncated:
+        return True
+    return any((p.get("head") or {}).get("sha") == head_sha for p in open_prs)
+
+
 def cmd_prepare(args):
     """Review job: snapshot the PR, decide skip/review, stage head content."""
     repo = os.environ["GITHUB_REPOSITORY"]
@@ -1140,7 +1171,14 @@ def cmd_prepare(args):
             file=sys.stderr,
         )
         return 1
-    reason = review_skip_reason(pr, files, os.environ["EVENT_NAME"])
+    event_name = os.environ["EVENT_NAME"]
+    default_branch = os.environ["DEFAULT_BRANCH"]
+    shared = (
+        event_name == "pull_request"
+        and pr["base"]["ref"] != default_branch
+        and default_pr_shares_head(api, repo, default_branch, head_sha)
+    )
+    reason = review_skip_reason(pr, files, event_name, default_branch, shared)
     _output("head_sha", head_sha)
     _output("base_ref", pr["base"]["ref"])
     _output("skip_reason", reason)

@@ -164,12 +164,18 @@ def test_dispatch_requires_pr_number_and_head_sha():
     assert all(spec["required"] is True for spec in inputs.values())
 
 
-def test_review_checks_out_base_only_with_no_history():
+def test_review_checks_out_base_only_with_bounded_history():
+    """The base commit and its ancestors, so the reviewer's `git log`/`git blame`
+    can back a `regression` finding (#229). Bounded, never `0`: depth 0 fetches
+    every branch, same-repo PR heads included. A dispatch names the branch fully:
+    checkout fetches an unqualified `main` as the glob `refs/heads/main*`."""
     (checkout,) = [
         s for s in _steps(REVIEW) if str(s.get("uses", "")).startswith("actions/checkout@")
     ]
     assert checkout["with"] == {
-        "ref": "${{ github.event.pull_request.base.sha || github.event.repository.default_branch }}"
+        "ref": "${{ github.event.pull_request.base.sha"
+        " || format('refs/heads/{0}', github.event.repository.default_branch) }}",
+        "fetch-depth": 1000,
     }
 
 
@@ -226,6 +232,26 @@ def test_second_reviewer_attempt_runs_only_when_the_first_findings_are_invalid()
     assert "unreviewed" in reseed["run"]
 
 
+def test_both_reviewer_attempts_use_one_input_block():
+    """#235: the prompt and tool lists are written once. The second attempt's
+    `with:` is a YAML alias of the first's, so the composed document holds one
+    node for both: a copy, even an identical one, is two nodes that can drift."""
+    root = yaml.compose((WORKFLOWS / "code-review.yml").read_text(encoding="utf-8"))
+
+    def mapping(node):
+        return {key.value: value for key, value in node.value}
+
+    steps = mapping(mapping(mapping(root)["jobs"])["review"])["steps"].value
+    reviewers = [
+        mapping(s)
+        for s in steps
+        if mapping(s).get("uses") is not None
+        and mapping(s)["uses"].value.startswith("anthropics/claude-code-action@")
+    ]
+    assert len(reviewers) == 2
+    assert reviewers[0]["with"] is reviewers[1]["with"]
+
+
 def test_decision_rests_on_the_findings_file_not_on_reviewer_outcome():
     # A run with permission denials but valid findings must pass; a clean run with
     # no findings file must fail. So no step may read the reviewer's outcome or its
@@ -253,6 +279,13 @@ def test_resolve_step_gets_the_default_branch():
     assert step["env"]["DEFAULT_BRANCH"] == "${{ github.event.repository.default_branch }}"
     # The schedule sweep lists the open PRs itself, with the read-only job token.
     assert step["env"]["GH_TOKEN"] == "${{ secrets.GITHUB_TOKEN }}"
+
+
+def test_prepare_step_gets_the_default_branch():
+    """review_skip_reason skips a `pull_request` run into another base (#234); the
+    step reads DEFAULT_BRANCH, so without it every review run fails in prepare."""
+    (step,) = [s for s in _steps(REVIEW) if s.get("id") == "prepare"]
+    assert step["env"]["DEFAULT_BRANCH"] == "${{ github.event.repository.default_branch }}"
 
 
 SCRUB = "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"
