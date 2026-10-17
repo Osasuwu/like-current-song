@@ -197,7 +197,17 @@ def test_clean_findings_are_valid():
 
 
 def test_blocking_findings_are_valid():
-    obj = {"blocking": True, "findings": [{"class": "regression", "file": "a.py"}]}
+    """A finding's `description` is display-only (#232): whatever it holds, it
+    never makes a blocking artifact invalid, since `evidence-invalid` is lifted by
+    a clean re-run and `evidence-blocking` is not."""
+    obj = {
+        "blocking": True,
+        "findings": [
+            {"class": "regression", "file": "a.py"},
+            {"class": "regression", "file": "b.py", "description": "Drops the null check."},
+            {"class": "regression", "file": "c.py", "description": 42},
+        ],
+    }
     assert gate.validate_findings(obj) == []
 
 
@@ -260,7 +270,10 @@ def test_stray_untracked_file_is_dirty():
 
 def test_build_evidence_stamps_sha_and_base():
     got = gate.build_evidence(
-        {"blocking": True, "findings": [{"class": "regression", "file": "a.py"}]},
+        {
+            "blocking": True,
+            "findings": [{"class": "regression", "file": "a.py", "description": "Why."}],
+        },
         sha=SHA,
         base_ref="main",
     )
@@ -270,7 +283,8 @@ def test_build_evidence_stamps_sha_and_base():
         "sha": SHA,
         "base_ref": "main",
         "blocking": True,
-        "findings": [{"class": "regression", "file": "a.py"}],
+        # The description reaches the artifact, which the summary points to (#232).
+        "findings": [{"class": "regression", "file": "a.py", "description": "Why."}],
     }
 
 
@@ -1035,8 +1049,10 @@ class FakeApi:
 ARTIFACTS_PATH = "repos/o/r/actions/runs/1001/artifacts"
 
 
-def _evidence_zip(sha=SHA, blocking=False):
+def _evidence_zip(sha=SHA, blocking=False, description=None):
     findings = [{"class": "regression", "file": "a.py"}] if blocking else []
+    if findings and description is not None:
+        findings[0]["description"] = description
     return _zip(
         "review-evidence.json",
         json.dumps(
@@ -1639,8 +1655,26 @@ def test_observe_records_read_attempts_and_blocking():
         ]
     )
     assert got == gate.Observation(
-        frozenset({"1001:1", "1001:2"}), frozenset({"1001:3", "1001:4"}), True
+        frozenset({"1001:1", "1001:2"}),
+        frozenset({"1001:3", "1001:4"}),
+        True,
+        ((1001, 1, None, [{"class": "regression", "file": "a.py"}]),),
     )
+
+
+def test_observe_keeps_each_blocking_attempts_findings_in_attempt_order():
+    """#232: the summary lists what each blocking attempt found, with a link to it."""
+    one = [{"class": "regression", "file": "a.py", "description": "One."}]
+    two = [{"class": "performance", "file": "b.py", "description": "Two."}]
+    url = "https://github.com/o/r/actions/runs/1001"
+    got = _observe(
+        [
+            _keyed(_pr_run(html_url=url), "1001:10", _artifact(blocking=True, findings=two)),
+            _keyed(_pr_run(html_url=url), "1001:3"),  # clean: nothing to list
+            _keyed(_pr_run(html_url=url), "1001:2", _artifact(blocking=True, findings=one)),
+        ]
+    )
+    assert got.findings == ((1001, 2, url, one), (1001, 10, url, two))
 
 
 def test_observe_counts_blocking_from_a_foreign_base_run():
@@ -1662,6 +1696,132 @@ def test_observe_ignores_runs_not_about_this_pr_and_sha():
 
 def test_observe_does_not_count_a_clean_artifact_as_blocking():
     assert _observe([_keyed(_pr_run(), "1001:1")]).blocking is False
+
+
+# --- the blocking summary lists the findings (#232) -------------------------
+
+BLOCKING = gate._verdict("evidence-blocking")
+RUN_URL = "https://github.com/o/r/actions/runs/1001"
+POINTER = (
+    "The full list is in the `review-evidence-<attempt>` artifact of each Code review"
+    " run for this commit."
+)
+NO_FINDINGS = (
+    "The blocking findings are in no artifact this verdict could read (a re-run"
+    " deleted it, or it expired); the ledger keeps the verdict in force for this commit."
+)
+
+
+def _blocking(*groups):
+    return gate.Observation(frozenset(), frozenset(), True, tuple(groups))
+
+
+def test_a_blocking_summary_lists_each_findings_class_file_and_description():
+    obs = _blocking(
+        (
+            1001,
+            2,
+            RUN_URL,
+            [
+                {
+                    "class": "regression",
+                    "file": "src/a.py",
+                    "description": "Drops the null check, so a missing token crashes.",
+                },
+                {"class": "performance", "file": "b.py"},  # an artifact from before #232
+                {"class": "regression", "file": "c.py", "description": 42},
+            ],
+        )
+    )
+    assert gate.verdict_summary(BLOCKING, obs) == (
+        BLOCKING.message
+        + "\n\n#### Blocking findings\n\n"
+        + "Review run 1001, attempt 2 ([log](https://github.com/o/r/actions/runs/1001/attempts/2)),"
+        + " artifact `review-evidence-2`:\n"
+        + "- `regression` · src\\/a\\.py — Drops the null check\\, so a missing token crashes\\.\n"
+        + "- `performance` · b\\.py — (no description given)\n"
+        + "- `regression` · c\\.py — (no description given)"
+    )
+
+
+def test_reviewer_text_in_the_summary_is_inert():
+    """The description and the path come from an LLM that read untrusted PR content:
+    no link, image, heading, code span, control or bidi character survives, and
+    a run URL that is not GitHub's https URL is not linked."""
+    obs = _blocking(
+        (
+            1001,
+            2,
+            "javascript:alert(1)",
+            [
+                {
+                    "class": "regression",
+                    "file": "a.py\n[y](z)",
+                    "description": "See [x](http://evil.test) <img src=x>\n# `rm` *b* a\u202eb\x07c",
+                }
+            ],
+        )
+    )
+    assert gate.verdict_summary(BLOCKING, obs) == (
+        BLOCKING.message
+        + "\n\n#### Blocking findings\n\n"
+        + "Review run 1001, attempt 2, artifact `review-evidence-2`:\n"
+        + "- `regression` · a\\.py \\[y\\]\\(z\\) — See \\[x\\]\\(http\\:\\/\\/evil\\.test\\)"
+        + " \\<img src\\=x\\> \\# \\`rm\\` \\*b\\* abc"
+    )
+
+
+def test_a_long_description_or_path_is_cut_and_points_to_the_artifact():
+    obs = _blocking((1001, 1, None, [{"class": "regression", "file": "f" * 400, "description": "d" * 600}]))
+    assert gate.verdict_summary(BLOCKING, obs) == (
+        BLOCKING.message
+        + "\n\n#### Blocking findings\n\n"
+        + "Review run 1001, attempt 1, artifact `review-evidence-1`:\n"
+        + "- `regression` · " + "f" * 299 + "… — " + "d" * 499 + "…\n\n"
+        + "Some findings above are cut short. " + POINTER
+    )
+
+
+def test_a_summary_with_many_findings_stays_under_githubs_cap_and_counts_the_rest():
+    """GitHub rejects a check-run summary over 65535 characters; the bound is kept
+    in UTF-8 bytes, which a multi-byte description makes the stricter one."""
+    findings = [{"class": "regression", "file": "a.py", "description": "é" * 500}] * 200
+    got = gate.verdict_summary(BLOCKING, _blocking((1001, 1, None, findings)))
+    assert len(got.encode("utf-8")) <= 65535
+    shown = sum(1 for line in got.splitlines() if line.startswith("- `regression`"))
+    m = re.search(r"\n\n(\d+) more findings are not shown\. (.*)\Z", got)
+    assert m, got[-300:]
+    assert shown > 0
+    assert (shown + int(m.group(1)), m.group(2)) == (200, POINTER)
+
+
+@pytest.mark.parametrize("observation", [NOTHING, None])
+def test_a_blocking_verdict_with_no_readable_findings_says_why(observation):
+    assert gate.verdict_summary(BLOCKING, observation) == BLOCKING.message + "\n\n" + NO_FINDINGS
+
+
+def test_a_summary_that_is_not_blocking_lists_no_findings():
+    """A worse red outranks a blocking artifact read alongside it; its summary is its own."""
+    invalid = gate._verdict("evidence-invalid")
+    obs = _blocking((1001, 1, None, [{"class": "regression", "file": "a.py"}]))
+    assert gate.verdict_summary(invalid, obs) == invalid.message
+
+
+def test_post_check_posts_the_findings_in_the_check_summary():
+    obs = _blocking((1001, 1, None, [{"class": "regression", "file": "a.py", "description": "Why."}]))
+    _, _, (body,) = _post([], BLOCKING, obs)
+    assert body["output"]["summary"] == (
+        BLOCKING.message
+        + "\n\n#### Blocking findings\n\n"
+        + "Review run 1001, attempt 1, artifact `review-evidence-1`:\n"
+        + "- `regression` · a\\.py — Why\\."
+    )
+
+
+def test_a_ledgered_blocking_summary_says_its_findings_are_gone():
+    prior = _check(text=_ledger_text("evidence-blocking", ["1001:1"]))
+    _, _, (body,) = _post([prior], CLEAN, NOTHING)
+    assert body["output"]["summary"] == BLOCKING.message + "\n\n" + NO_FINDINGS
 
 
 # --- cmd_verdict (fake API) -----------------------------------------------
@@ -1741,7 +1901,8 @@ def test_a_crashing_verdict_replaces_a_green_check_with_a_red_one(monkeypatch, w
     assert body["output"]["title"] == "verify-verdict: verdict-error"
 
 
-def test_a_completed_verdict_posts_its_result(monkeypatch):
+def test_a_completed_verdict_posts_its_result(monkeypatch, tmp_path):
+    """A blocking verdict's check summary and job summary list the findings (#232)."""
     write = _run_verdict(
         monkeypatch,
         _snapshot_responses(
@@ -1750,11 +1911,23 @@ def test_a_completed_verdict_posts_its_result(monkeypatch):
                 ARTIFACTS_PATH: {"artifacts": [_art(1, "review-evidence-1")]},
             }
         ),
-        blobs={1: _evidence_zip(blocking=True)},
+        blobs={1: _evidence_zip(blocking=True, description="Breaks the login flow.")},
     )
+    step_summary = tmp_path / "summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(step_summary))
     assert gate.cmd_verdict(None) == 0
     ((_, body),) = _patched(write)
     assert body["output"]["title"] == "verify-verdict: evidence-blocking"
+    summary = (
+        BLOCKING.message
+        + "\n\n#### Blocking findings\n\n"
+        + "Review run 1001, attempt 1, artifact `review-evidence-1`:\n"
+        + "- `regression` · a\\.py — Breaks the login flow\\."
+    )
+    assert body["output"]["summary"] == summary
+    assert step_summary.read_text(encoding="utf-8") == (
+        "### verify-verdict: red — `evidence-blocking`\n\n" + summary + "\n"
+    )
 
 
 def test_a_pr_into_another_base_posts_no_verdict(monkeypatch):

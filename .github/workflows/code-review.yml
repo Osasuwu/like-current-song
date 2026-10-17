@@ -216,13 +216,17 @@ jobs:
                text with:
 
                {"blocking": <bool>, "findings": [{"class": "<one of the 8
-               class names above>", "file": "<path>"}, ...]}
+               class names above>", "file": "<path>", "description": "<one or
+               two plain-text sentences: what is wrong and why it blocks>"},
+               ...]}
 
                `blocking` is true iff `findings` is non-empty; `findings` is
                empty iff `blocking` is false — the two must agree. Every
                finding's `class` MUST be one of the 8 literal strings above,
-               spelled exactly as given. Do not emit a line number, a severity
-               field, or any prose — this schema deliberately carries neither.
+               spelled exactly as given. `description` is shown to the PR's
+               author in the verify-verdict check summary; it decides nothing.
+               Do not emit a line number or a severity field — this schema
+               deliberately carries neither.
                A clean review writes {"blocking": false, "findings": []}.
           claude_args: |
             # Headless: any tool absent here is DENIED. Read verbs only, one
@@ -334,13 +338,17 @@ jobs:
                text with:
 
                {"blocking": <bool>, "findings": [{"class": "<one of the 8
-               class names above>", "file": "<path>"}, ...]}
+               class names above>", "file": "<path>", "description": "<one or
+               two plain-text sentences: what is wrong and why it blocks>"},
+               ...]}
 
                `blocking` is true iff `findings` is non-empty; `findings` is
                empty iff `blocking` is false — the two must agree. Every
                finding's `class` MUST be one of the 8 literal strings above,
-               spelled exactly as given. Do not emit a line number, a severity
-               field, or any prose — this schema deliberately carries neither.
+               spelled exactly as given. `description` is shown to the PR's
+               author in the verify-verdict check summary; it decides nothing.
+               Do not emit a line number or a severity field — this schema
+               deliberately carries neither.
                A clean review writes {"blocking": false, "findings": []}.
           claude_args: |
             # Headless: any tool absent here is DENIED. Read verbs only, one

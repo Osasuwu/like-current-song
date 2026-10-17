@@ -573,7 +573,12 @@ review *evidence*, not from a comment:
 a non-blocking artifact and no run for that SHA is blocking, or when every
 changed file is cosmetic. It is red when the reviewer declines to run, an
 artifact is missing or expired, or a finding blocks. The check's summary names
-the reason and the fix. A blocking artifact stays in force for its commit
+the reason and the fix. When a finding blocks, the summary also lists each
+blocking finding — its class, file and the reviewer's description — per review
+attempt; it is bounded in size, and when it cuts a description or drops
+findings it says so and points to the `review-evidence-<attempt>` artifact,
+which holds the full list. The description is for humans: it decides nothing,
+and a finding without one still blocks. A blocking artifact stays in force for its commit
 even if a later run, or a re-run of the same run, for that SHA is clean, and
 even if the re-run failed or was cancelled, and after the artifact itself is
 gone (a re-run deletes the earlier attempts' artifacts, and every artifact
