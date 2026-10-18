@@ -554,7 +554,10 @@ marker for trivial drive-bys — see `.github/workflows/pr-body-check.yml`.
 ## Code review gate
 
 Every PR to `main` needs a green `verify-verdict` check. It is decided from
-review *evidence*, not from a comment:
+review *evidence*, not from a comment. The shape of this gate is the locked one
+from jarvis: see section 3 of [`docs/reference/github-repo-setup.md`](https://github.com/Osasuwu/jarvis/blob/main/docs/reference/github-repo-setup.md#the-code-gate-rule-review-evidence-1964),
+"The `code-gate` rule: Review evidence". What is specific to this repo is described
+in this section:
 
 - `code-review.yml` runs an LLM reviewer on the PR and uploads a
   `review-evidence-<attempt>` artifact (`review-evidence.json`, stamped with
