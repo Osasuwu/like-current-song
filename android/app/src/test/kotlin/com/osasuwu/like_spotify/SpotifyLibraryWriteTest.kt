@@ -29,13 +29,15 @@ class SpotifyLibraryWriteTest {
         SpotifyLibraryEndpoints.resetForTesting()
     }
 
-    /** An [HttpURLConnection] that answers [code] without touching a socket. */
+    /** An [HttpURLConnection] that answers [code], and [body] on a 2xx, without touching a socket. */
     private class FakeConnection(
         private val code: Int,
-        private val errorBody: String? = null
+        private val errorBody: String? = null,
+        private val body: String = ""
     ) : HttpURLConnection(URL("https://api.spotify.com/v1/me/library")) {
         override fun getResponseCode(): Int = code
         override fun getErrorStream(): InputStream? = errorBody?.byteInputStream()
+        override fun getInputStream(): InputStream = body.byteInputStream()
         override fun connect() = Unit
         override fun disconnect() = Unit
         override fun usingProxy(): Boolean = false
@@ -232,5 +234,76 @@ class SpotifyLibraryWriteTest {
 
         assertNull(saveToLibrary(calls = calls, generic = { FakeConnection(400) }).errorBody)
         assertNull(saveToLibrary(calls = calls, generic = { FakeConnection(400, "   ") }).errorBody)
+    }
+
+    // ---- the undo's calls (#267) -------------------------------------------------
+
+    @Test
+    fun `an unsave falls back to the legacy endpoint like a save does`() {
+        var legacyCalls = 0
+
+        val result = SpotifyLibraryWrite.removeFromLibrary(
+            SpotifyLibraryEndpoints.trackUri("trk1"),
+            generic = { FakeConnection(404) },
+            legacy = { legacyCalls++; FakeConnection(200) }
+        )
+
+        assertTrue(result.success)
+        assertEquals(1, legacyCalls)
+        assertTrue(SpotifyLibraryEndpoints.useLegacyEndpoints)
+    }
+
+    @Test
+    fun `contains asks the generic endpoint and reads its one-flag list`() {
+        val urls = mutableListOf<String>()
+
+        val saved = SpotifyLibraryWrite.contains(
+            SpotifyLibraryEndpoints.trackUri("trk1"),
+            generic = { url -> urls += url; FakeConnection(200, body = "[true]") },
+            legacy = { throw AssertionError("the legacy endpoint must not be called here") }
+        )
+
+        assertEquals(true, saved)
+        assertEquals(listOf("https://api.spotify.com/v1/me/library/contains?uris=spotify%3Atrack%3Atrk1"), urls)
+    }
+
+    @Test
+    fun `contains also reads an answer keyed by URI`() {
+        // The migration guide documents only the request side of
+        // /me/library/contains; the desktop accepts both shapes too.
+        val saved = SpotifyLibraryWrite.contains(
+            SpotifyLibraryEndpoints.trackUri("trk1"),
+            generic = { FakeConnection(200, body = """{"spotify:track:trk1":false}""") },
+            legacy = { throw AssertionError("the legacy endpoint must not be called here") }
+        )
+
+        assertEquals(false, saved)
+    }
+
+    @Test
+    fun `contains falls back to the legacy endpoint on a 403 and remembers it`() {
+        val saved = SpotifyLibraryWrite.contains(
+            SpotifyLibraryEndpoints.trackUri("trk1"),
+            generic = { FakeConnection(403) },
+            legacy = { FakeConnection(200, body = "[false]") }
+        )
+
+        assertEquals(false, saved)
+        assertTrue(SpotifyLibraryEndpoints.useLegacyEndpoints)
+    }
+
+    @Test
+    fun `a contains that gets no readable answer is unknown, not a no`() {
+        // Reading "unknown" as "not saved" would let an undo unsave a track
+        // the user had saved before the press.
+        val uri = SpotifyLibraryEndpoints.trackUri("trk1")
+        val noLegacy = { throw AssertionError("the legacy endpoint must not be called here") }
+
+        assertNull(SpotifyLibraryWrite.contains(uri, generic = { FakeConnection(500) }, legacy = noLegacy))
+        assertNull(SpotifyLibraryWrite.contains(uri, generic = { FakeConnection(200, body = "{not json") }, legacy = noLegacy))
+        assertNull(SpotifyLibraryWrite.contains(uri, generic = { FakeConnection(200, body = "[]") }, legacy = noLegacy))
+        assertNull(
+            SpotifyLibraryWrite.contains(uri, generic = { FakeConnection(404) }, legacy = { FakeConnection(404) })
+        )
     }
 }

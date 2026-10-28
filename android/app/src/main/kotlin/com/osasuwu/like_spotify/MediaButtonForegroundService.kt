@@ -198,13 +198,29 @@ class MediaButtonForegroundService : Service() {
                 )
                 return
             }
-            if (MainActivity.isFlutterAttached) {
-                log("Delegating to Flutter (full workflow)")
-                val intent = Intent(AppConstants.ACTION_TRIGGER_LIKE)
-                LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
-            } else {
-                likeInBackground()
+            // Asked after the veto: a vetoed repeat neither likes nor undoes.
+            val press = UndoJournal.onPress(prefs(), now)
+            when (press) {
+                is UndoJournal.Press.Undo -> {
+                    log("Trigger repeated within ${UndoJournal.WINDOW_MS / 1000} s of a like: undoing it", actionType = "undo")
+                    SpotifyLikeWorker.enqueueUndo(this, press.pressId)
+                }
+                UndoJournal.Press.QueueUndo ->
+                    log("Trigger repeated while the like is still running: it undoes itself when done", actionType = "undo")
+                UndoJournal.Press.Ignore ->
+                    log("Trigger repeated again: the undo is already under way", actionType = "undo")
+                is UndoJournal.Press.Like -> like(press.afterUndo)
             }
+        }
+    }
+
+    private fun like(afterUndo: Boolean) {
+        if (MainActivity.isFlutterAttached) {
+            log("Delegating to Flutter (full workflow)")
+            val intent = Intent(AppConstants.ACTION_TRIGGER_LIKE)
+            LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
+        } else {
+            likeInBackground(afterUndo)
         }
     }
 
@@ -214,8 +230,11 @@ class MediaButtonForegroundService : Service() {
      * The service is resolved here rather than in Dart because this is the
      * path the trigger normally takes — the engine is usually detached when
      * the pattern fires. [MusicProvider.resolve] is the same rule Dart runs.
+     *
+     * Only the Spotify job journals what it does, so only its likes can be
+     * undone by repeating the trigger (#267); YouTube Music is #274.
      */
-    private fun likeInBackground() {
+    private fun likeInBackground(afterUndo: Boolean) {
         val routing = MusicProvider.resolve(this)
         if (routing.automatic) {
             log(routing.logLine(), actionType = "music_routing")
@@ -223,7 +242,8 @@ class MediaButtonForegroundService : Service() {
         when (routing.provider) {
             MusicProvider.SPOTIFY -> {
                 log("Flutter not attached — using WorkManager fallback")
-                SpotifyLikeWorker.enqueue(this, routing.provider)
+                val pressId = UndoJournal.beginLike(prefs(), System.currentTimeMillis())
+                SpotifyLikeWorker.enqueue(this, routing.provider, pressId, afterUndo)
             }
             MusicProvider.YTMUSIC -> likeYouTubeMusicInBackground()
         }

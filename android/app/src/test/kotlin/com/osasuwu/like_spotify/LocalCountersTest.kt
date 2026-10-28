@@ -315,4 +315,27 @@ class LocalCountersTest {
         LocalCounters.artistFollowCount(prefs, "artist-1", "trk-a") { 7 }
         assertEquals(2, LocalCounters.artistFollowCount(prefs, "artist-1", "trk-b") { null })
     }
+
+    // ---- restoreLikedAt (#267) -------------------------------------------------
+
+    @Test
+    fun `an undone first like leaves the track never liked`() {
+        // The cooldown reads this stamp, so a stamp left behind would skip
+        // the next like of the track the user just undid.
+        val prefs = FakeSharedPreferences()
+        LocalCounters.recordLikedAt(prefs, "trk-b", 500L)
+        LocalCounters.recordLikedAt(prefs, "trk-a", 1_000L)
+        LocalCounters.restoreLikedAt(prefs, "trk-a", null)
+        assertNull(LocalCounters.lastLikedAt(prefs, "trk-a"))
+        assertEquals(500L, LocalCounters.lastLikedAt(prefs, "trk-b"))
+    }
+
+    @Test
+    fun `an undone repeat like puts back the like before it`() {
+        val prefs = FakeSharedPreferences()
+        LocalCounters.recordLikedAt(prefs, "trk-a", 1_000L)
+        LocalCounters.recordLikedAt(prefs, "trk-a", 9_000L)
+        LocalCounters.restoreLikedAt(prefs, "trk-a", 1_000L)
+        assertEquals(1_000L, LocalCounters.lastLikedAt(prefs, "trk-a"))
+    }
 }

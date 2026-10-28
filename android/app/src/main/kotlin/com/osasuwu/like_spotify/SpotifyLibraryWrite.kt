@@ -2,6 +2,8 @@ package com.osasuwu.like_spotify
 
 import java.io.BufferedReader
 import java.net.HttpURLConnection
+import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * The outcome of one Spotify write.
@@ -16,7 +18,8 @@ internal data class ApiResult(
 )
 
 /**
- * The `PUT /me/library` write and its one legacy fallback, kept apart from
+ * The `/me/library` save, unsave and contains calls and their one legacy
+ * fallback, kept apart from
  * [SpotifyLikeWorker] so the decision it encodes is exercised by JVM unit tests
  * instead of only by a phone: nothing here touches an Android API, and the
  * connections themselves are supplied by the caller.
@@ -40,6 +43,72 @@ internal object SpotifyLibraryWrite {
      * `{"error":{"message":…}}` reaches the log instead of a bare number.
      */
     fun saveToLibrary(
+        uri: String,
+        generic: (url: String) -> HttpURLConnection,
+        legacy: () -> HttpURLConnection
+    ): ApiResult = write(uri, generic, legacy)
+
+    /**
+     * Unsaves/unfollows [uri] through `DELETE /me/library`, for the undo
+     * (#267). The fallback is [saveToLibrary]'s: the HTTP method lives in the
+     * connections the caller opens, not in the decision.
+     */
+    fun removeFromLibrary(
+        uri: String,
+        generic: (url: String) -> HttpURLConnection,
+        legacy: () -> HttpURLConnection
+    ): ApiResult = write(uri, generic, legacy)
+
+    /**
+     * Whether [uri] is in the library, through `GET /me/library/contains` and
+     * the same one fallback. Null when no readable answer came back: a caller
+     * that read that as "not saved" could later unsave a track the user had
+     * saved themselves.
+     */
+    fun contains(
+        uri: String,
+        generic: (url: String) -> HttpURLConnection,
+        legacy: () -> HttpURLConnection
+    ): Boolean? {
+        if (!SpotifyLibraryEndpoints.useLegacyEndpoints) {
+            val connection = generic(SpotifyLibraryEndpoints.containsUrl(uri))
+            val code = connection.responseCode
+            if (code in 200..299) return parseContains(readBody(connection), uri)
+            if (!SpotifyLibraryEndpoints.shouldTryLegacy(code)) return null
+        }
+
+        val legacyConnection = legacy()
+        if (legacyConnection.responseCode !in 200..299) return null
+        SpotifyLibraryEndpoints.rememberLegacyEndpoints()
+        return parseContains(readBody(legacyConnection), uri)
+    }
+
+    /**
+     * The answer for [uri] in a contains response. The legacy endpoint answers
+     * with one boolean per id, in order; the migration guide documents only
+     * the request side of `/me/library/contains`, so a map keyed by URI is
+     * read as well, as the desktop's `_contains_flag` does.
+     */
+    private fun parseContains(body: String?, uri: String): Boolean? {
+        val text = body?.trim() ?: return null
+        return try {
+            if (text.startsWith("{")) {
+                JSONObject(text).let { if (it.has(uri)) it.getBoolean(uri) else null }
+            } else {
+                JSONArray(text).let { if (it.length() > 0) it.getBoolean(0) else null }
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun readBody(connection: HttpURLConnection): String? = try {
+        BufferedReader(connection.inputStream.reader()).use { it.readText() }
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun write(
         uri: String,
         generic: (url: String) -> HttpURLConnection,
         legacy: () -> HttpURLConnection

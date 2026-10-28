@@ -34,6 +34,10 @@ object SpotifyLibraryEndpoints {
     fun libraryUrl(uri: String): String =
         LIBRARY_URL + "?uris=" + URLEncoder.encode(uri, Charsets.UTF_8.name())
 
+    /** `GET /v1/me/library/contains?uris=…` for a single [uri]; encoded as in [libraryUrl]. */
+    fun containsUrl(uri: String): String =
+        "$LIBRARY_URL/contains?uris=" + URLEncoder.encode(uri, Charsets.UTF_8.name())
+
     fun trackUri(trackId: String): String = "spotify:track:$trackId"
 
     fun artistUri(artistId: String): String = "spotify:artist:$artistId"

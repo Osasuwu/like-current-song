@@ -3,6 +3,7 @@ package com.osasuwu.like_spotify
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.work.Constraints
+import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
@@ -27,6 +28,12 @@ import java.net.URL
  * (non-blocking) -> increment track like count (counter sheet first, local fallback) ->
  * promote to best playlist at threshold -> increment the like count of every artist
  * on the track (local only) -> auto-follow each that has reached the threshold.
+ *
+ * Also runs the undo gesture (#267). A like job journals each Spotify write it
+ * makes ([UndoJournal]); a repeat of the trigger within [UndoJournal.WINDOW_MS]
+ * either queues an undo job ([MODE_UNDO]) or, when it lands while the like is
+ * still running, is picked up by that job once the like and the archive removal
+ * are done. Either way [UndoRunner] reverts the journaled legs.
  */
 class SpotifyLikeWorker(
     appContext: Context,
@@ -42,6 +49,21 @@ class SpotifyLikeWorker(
     private var stage = LikeJobStage.STARTING
 
     /**
+     * The [UndoJournal] entry of the press this job runs for (#267); null for
+     * a job queued before the journal existed, which then journals nothing.
+     */
+    private var pressId: String? = null
+
+    /** Whether [closePress] has run; it runs once, at the archive leg or on the way out. */
+    private var pressClosed = false
+
+    /** When the like's tone played; the undo window runs from it. */
+    private var likedAt: Long? = null
+
+    /** The access token the like ended up with, for an undo that runs inline. */
+    private var likeToken: String? = null
+
+    /**
      * Every HTTP call below can throw -- a dropped connection, a truncated
      * body, a non-JSON error page. Unguarded, that killed the whole job: no
      * log line, no failure tone, nothing the user could tell apart from the
@@ -50,6 +72,8 @@ class SpotifyLikeWorker(
      * would like whatever is playing by then. So: report, buzz, give up.
      */
     override fun doWork(): Result {
+        pressId = inputData.getString(KEY_PRESS_ID)
+        if (inputData.getString(KEY_MODE) == MODE_UNDO) return runUndoJob()
         return try {
             runLike()
         } catch (t: Throwable) {
@@ -67,7 +91,44 @@ class SpotifyLikeWorker(
             // that says "that did not work" would be a lie.
             runCatching { playFeedbackTone(success = failed.likeAlreadyDone) }
             Result.success()
+        } finally {
+            // A like that ended early or threw still closes its entry, so a
+            // repeat that queued an undo meanwhile gets its answer.
+            runCatching { closePress(prefs()) }
         }
+    }
+
+    private fun prefs(): SharedPreferences =
+        applicationContext.getSharedPreferences(AppConstants.PREFS, Context.MODE_PRIVATE)
+
+    /**
+     * The stored access token, refreshed first when it expires within five
+     * minutes. Null when there is none.
+     */
+    private fun accessToken(prefs: SharedPreferences): String? {
+        val accessToken = prefs.getString(AppConstants.KEY_SPOTIFY_ACCESS_TOKEN, null)
+        if (accessToken.isNullOrBlank()) return null
+        val refreshToken = prefs.getString(AppConstants.KEY_SPOTIFY_REFRESH_TOKEN, null)
+        val clientId = prefs.getString(AppConstants.KEY_SPOTIFY_CLIENT_ID, null)
+        val expiresAt = prefs.getLong(AppConstants.KEY_SPOTIFY_EXPIRES_AT, 0L)
+        val nowSec = System.currentTimeMillis() / 1000L
+        if (expiresAt <= 0 || (expiresAt - nowSec) >= 300 || refreshToken.isNullOrBlank() || clientId.isNullOrBlank()) {
+            return accessToken
+        }
+        stage = LikeJobStage.REFRESHING_TOKEN
+        log("Token expires in ${expiresAt - nowSec}s, refreshing...")
+        val refreshed = refreshAccessToken(refreshToken, clientId)
+        if (refreshed == null || refreshed.accessToken.isBlank()) return accessToken
+        val editor = prefs.edit()
+            .putString(AppConstants.KEY_SPOTIFY_ACCESS_TOKEN, refreshed.accessToken)
+        if (!refreshed.refreshToken.isNullOrBlank()) {
+            editor.putString(AppConstants.KEY_SPOTIFY_REFRESH_TOKEN, refreshed.refreshToken)
+        }
+        if (refreshed.expiresInSec != null && refreshed.expiresInSec > 0) {
+            editor.putLong(AppConstants.KEY_SPOTIFY_EXPIRES_AT, (nowSec + refreshed.expiresInSec))
+        }
+        editor.apply()
+        return refreshed.accessToken
     }
 
     private fun runLike(): Result {
@@ -84,37 +145,15 @@ class SpotifyLikeWorker(
             return Result.success()
         }
 
-        val prefs = applicationContext.getSharedPreferences(AppConstants.PREFS, Context.MODE_PRIVATE)
-        var accessToken = prefs.getString(AppConstants.KEY_SPOTIFY_ACCESS_TOKEN, null)
-        val refreshToken = prefs.getString(AppConstants.KEY_SPOTIFY_REFRESH_TOKEN, null)
-        val clientId = prefs.getString(AppConstants.KEY_SPOTIFY_CLIENT_ID, null)
-
+        val prefs = prefs()
+        var accessToken = accessToken(prefs)
         if (accessToken.isNullOrBlank()) {
             log("Like skipped: Spotify access token missing", actionType = "like_track", result = "failure")
             playFeedbackTone(success = false)
             return Result.success()
         }
-
-        // Proactive token refresh: if token expires within 5 minutes
-        val expiresAt = prefs.getLong(AppConstants.KEY_SPOTIFY_EXPIRES_AT, 0L)
-        val nowSec = System.currentTimeMillis() / 1000L
-        if (expiresAt > 0 && (expiresAt - nowSec) < 300 && !refreshToken.isNullOrBlank() && !clientId.isNullOrBlank()) {
-            stage = LikeJobStage.REFRESHING_TOKEN
-            log("Token expires in ${expiresAt - nowSec}s, refreshing...")
-            val refreshed = refreshAccessToken(refreshToken, clientId)
-            if (refreshed != null && refreshed.accessToken.isNotBlank()) {
-                accessToken = refreshed.accessToken
-                val editor = prefs.edit()
-                    .putString(AppConstants.KEY_SPOTIFY_ACCESS_TOKEN, accessToken)
-                if (!refreshed.refreshToken.isNullOrBlank()) {
-                    editor.putString(AppConstants.KEY_SPOTIFY_REFRESH_TOKEN, refreshed.refreshToken)
-                }
-                if (refreshed.expiresInSec != null && refreshed.expiresInSec > 0) {
-                    editor.putLong(AppConstants.KEY_SPOTIFY_EXPIRES_AT, (nowSec + refreshed.expiresInSec))
-                }
-                editor.apply()
-            }
-        }
+        val refreshToken = prefs.getString(AppConstants.KEY_SPOTIFY_REFRESH_TOKEN, null)
+        val clientId = prefs.getString(AppConstants.KEY_SPOTIFY_CLIENT_ID, null)
 
         // Get current track
         stage = LikeJobStage.READING_TRACK
@@ -144,6 +183,8 @@ class SpotifyLikeWorker(
             playFeedbackTone(success = false)
             return Result.success()
         }
+        likeToken = token
+        pressId?.let { UndoJournal.setTrack(prefs, it, track.id, track.uri) }
 
         val ruleConfig = loadRuleConfig(prefs)
 
@@ -165,12 +206,144 @@ class SpotifyLikeWorker(
         if (liked) stage = LikeJobStage.RECORDING_LIKE
         playFeedbackTone(success = liked)
         if (!liked) return Result.success()
+        likedAt = System.currentTimeMillis()
+        val previousLikedAt = LocalCounters.lastLikedAt(prefs, track.id)
         recordLikedAt(prefs, track.id)
+        journal(UndoLeg.CooldownStamp(previousLikedAt))
 
         stage = LikeJobStage.EXTRA_ACTIONS
+        runArchiveLeg(prefs, token, track, ruleConfig)
+        // The legs an undo can revert are all in; a repeat that came in
+        // meanwhile is answered now, and an undone like earns no counters.
+        if (closePress(prefs)) return Result.success()
         runRulePipeline(prefs, token, track, ruleConfig)
 
         return Result.success()
+    }
+
+    private fun journal(leg: UndoLeg) {
+        pressId?.let { UndoJournal.recordLeg(prefs(), it, leg) }
+    }
+
+    /**
+     * Closes this job's journal entry, once: from here a repeat of the
+     * trigger undoes the like instead of queueing. Runs a queued undo inline
+     * and returns true when one ran (or found nothing to revert).
+     */
+    private fun closePress(prefs: SharedPreferences): Boolean {
+        val id = pressId ?: return false
+        if (pressClosed) return false
+        pressClosed = true
+        return when (UndoJournal.finishLike(prefs, id, likedAt ?: System.currentTimeMillis())) {
+            UndoJournal.Finish.NONE -> false
+            UndoJournal.Finish.RUN_UNDO -> {
+                runUndoGuarded(prefs, id) { likeToken ?: accessToken(prefs) }
+                true
+            }
+            UndoJournal.Finish.UNDO_NOTHING -> {
+                runCatching {
+                    log("Undo: the like had nothing to revert", actionType = "undo", result = "info")
+                    FeedbackPlayer.play(applicationContext, FeedbackKind.UNDO)
+                }
+                true
+            }
+        }
+    }
+
+    /** A job [enqueueUndo] queued: undo the like journalled under [pressId]. */
+    private fun runUndoJob(): Result {
+        val id = pressId
+        if (id == null) {
+            runCatching {
+                log("Undo skipped: no like to undo was named", actionType = "undo", result = "failure")
+                FeedbackPlayer.play(applicationContext, FeedbackKind.ERROR)
+            }
+            return Result.success()
+        }
+        val prefs = prefs()
+        runUndoGuarded(prefs, id) { accessToken(prefs) }
+        return Result.success()
+    }
+
+    /**
+     * [runUndo], reporting a throw the way [doWork] reports one for a like:
+     * a line naming it, the error tone, and the entry closed so the next
+     * press likes again.
+     */
+    private fun runUndoGuarded(prefs: SharedPreferences, id: String, token: () -> String?) {
+        try {
+            runUndo(prefs, id, token())
+        } catch (t: Throwable) {
+            runCatching {
+                log(
+                    "Undo failed: ${t.javaClass.simpleName}: ${t.message ?: "no message"}",
+                    actionType = "undo",
+                    result = "failure"
+                )
+                FeedbackPlayer.play(applicationContext, FeedbackKind.ERROR)
+            }
+            runCatching { UndoJournal.finishUndo(prefs, id) }
+        }
+    }
+
+    /**
+     * Reverts every leg the like [id] journalled, newest first, and closes the
+     * entry so the next press likes again. One failed leg does not stop the
+     * others; the log names each one that failed.
+     */
+    private fun runUndo(prefs: SharedPreferences, id: String, token: String?) {
+        val entry = UndoJournal.entry(prefs, id)
+        if (entry == null) {
+            log("Undo failed: the like is no longer in the journal", actionType = "undo", result = "failure")
+            FeedbackPlayer.play(applicationContext, FeedbackKind.ERROR)
+            return
+        }
+        val result = UndoRunner.run(entry, undoOps(prefs, token))
+        UndoJournal.finishUndo(prefs, id)
+        if (result.succeeded) {
+            log(
+                "Undid like of ${entry.trackId}: " + entry.legs.joinToString { UndoRunner.legName(it) },
+                actionType = "undo",
+                targetId = entry.trackId,
+                result = "success"
+            )
+            FeedbackPlayer.play(applicationContext, FeedbackKind.UNDO)
+        } else {
+            log(
+                "Undo failed on " + result.failures.joinToString("; ") { "${it.leg} (${it.reason})" },
+                actionType = "undo",
+                targetId = entry.trackId,
+                result = "failure"
+            )
+            FeedbackPlayer.play(applicationContext, FeedbackKind.ERROR)
+        }
+    }
+
+    private fun undoOps(prefs: SharedPreferences, token: String?): UndoRunner.Ops = object : UndoRunner.Ops {
+        private fun token(): String =
+            token?.takeIf { it.isNotBlank() } ?: throw IllegalStateException("no Spotify access token")
+
+        override fun unsave(trackUri: String): ApiResult {
+            val t = token()
+            val id = URLEncoder.encode(trackUri.substringAfterLast(':'), Charsets.UTF_8.name())
+            return SpotifyLibraryWrite.removeFromLibrary(
+                trackUri,
+                generic = { url -> api(url, t, "DELETE") },
+                legacy = { api("https://api.spotify.com/v1/me/tracks?ids=$id", t, "DELETE") }
+            )
+        }
+
+        override fun countInPlaylist(playlistId: String, trackId: String): Int =
+            this@SpotifyLikeWorker.countInPlaylist(prefs, playlistId, trackId, token())
+
+        override fun removeAll(playlistId: String, trackUri: String): ApiResult =
+            removeTrackFromPlaylist(playlistId, trackUri, token())
+
+        override fun add(playlistId: String, trackUri: String): ApiResult =
+            addTrackToPlaylist(playlistId, trackUri, token())
+
+        override fun restoreLikedAt(trackId: String, previous: Long?) =
+            LocalCounters.restoreLikedAt(prefs, trackId, previous)
     }
 
     /**
@@ -190,8 +363,21 @@ class SpotifyLikeWorker(
     ): Boolean {
         var nativeOk = false
         if (ruleConfig.likeDestination.likesNatively) {
+            // Asked first so an undo never unsaves a track the user had saved
+            // themselves. No readable answer counts as saved: the undo then
+            // leaves the save alone, the safe way to be wrong.
+            val wasSaved = pressId?.let { savedInLibrary(track.uri, token) }
+            if (pressId != null && wasSaved == null) {
+                log(
+                    "Could not tell whether ${track.id} was already saved; an undo will keep the save",
+                    actionType = "like_track",
+                    targetId = track.id,
+                    result = "info"
+                )
+            }
             val result = likeTrack(track.id, token)
             nativeOk = result.success
+            if (result.success) journal(UndoLeg.NativeSave(alreadySaved = wasSaved != false))
             if (result.success) {
                 log(
                     "Liked track: ${track.id}",
@@ -230,6 +416,7 @@ class SpotifyLikeWorker(
                     return@runCatching ApiResult(false, 0)
                 }
                 val first = addTrackToPlaylist(playlistId, track.uri, token)
+                if (first.success) journal(UndoLeg.LikePlaylistAdd(playlistId))
                 if (first.statusCode != 404) return@runCatching first
 
                 // The cached id names a playlist that no longer exists -- the
@@ -245,6 +432,7 @@ class SpotifyLikeWorker(
                     return@runCatching ApiResult(false, 404)
                 }
                 val retried = addTrackToPlaylist(freshId, track.uri, token)
+                if (retried.success) journal(UndoLeg.LikePlaylistAdd(freshId))
                 if (retried.success) recovered = true
                 else reason = "404 on the cached playlist, retry also failed"
                 retried
@@ -278,12 +466,32 @@ class SpotifyLikeWorker(
         return LikeDestination.succeeded(ruleConfig.likeDestination, nativeOk, playlistOk)
     }
 
-    private fun runRulePipeline(prefs: SharedPreferences, token: String, track: CurrentTrack, ruleConfig: RuleConfig) {
+    /**
+     * Takes the track out of the archive playlist, non-blocking. A journalled
+     * press counts the copies first: Spotify removes every copy of a URI, and
+     * the undo puts back exactly as many. When they cannot be counted the
+     * removal is skipped rather than made unrevertable.
+     */
+    private fun runArchiveLeg(prefs: SharedPreferences, token: String, track: CurrentTrack, ruleConfig: RuleConfig) {
         if (ruleConfig.archiveRemoveEnabled && ruleConfig.archivePlaylistName.isNotBlank()) {
             runCatching {
                 val archiveId = findPlaylistByName(prefs, ruleConfig.archivePlaylistName, token)
                 if (archiveId != null) {
+                    val copies = if (pressId == null) null else try {
+                        countInPlaylist(prefs, archiveId, track.id, token, ruleConfig.archivePlaylistName)
+                    } catch (t: Exception) {
+                        log(
+                            "Archive removal skipped: could not count the copies to put back on undo " +
+                                "(${t.javaClass.simpleName}: ${t.message ?: "no message"})",
+                            actionType = "archive_remove",
+                            targetId = track.id,
+                            result = "failure"
+                        )
+                        return@runCatching
+                    }
+                    if (copies == 0) return@runCatching
                     val result = removeTrackFromPlaylist(archiveId, track.uri, token)
+                    if (result.success && copies != null) journal(UndoLeg.ArchiveRemove(archiveId, copies))
                     // Same stale-cache trap as the like leg, minus the retry:
                     // this leg is non-blocking, so dropping the dead id is
                     // enough -- the next press resolves it properly instead of
@@ -316,7 +524,9 @@ class SpotifyLikeWorker(
                 )
             }
         }
+    }
 
+    private fun runRulePipeline(prefs: SharedPreferences, token: String, track: CurrentTrack, ruleConfig: RuleConfig) {
         val trackCount = runCatching { incrementTrackLikeCount(prefs, token, track.id) }
             .getOrElse { LocalCounters.increment(prefs, LocalCounters.Kind.TRACK, track.id) }
         if (ruleConfig.bestEnabled && ruleConfig.bestPlaylistName.isNotBlank()) {
@@ -609,21 +819,40 @@ class SpotifyLikeWorker(
         playlistId: String,
         trackId: String,
         token: String,
-    ): Boolean {
+    ): Boolean = playlistPages(prefs, name, playlistId, token).any { trackId in it.trackIds }
+
+    /** How many copies of [trackId] the playlist holds, over every page. */
+    private fun countInPlaylist(
+        prefs: SharedPreferences,
+        playlistId: String,
+        trackId: String,
+        token: String,
+        name: String? = null,
+    ): Int = playlistPages(prefs, name, playlistId, token).sumOf { it.copies[trackId] ?: 0 }
+
+    /**
+     * The playlist's pages, read lazily. Throws on an unreadable page; a 404
+     * also drops the cached id of the playlist [name], when one is given.
+     */
+    private fun playlistPages(
+        prefs: SharedPreferences,
+        name: String?,
+        playlistId: String,
+        token: String,
+    ): Sequence<SpotifyPlaylistTracks.Page> = sequence {
         var url: String? = SpotifyPlaylistTracks.firstPageUrl(playlistId)
         while (url != null) {
             val connection = api(url, token, "GET")
             val code = connection.responseCode
             if (code !in 200..299) {
-                if (code == 404) PlaylistCache.forget(prefs, name)
+                if (code == 404 && name != null) PlaylistCache.forget(prefs, name)
                 throw IllegalStateException("reading the playlist failed with HTTP $code")
             }
             val body = readBody(connection) ?: throw IllegalStateException("reading the playlist returned no body")
             val page = SpotifyPlaylistTracks.parsePage(body)
-            if (trackId in page.trackIds) return true
+            yield(page)
             url = page.next
         }
-        return false
     }
 
     private fun addTrackToPlaylist(playlistId: String, trackUri: String, token: String): ApiResult {
@@ -688,6 +917,16 @@ class SpotifyLikeWorker(
         }
         return ids
     }
+
+    /** Whether [uri] is in the library already; null when that cannot be told. */
+    private fun savedInLibrary(uri: String, token: String): Boolean? = runCatching {
+        val trackId = URLEncoder.encode(uri.substringAfterLast(':'), Charsets.UTF_8.name())
+        SpotifyLibraryWrite.contains(
+            uri,
+            generic = { url -> api(url, token, "GET") },
+            legacy = { api("https://api.spotify.com/v1/me/tracks/contains?ids=$trackId", token, "GET") }
+        )
+    }.getOrNull()
 
     private fun likeTrack(trackId: String, token: String?): ApiResult {
         if (token.isNullOrBlank()) return ApiResult(false, 0)
@@ -814,21 +1053,47 @@ class SpotifyLikeWorker(
         /** Id of the [MusicProvider] the trigger routed to; see [doWork]. */
         private const val KEY_ROUTED_PROVIDER = "routed_provider"
 
-        fun enqueue(context: Context, provider: MusicProvider) {
+        /** The [UndoJournal] entry the job runs for (#267). */
+        private const val KEY_PRESS_ID = "press_id"
+
+        /** [MODE_UNDO] for an undo job; absent for a like. */
+        private const val KEY_MODE = "mode"
+        private const val MODE_UNDO = "undo"
+
+        private const val WORK_NAME = "spotify-like-work"
+
+        /**
+         * Queues the like journalled under [pressId]. A new like replaces a
+         * job still waiting, except an undo ([afterUndo]): replacing that
+         * would cancel it, so the like queues behind it instead.
+         */
+        fun enqueue(context: Context, provider: MusicProvider, pressId: String?, afterUndo: Boolean) {
+            val data = workDataOf(KEY_ROUTED_PROVIDER to provider.id, KEY_PRESS_ID to pressId)
+            val policy = if (afterUndo) ExistingWorkPolicy.APPEND_OR_REPLACE else ExistingWorkPolicy.REPLACE
+            enqueue(context, data, policy)
+        }
+
+        /**
+         * Queues the undo of the like journalled under [pressId], behind
+         * whatever that like still has to do: replacing it would cut its
+         * remaining steps short.
+         */
+        fun enqueueUndo(context: Context, pressId: String) {
+            val data = workDataOf(KEY_MODE to MODE_UNDO, KEY_PRESS_ID to pressId)
+            enqueue(context, data, ExistingWorkPolicy.APPEND_OR_REPLACE)
+        }
+
+        private fun enqueue(context: Context, data: Data, policy: ExistingWorkPolicy) {
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build()
 
             val request = OneTimeWorkRequestBuilder<SpotifyLikeWorker>()
                 .setConstraints(constraints)
-                .setInputData(workDataOf(KEY_ROUTED_PROVIDER to provider.id))
+                .setInputData(data)
                 .build()
 
-            WorkManager.getInstance(context).enqueueUniqueWork(
-                "spotify-like-work",
-                ExistingWorkPolicy.REPLACE,
-                request
-            )
+            WorkManager.getInstance(context).enqueueUniqueWork(WORK_NAME, policy, request)
         }
     }
 }

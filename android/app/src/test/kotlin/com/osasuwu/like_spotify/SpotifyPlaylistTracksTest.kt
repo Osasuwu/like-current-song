@@ -25,6 +25,16 @@ class SpotifyPlaylistTracksTest {
     }
 
     @Test
+    fun `a track listed more than once on a page counts every copy`() {
+        // The undo (#267) puts back as many copies as the like removed.
+        val page = SpotifyPlaylistTracks.parsePage(
+            """{"items":[{"track":{"id":"t1"}},{"track":{"id":"t2"}},{"track":{"id":"t1"}}],"next":null}"""
+        )
+        assertEquals(mapOf("t1" to 2, "t2" to 1), page.copies)
+        assertEquals(setOf("t1", "t2"), page.trackIds)
+    }
+
+    @Test
     fun `items without a track are skipped`() {
         // A removed episode comes back as `"track": null`; a local file has no id.
         val page = SpotifyPlaylistTracks.parsePage(
