@@ -120,6 +120,42 @@ object UndoJournal {
         }
     }
 
+    /** The like [pressId] can still be undone until [closesAt], inclusive. */
+    data class Window(val pressId: String, val closesAt: Long)
+
+    /**
+     * The like an Undo action may offer at [now] (#269): the latest entry,
+     * finished with something to revert, within [WINDOW_MS] of its tone.
+     * Null while the like runs, once any undo has started, and after the
+     * window — the same moments a repeat press would no longer undo.
+     */
+    @Synchronized
+    fun openWindow(prefs: SharedPreferences, now: Long): Window? {
+        val latest = load(prefs).lastOrNull() ?: return null
+        if (!undoable(latest, now)) return null
+        return Window(latest.getString(F_ID), latest.getLong(F_LIKED_AT) + WINDOW_MS)
+    }
+
+    /**
+     * A tap on the Undo action offered for [pressId]. Starts the undo, exactly
+     * as a repeat press inside the window would, and returns true; returns
+     * false and changes nothing when the action is stale — the window passed,
+     * a newer like took it over, or an undo already started.
+     */
+    @Synchronized
+    fun requestUndo(prefs: SharedPreferences, pressId: String, now: Long): Boolean {
+        val entries = load(prefs)
+        val latest = entries.lastOrNull() ?: return false
+        if (latest.getString(F_ID) != pressId || !undoable(latest, now)) return false
+        latest.put(F_STATE, State.UNDOING.name)
+        save(prefs, entries)
+        return true
+    }
+
+    private fun undoable(entry: JSONObject, now: Long): Boolean =
+        State.valueOf(entry.getString(F_STATE)) == State.LIKED &&
+            (now - entry.optLong(F_LIKED_AT)) in 0..WINDOW_MS
+
     /** Opens a journal entry for a like the worker is about to run; returns its id. */
     @Synchronized
     fun beginLike(prefs: SharedPreferences, now: Long): String {

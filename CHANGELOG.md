@@ -15,6 +15,12 @@ you sign in from its Settings window.
 
 ### Added
 
+- **Android: an Undo action in the listener notification (#269).** For the
+  10 seconds a background Spotify like can be undone, the notification shows
+  an Undo button after Stop (and Grant access, when it is there). Tapping it
+  does exactly what repeating the trigger does, tone included. The button goes
+  away by itself when the 10 seconds are up, and as soon as the like is undone
+  in any way.
 - **Android: undo a like by repeating the trigger within 10 seconds (#267).**
   When the phone likes a Spotify track in the background, the same media-button
   pattern again within 10 seconds of the like takes it back: the track is

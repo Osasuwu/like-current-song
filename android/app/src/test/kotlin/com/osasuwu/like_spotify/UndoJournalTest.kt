@@ -1,6 +1,9 @@
 package com.osasuwu.like_spotify
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -146,6 +149,71 @@ class UndoJournalTest {
 
         assertEquals(UndoJournal.Press.Undo(current), UndoJournal.onPress(prefs, 63_000L))
         assertEquals(listOf(UndoLeg.NativeSave(alreadySaved = false)), UndoJournal.entry(prefs, current)?.legs)
+    }
+
+    // The notification's Undo action (#269): shown while the window is open,
+    // and a tap on it starts the same undo a repeat of the trigger would.
+
+    @Test
+    fun `a finished like opens a window for the notification that closes 10 s after its tone`() {
+        val id = likedAt(likedAt = 53_000L, UndoLeg.NativeSave(alreadySaved = false), pressedAt = 50_000L)
+
+        assertEquals(UndoJournal.Window(id, closesAt = 63_000L), UndoJournal.openWindow(prefs, 55_000L))
+        assertEquals(UndoJournal.Window(id, closesAt = 63_000L), UndoJournal.openWindow(prefs, 63_000L))
+        assertNull(UndoJournal.openWindow(prefs, 63_001L))
+    }
+
+    @Test
+    fun `there is no window while the like runs, for a like that performed nothing, or after a clock change`() {
+        val running = UndoJournal.beginLike(prefs, 50_000L)
+        assertNull(UndoJournal.openWindow(prefs, 51_000L))
+
+        UndoJournal.finishLike(prefs, running, 52_000L)
+        assertNull(UndoJournal.openWindow(prefs, 53_000L))
+
+        likedAt(60_000L, UndoLeg.NativeSave(alreadySaved = false))
+        assertNull(UndoJournal.openWindow(prefs, 59_000L))
+    }
+
+    @Test
+    fun `the window closes as soon as an undo starts, through any surface, and stays closed once it is done`() {
+        val byPress = likedAt(50_000L, UndoLeg.NativeSave(alreadySaved = false))
+        UndoJournal.onPress(prefs, 52_000L)
+        assertNull(UndoJournal.openWindow(prefs, 52_000L))
+        UndoJournal.finishUndo(prefs, byPress)
+        assertNull(UndoJournal.openWindow(prefs, 53_000L))
+
+        val byTap = likedAt(70_000L, UndoLeg.NativeSave(alreadySaved = false))
+        UndoJournal.requestUndo(prefs, byTap, 71_000L)
+        assertNull(UndoJournal.openWindow(prefs, 71_000L))
+    }
+
+    @Test
+    fun `a tap inside the window starts the undo the way a repeat press does`() {
+        val id = likedAt(50_000L, UndoLeg.NativeSave(alreadySaved = false))
+
+        assertTrue(UndoJournal.requestUndo(prefs, id, 55_000L))
+        assertEquals(UndoJournal.State.UNDOING, UndoJournal.entry(prefs, id)?.state)
+        // The repeat press that follows sees the undo already in hand.
+        assertEquals(UndoJournal.Press.Ignore, UndoJournal.onPress(prefs, 56_000L))
+    }
+
+    @Test
+    fun `a tap on a stale Undo starts nothing`() {
+        val id = likedAt(50_000L, UndoLeg.NativeSave(alreadySaved = false))
+
+        // Past the window: the action outlived it on screen.
+        assertFalse(UndoJournal.requestUndo(prefs, id, 60_001L))
+        assertEquals(UndoJournal.State.LIKED, UndoJournal.entry(prefs, id)?.state)
+
+        // A newer like took over the window: the old action must not undo it.
+        val newer = likedAt(61_000L, UndoLeg.NativeSave(alreadySaved = false))
+        assertFalse(UndoJournal.requestUndo(prefs, id, 62_000L))
+        assertEquals(UndoJournal.State.LIKED, UndoJournal.entry(prefs, newer)?.state)
+
+        // The gesture already started the undo: a tap does not start a second.
+        UndoJournal.onPress(prefs, 63_000L)
+        assertFalse(UndoJournal.requestUndo(prefs, newer, 63_500L))
     }
 
     @Test

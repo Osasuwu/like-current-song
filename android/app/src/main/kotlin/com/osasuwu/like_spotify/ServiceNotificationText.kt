@@ -27,4 +27,19 @@ object ServiceNotificationText {
 
     /** Label of the action that opens the grant, shown only while it is missing. */
     const val GRANT_ACTION_LABEL = "Grant access"
+
+    /** Label of the action that undoes the last like, shown only inside its window (#269). */
+    const val UNDO_ACTION_LABEL = "Undo"
+
+    /**
+     * The notification's actions, in order. Undo is appended, never slotted
+     * in, so Stop and the grant keep the positions they had before it (#269).
+     */
+    fun actions(listenerEnabled: Boolean, undoOpen: Boolean): List<NotificationAction> = buildList {
+        add(NotificationAction.STOP)
+        if (!listenerEnabled) add(NotificationAction.GRANT_ACCESS)
+        if (undoOpen) add(NotificationAction.UNDO)
+    }
 }
+
+enum class NotificationAction { STOP, GRANT_ACCESS, UNDO }
