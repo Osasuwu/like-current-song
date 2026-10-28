@@ -153,6 +153,19 @@ object LocalCounters {
         prefs.edit().putString(AppConstants.KEY_TRACK_LAST_LIKED_AT, encode(updated)).apply()
     }
 
+    /**
+     * Puts back the stamp [id] had before a like that was then undone (#267):
+     * [previous], or no stamp at all when the undone like was the first. Left
+     * in place, the undone like's stamp would make the cooldown skip the next
+     * like of the same track.
+     */
+    @Synchronized
+    fun restoreLikedAt(prefs: SharedPreferences, id: String, previous: Long?) {
+        val stamps = parseTimestamps(prefs.getString(AppConstants.KEY_TRACK_LAST_LIKED_AT, null))
+        val restored = if (previous == null) stamps - id else stamps + (id to previous)
+        prefs.edit().putString(AppConstants.KEY_TRACK_LAST_LIKED_AT, encode(restored)).apply()
+    }
+
     // ---- Followed artists ----------------------------------------------
 
     /**

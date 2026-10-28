@@ -13,6 +13,22 @@ you sign in from its Settings window.
 
 ## [Unreleased]
 
+### Added
+
+- **Android: undo a like by repeating the trigger within 10 seconds (#267).**
+  When the phone likes a Spotify track in the background, the same media-button
+  pattern again within 10 seconds of the like takes it back: the track is
+  unsaved, taken off the like playlist if the like put it there, and put back
+  in the archive playlist if the like took it out. A track you had already
+  saved stays saved. The undo tone plays when it worked; the error tone plays
+  when a step failed, and the Logs screen names the step. A repeat while the
+  like is still running waits for it and then undoes it, the pattern after an
+  undo likes again, and a repeat vetoed because another app started playing
+  does nothing. Not yet
+  covered: likes made with the app open, YouTube Music, the like counters
+  (#272), and the best playlist and auto-follow (#273). Copies put back in the
+  archive go to its end.
+
 ### Changed
 
 - **The phone and the desktop now play the same feedback tones (#266).** The
@@ -20,8 +36,8 @@ you sign in from its Settings window.
   chord for an error. It now plays the desktop's tones. A like is a rising pair
   of notes and an error is a low double buzz. The vibrations stay the same.
   Both platforms also get an undo tone, the like's pair falling, and on the
-  phone a long-then-short vibration with it. Nothing plays it yet: it is
-  waiting for the undo gesture (#267, #270).
+  phone a long-then-short vibration with it. The phone's undo gesture plays
+  it (#267); the desktop's is #270.
 
 ### Fixed
 

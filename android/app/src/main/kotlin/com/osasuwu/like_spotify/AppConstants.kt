@@ -135,6 +135,9 @@ object AppConstants {
      */
     const val BACKGROUND_LOG_MAX_ENTRIES = 200
 
+    /** The undo gesture's journal of recent likes and what each did; see [UndoJournal]. */
+    const val KEY_UNDO_JOURNAL = "undo_journal"
+
     const val ACTION_MEDIA_EVENT = "com.osasuwu.like_spotify.MEDIA_EVENT"
     const val ACTION_LOG_EVENT = "com.osasuwu.like_spotify.LOG_EVENT"
     const val ACTION_SERVICE_STATE = "com.osasuwu.like_spotify.SERVICE_STATE"
