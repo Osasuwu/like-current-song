@@ -9,8 +9,10 @@ device.
 
 from __future__ import annotations
 
+import re
 import struct
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -43,11 +45,37 @@ def test_synth_tone_volume_scales_peak_amplitude() -> None:
     assert _peak(quiet) == pytest.approx(_peak(loud) / 10, abs=2)
 
 
-def test_synth_tones_returns_distinct_like_remove_error() -> None:
+def test_synth_tones_returns_distinct_like_remove_error_undo() -> None:
     tones = feedback._synth_tones(volume=1.0)
-    assert set(tones) == {"like", "remove", "error"}
-    assert tones["like"] != tones["remove"]
-    assert tones["remove"] != tones["error"]
+    assert set(tones) == {"like", "remove", "error", "undo"}
+    assert len(set(tones.values())) == 4
+
+
+def test_like_rises_and_undo_is_the_same_pair_falling() -> None:
+    # #266: undo is the like taken back — same two notes, opposite direction.
+    assert feedback._TONE_SEGMENTS["like"] == [(784, 90), (1175, 110)]
+    assert feedback._TONE_SEGMENTS["undo"] == [(1175, 90), (784, 110)]
+
+
+_KOTLIN_TONES = (
+    Path(__file__).resolve().parents[1]
+    / "android/app/src/main/kotlin/com/osasuwu/like_spotify/FeedbackTones.kt"
+)
+
+
+def test_phone_and_desktop_share_the_like_error_undo_tones() -> None:
+    # #266: the phone synthesizes the same segments, so a like sounds the same
+    # on both. Parsed from FeedbackTones.kt's `val X = tone(hz to ms, ...)`.
+    source = _KOTLIN_TONES.read_text(encoding="utf-8")
+    phone = {
+        name.lower(): [
+            (int(hz), int(ms))
+            for hz, ms in re.findall(r"(\d+)\s+to\s+(\d+)", args)
+        ]
+        for name, args in re.findall(r"val\s+(\w+)\s*=\s*tone\(([^)]*)\)", source)
+    }
+    shared = {k: v for k, v in feedback._TONE_SEGMENTS.items() if k != "remove"}
+    assert phone == shared
 
 
 # ── TrayFeedback._beep: tone selection ──────────────────────────────────
@@ -73,6 +101,15 @@ def test_beep_success_remove_plays_remove_tone() -> None:
     fb._beep(success=True, kind="remove")
 
     assert calls == [fb._tones["remove"]]
+
+
+def test_beep_success_undo_plays_undo_tone() -> None:
+    calls: list[bytes] = []
+    fb = _make_feedback(player=calls.append)
+
+    fb._beep(success=True, kind="undo")
+
+    assert calls == [fb._tones["undo"]]
 
 
 def test_beep_failure_plays_error_tone_regardless_of_kind() -> None:

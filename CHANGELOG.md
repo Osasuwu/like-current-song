@@ -13,6 +13,16 @@ you sign in from its Settings window.
 
 ## [Unreleased]
 
+### Changed
+
+- **The phone and the desktop now play the same feedback tones (#266).** The
+  phone used the system beeps: one short high beep for a like and a three-note
+  chord for an error. It now plays the desktop's tones. A like is a rising pair
+  of notes and an error is a low double buzz. The vibrations stay the same.
+  Both platforms also get an undo tone, the like's pair falling, and on the
+  phone a long-then-short vibration with it. Nothing plays it yet: it is
+  waiting for the undo gesture (#267, #270).
+
 ### Fixed
 
 - **CI: the code-review gate no longer fails open on expiry or long listings
