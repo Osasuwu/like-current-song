@@ -197,6 +197,16 @@ object LocalCounters {
         prefs.edit().putString(AppConstants.KEY_FOLLOWED_ARTISTS, encodeIds(updated)).apply()
     }
 
+    /**
+     * Forgets that [id] was auto-followed, for a follow that was then undone
+     * (#273), so the rule follows it again once it qualifies.
+     */
+    @Synchronized
+    fun forgetFollowed(prefs: SharedPreferences, id: String) {
+        val updated = followedArtists(prefs) - id
+        prefs.edit().putString(AppConstants.KEY_FOLLOWED_ARTISTS, encodeIds(updated)).apply()
+    }
+
     // ---- Distinct tracks per artist (#243) ----------------------------------------------
 
     /**
@@ -229,14 +239,25 @@ object LocalCounters {
      * The set starts empty on an upgraded install and is never seeded from
      * the tally -- a tally says nothing about how many tracks it covers, and
      * an inflated one is exactly what must not follow anyone.
+     *
+     * [onAdded] runs only when the track was new to the artist here, so an
+     * undo journals (#273) a track it may take away, never one the artist
+     * already had.
      */
     @Synchronized
-    fun recordArtistTrack(prefs: SharedPreferences, artistKey: String, trackId: String): Int {
+    fun recordArtistTrack(
+        prefs: SharedPreferences,
+        artistKey: String,
+        trackId: String,
+        onAdded: () -> Unit = {},
+    ): Int {
         val all = parseArtistTracks(prefs.getString(AppConstants.KEY_ARTIST_LIKED_TRACKS, null))
-        val tracks = (all[artistKey] ?: emptySet()) + trackId
+        val known = all[artistKey] ?: emptySet()
+        val tracks = known + trackId
         prefs.edit()
             .putString(AppConstants.KEY_ARTIST_LIKED_TRACKS, encodeArtistTracks(all + (artistKey to tracks)))
             .apply()
+        if (trackId !in known) onAdded()
         return tracks.size
     }
 
@@ -249,10 +270,30 @@ object LocalCounters {
      *
      * The track is recorded here either way, so a device that loses its sheet
      * later falls back on a set that is short rather than inflated.
+     * [onAdded] is [recordArtistTrack]'s.
      */
-    fun artistFollowCount(prefs: SharedPreferences, artistKey: String, trackId: String, shared: () -> Int?): Int {
-        val local = recordArtistTrack(prefs, artistKey, trackId)
+    fun artistFollowCount(
+        prefs: SharedPreferences,
+        artistKey: String,
+        trackId: String,
+        onAdded: () -> Unit = {},
+        shared: () -> Int?,
+    ): Int {
+        val local = recordArtistTrack(prefs, artistKey, trackId, onAdded)
         return shared() ?: local
+    }
+
+    /**
+     * Takes [trackId] back out of the artist's distinct tracks, for the like
+     * that added it and was then undone (#273).
+     */
+    @Synchronized
+    fun forgetArtistTrack(prefs: SharedPreferences, artistKey: String, trackId: String) {
+        val all = parseArtistTracks(prefs.getString(AppConstants.KEY_ARTIST_LIKED_TRACKS, null))
+        val tracks = all[artistKey] ?: return
+        prefs.edit()
+            .putString(AppConstants.KEY_ARTIST_LIKED_TRACKS, encodeArtistTracks(all + (artistKey to (tracks - trackId))))
+            .apply()
     }
 
     // ---- Promoted tracks ----------------------------------------------
@@ -280,6 +321,16 @@ object LocalCounters {
     @Synchronized
     fun markTrackPromoted(prefs: SharedPreferences, id: String) {
         val updated = promotedTracks(prefs) + id
+        prefs.edit().putString(AppConstants.KEY_PROMOTED_TRACKS, encodeIds(updated)).apply()
+    }
+
+    /**
+     * Forgets that [id] was promoted, for a promotion that was then undone
+     * (#273), so the next like that qualifies promotes it again.
+     */
+    @Synchronized
+    fun forgetPromoted(prefs: SharedPreferences, id: String) {
+        val updated = promotedTracks(prefs) - id
         prefs.edit().putString(AppConstants.KEY_PROMOTED_TRACKS, encodeIds(updated)).apply()
     }
 

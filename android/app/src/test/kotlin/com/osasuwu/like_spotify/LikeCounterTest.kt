@@ -256,4 +256,27 @@ class LikeCounterTest {
         )
         assertEquals(messages.size, messages.toSet().size)
     }
+
+    // ---- artistTrackRow (#273) -------------------------------------------------
+
+    @Test
+    fun `an undone artist track is found on its own row, below the header`() {
+        // Header, then t1 and t2 of artist-a: the (me, artist-a, t2) triple is row 3.
+        assertEquals(3, LikeCounter.artistTrackRow(artistTab, "me", "artist-a", "t2"))
+    }
+
+    @Test
+    fun `a triple written twice resolves to the bottom-most row`() {
+        // The append the undone like made is the newest, so it is the lower one.
+        val body = """{"values":[["h","h","h","h"],["me","a","t1","x"],["me","a"],["me","a","t1","y"]]}"""
+        assertEquals(4, LikeCounter.artistTrackRow(body, "me", "a", "t1"))
+    }
+
+    @Test
+    fun `a triple with no row, or only a header that matches, has no row to clear`() {
+        assertNull(LikeCounter.artistTrackRow(artistTab, "me", "artist-b", "t1"))
+        assertNull(LikeCounter.artistTrackRow(artistTab, "someone-else", "artist-a", "t1"))
+        assertNull(LikeCounter.artistTrackRow("""{"values":[["me","a","t1","created_at"]]}""", "me", "a", "t1"))
+        assertNull(LikeCounter.artistTrackRow(null, "me", "a", "t1"))
+    }
 }

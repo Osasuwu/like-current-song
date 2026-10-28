@@ -28,6 +28,17 @@ you sign in from its Settings window.
   covered: likes made with the app open, YouTube Music, the like counters
   (#272), and the best playlist and auto-follow (#273). Copies put back in the
   archive go to its end.
+- **Android: the undo also takes back a best promotion and an auto-follow (#273).**
+  If the undone like promoted the track to the best playlist, the undo takes it
+  off again, and the next like that reaches the threshold promotes it again. If
+  the like counted a new track for an artist, the undo takes that track back off
+  the artist's tally, on the phone and on the shared counter sheet, so the tally
+  reads what it read before. If the like followed the artist, the undo unfollows
+  them; an artist you already followed stays followed. A like that changed none
+  of these leaves them alone. When one of these steps fails the rest still go
+  back, the error tone plays, and the Logs screen names the step. The cleared
+  sheet row can stay behind as an empty row, and a desktop that is already running
+  keeps its own count of the artist's tracks until it restarts.
 
 ### Changed
 

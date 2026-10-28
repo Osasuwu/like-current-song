@@ -93,4 +93,21 @@ class BestPromotionTest {
         assertTrue(prefs.values.containsKey(AppConstants.KEY_PROMOTED_TRACKS))
         assertFalse(prefs.values.containsKey(AppConstants.KEY_FOLLOWED_ARTISTS))
     }
+
+    @Test
+    fun `only a promotion the run made is left for an undo to revert`() {
+        // #273: a press that found the track in best already, or did not get
+        // it in, changed nothing there, so its undo must not take it out.
+        val legs = BestPromotion.Outcome.values().associateWith { BestPromotion.undoLeg(it, "pl-best") }
+
+        assertEquals(
+            mapOf(
+                BestPromotion.Outcome.NOT_DUE to null,
+                BestPromotion.Outcome.ALREADY_IN_PLAYLIST to null,
+                BestPromotion.Outcome.ADDED to UndoLeg.BestPromote("pl-best"),
+                BestPromotion.Outcome.NOT_ADDED to null,
+            ),
+            legs,
+        )
+    }
 }

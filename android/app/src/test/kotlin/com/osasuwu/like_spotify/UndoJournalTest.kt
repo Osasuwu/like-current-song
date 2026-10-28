@@ -74,6 +74,20 @@ class UndoJournalTest {
     }
 
     @Test
+    fun `the best and artist legs come back to the undo as they were recorded`() {
+        val legs = arrayOf(
+            UndoLeg.BestPromote(playlistId = "pl-best"),
+            UndoLeg.ArtistTrack(artistId = "a1"),
+            UndoLeg.ArtistTrackRow(artistId = "a1", sheet = LikeCounter.Target("sheet-1", "me")),
+            UndoLeg.ArtistFollow(artistId = "a1", alreadyFollowed = false),
+            UndoLeg.ArtistFollow(artistId = "a2", alreadyFollowed = true),
+        )
+        val id = likedAt(50_000L, *legs)
+
+        assertEquals(legs.toList(), UndoJournal.entry(prefs, id)!!.legs)
+    }
+
+    @Test
     fun `a cooldown stamp comes back with the stamp it replaced, or with none`() {
         val legs = arrayOf(UndoLeg.CooldownStamp(previous = 1_234L), UndoLeg.CooldownStamp(previous = null))
         val id = likedAt(50_000L, *legs)
