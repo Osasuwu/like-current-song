@@ -534,8 +534,7 @@ class SpotifyLikeWorker(
     }
 
     private fun runRulePipeline(prefs: SharedPreferences, token: String, track: CurrentTrack, ruleConfig: RuleConfig) {
-        val trackCount = runCatching { incrementTrackLikeCount(prefs, token, track.id) }
-            .getOrElse { countTrackLocally(prefs, track.id) }
+        val trackCount = countTrackLike(prefs, token, track.id)
         if (ruleConfig.bestEnabled && ruleConfig.bestPlaylistName.isNotBlank()) {
             val bestName = ruleConfig.bestPlaylistName
             runCatching {
@@ -683,50 +682,49 @@ class SpotifyLikeWorker(
 
     // ---- Like counting -------------------------------------------------
 
-    private fun incrementTrackLikeCount(prefs: SharedPreferences, token: String, trackId: String): Int {
-        // The shared sheet keys its rows by Spotify user id, and nothing on
-        // the like path used to fetch one: the id was a side effect of
-        // creating a playlist. With the extra rules off -- the default -- it
-        // was never there, so every like fell through to the local count and
-        // the user's sheet stayed empty with nothing to say why.
-        getCurrentUserId(prefs, token)
-        LikeCounter.target(prefs, MusicProvider.SPOTIFY)?.let { target ->
-            val outcome = LikeCounter.increment(prefs, target, trackId)
-            outcome.count?.let { count ->
-                // Journalled against this Sheet, so an undo lowers it and not
-                // the fallback (#272). Guarded: a throw here would send the
-                // caller to count the like a second time, locally.
-                runCatching { journal(UndoLeg.TrackCount(target)) }
-                return count
-            }
-            // The like itself went through; only the shared count did not. Say
-            // which, because "counted here only" with no reason sent users
-            // looking for a sign-in problem they did not have (#200).
-            log(
-                "Like counted on this device only: ${outcome.failure}",
-                actionType = "like_count",
-                targetId = trackId,
-                result = "failure",
-                httpCode = outcome.httpCode
-            )
-        }
-        return countTrackLocally(prefs, trackId)
-    }
-
     /**
-     * Counts the like on this device's fallback counter and journals that it
-     * did, so an undo lowers this counter and not the Sheet (#272).
+     * Counts the like on the shared Sheet or, failing that, on this device,
+     * and journals which counter took it, so an undo lowers that one (#272).
+     * The choice is [TrackCounting]'s; this supplies the calls.
      *
      * The track counter runs after [closePress], so a repeat can already have
      * turned the entry to [UndoJournal.State.UNDOING]. The leg still reaches
      * the undo: the undo job is queued on this job's unique work with
      * APPEND_OR_REPLACE, so it starts only once this like job has finished.
      */
-    private fun countTrackLocally(prefs: SharedPreferences, trackId: String): Int {
-        val count = LocalCounters.increment(prefs, LocalCounters.Kind.TRACK, trackId)
-        runCatching { journal(UndoLeg.TrackCount(sheet = null)) }
-        return count
-    }
+    private fun countTrackLike(prefs: SharedPreferences, token: String, trackId: String): Int =
+        TrackCounting.count(object : TrackCounting.Ops {
+            override fun target(): LikeCounter.Target? {
+                // The shared sheet keys its rows by Spotify user id, and nothing on
+                // the like path used to fetch one: the id was a side effect of
+                // creating a playlist. With the extra rules off -- the default -- it
+                // was never there, so every like fell through to the local count and
+                // the user's sheet stayed empty with nothing to say why.
+                getCurrentUserId(prefs, token)
+                return LikeCounter.target(prefs, MusicProvider.SPOTIFY)
+            }
+
+            override fun incrementSheet(target: LikeCounter.Target) =
+                LikeCounter.increment(prefs, target, trackId)
+
+            override fun incrementLocal() =
+                LocalCounters.increment(prefs, LocalCounters.Kind.TRACK, trackId)
+
+            override fun journal(leg: UndoLeg.TrackCount) = this@SpotifyLikeWorker.journal(leg)
+
+            override fun sheetRefused(outcome: LikeCounter.CountOutcome) {
+                // The like itself went through; only the shared count did not. Say
+                // which, because "counted here only" with no reason sent users
+                // looking for a sign-in problem they did not have (#200).
+                log(
+                    "Like counted on this device only: ${outcome.failure}",
+                    actionType = "like_count",
+                    targetId = trackId,
+                    result = "failure",
+                    httpCode = outcome.httpCode
+                )
+            }
+        })
 
     /**
      * How many distinct tracks by [artistId] this Spotify account has liked

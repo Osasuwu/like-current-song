@@ -93,6 +93,17 @@ class UndoJournalTest {
     }
 
     @Test
+    fun `a track counter leg on a store this build does not know is skipped, not read as this device`() {
+        // Lowering this device's count for a like some newer build counted
+        // elsewhere would lower a counter the like never raised.
+        val id = likedAt(50_000L, UndoLeg.NativeSave(alreadySaved = false), UndoLeg.TrackCount(sheet = null))
+        val raw = prefs.getString(AppConstants.KEY_UNDO_JOURNAL, null)!!
+        prefs.edit().putString(AppConstants.KEY_UNDO_JOURNAL, raw.replace("\"local\"", "\"cloud\"")).apply()
+
+        assertEquals(listOf<UndoLeg>(UndoLeg.NativeSave(alreadySaved = false)), UndoJournal.entry(prefs, id)!!.legs)
+    }
+
+    @Test
     fun `a repeat mid-like is queued once, runs when the like finishes, and a third press is ignored`() {
         val id = UndoJournal.beginLike(prefs, 50_000L)
 

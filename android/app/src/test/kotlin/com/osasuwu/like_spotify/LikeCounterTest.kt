@@ -187,6 +187,26 @@ class LikeCounterTest {
         assertNull(LikeCounter.decrementPlan(body, "u", "t"))
     }
 
+    // ---- afterCountWritten (#272 review S1, S2) -------------------------------
+
+    @Test
+    fun `a count the sheet took stays counted when its timestamp write throws`() {
+        // Answered as failed, the worker would count the like again on this
+        // device and journal that counter, leaving the sheet one high after
+        // an undo; an undo would report a counter it did lower as failed.
+        val outcome = LikeCounter.afterCountWritten(4) { throw java.io.IOException("read timed out") }
+
+        assertEquals(LikeCounter.CountOutcome.counted(4), outcome)
+    }
+
+    @Test
+    fun `the timestamp is written once the count is on the sheet`() {
+        var stamped = 0
+
+        assertEquals(LikeCounter.CountOutcome.counted(3), LikeCounter.afterCountWritten(3) { stamped++ })
+        assertEquals(1, stamped)
+    }
+
     // ---- rowFromA1Range -------------------------------------------------
 
     @Test

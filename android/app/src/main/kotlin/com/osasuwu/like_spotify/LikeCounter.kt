@@ -212,8 +212,7 @@ object LikeCounter {
                 // The count is already on the sheet at this point, so a failed
                 // timestamp write is reported as the success it mostly is.
                 val stampCell = encode("$SHEET!${CounterSheetSchema.UPDATED_AT_COLUMN}$row")
-                update(token, "$base/$stampCell", now)
-                CountOutcome.counted(next)
+                afterCountWritten(next) { update(token, "$base/$stampCell", now) }
             } else {
                 val next = if (wasAlreadyLiked) 2 else 1
                 val row = listOf(
@@ -232,6 +231,23 @@ object LikeCounter {
         } catch (e: Exception) {
             CountOutcome.failed(unreachable(e))
         }
+    }
+
+    /**
+     * The answer once [next] is on the sheet: counted, whatever [writeStamp]
+     * (the row's `updated_at`) does. A stamp write that throws must not turn
+     * a count the sheet took into a failure: [increment] would then send the
+     * worker to count the like again on this device and journal that counter,
+     * so an undo leaves the sheet one high, and [decrement] would report an
+     * undo that did lower the count as failed (#272).
+     */
+    internal fun afterCountWritten(next: Int, writeStamp: () -> Unit): CountOutcome {
+        try {
+            writeStamp()
+        } catch (e: Exception) {
+            // Best effort: the count is what the sheet is for.
+        }
+        return CountOutcome.counted(next)
     }
 
     /**
@@ -273,8 +289,7 @@ object LikeCounter {
             }
             // As in increment: the count is on the sheet, so the timestamp is best effort.
             val stampCell = encode("$SHEET!${CounterSheetSchema.UPDATED_AT_COLUMN}$row")
-            update(token, "$base/$stampCell", nowIso())
-            CountOutcome.counted(next)
+            afterCountWritten(next) { update(token, "$base/$stampCell", nowIso()) }
         } catch (e: Exception) {
             CountOutcome.failed(unreachable(e))
         }
