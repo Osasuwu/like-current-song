@@ -102,10 +102,10 @@ def _synth_tone(segments: list[tuple[int, int]], volume: float = 1.0) -> bytes:
     `Beep` drives the legacy PC-speaker/timer tone, which modern audio
     codecs leave unwired to the physical speakers (confirmed silent here —
     only a brief hiccup in whatever else was playing). A synthesized tone
-    plays as an ordinary audio-session buffer instead, mirroring the
-    phone's `ToneGenerator(AudioManager.STREAM_MUSIC, ...)` feedback
-    (`FeedbackPlayer.kt`) rather than routing through any OS notification
-    channel.
+    plays as an ordinary audio-session buffer instead, the way the phone
+    plays its `AudioTrack` feedback (`FeedbackPlayer.kt`, synthesized by
+    `FeedbackTones.kt` with this same algorithm), rather than routing
+    through any OS notification channel.
 
     `volume` (0.0-1.0, see `_common.resolve_feedback_volume`) scales a
     24000-peak waveform, so 0.5 reproduces the level this shipped at
@@ -146,16 +146,26 @@ def _synth_tone(segments: list[tuple[int, int]], volume: float = 1.0) -> bytes:
     return header + data
 
 
+# (frequency_hz, duration_ms) per feedback kind. like / error / undo are the
+# phone's tones too: `FeedbackTones.kt` carries the same numbers, and
+# tests/test_feedback.py fails when the two tables drift apart. remove
+# (discard) is desktop-only — the phone has no discard trigger.
+_TONE_SEGMENTS: dict[str, list[tuple[int, int]]] = {
+    "like": [(784, 90), (1175, 110)],  # rising pair
+    "remove": [(587, 150)],  # single mid tone
+    "error": [(220, 90), (220, 90)],  # low double buzz
+    "undo": [(1175, 90), (784, 110)],  # the like pair, falling
+}
+
+
 def _synth_tones(volume: float) -> dict[str, bytes]:
-    """Rising two-note chime (like), a single mid tone (remove), a low
-    double buzz (error) — distinct enough to tell apart without looking
-    at the tray. Rebuilt per `TrayFeedback` instance so `volume` (from
-    `trigger.feedback_volume`) takes effect.
+    """Every `_TONE_SEGMENTS` kind rendered — distinct enough to tell apart
+    without looking at the tray. Rebuilt per `TrayFeedback` instance so
+    `volume` (from `trigger.feedback_volume`) takes effect.
     """
     return {
-        "like": _synth_tone([(784, 90), (1175, 110)], volume=volume),
-        "remove": _synth_tone([(587, 150)], volume=volume),
-        "error": _synth_tone([(220, 90), (220, 90)], volume=volume),
+        kind: _synth_tone(segments, volume=volume)
+        for kind, segments in _TONE_SEGMENTS.items()
     }
 
 
@@ -225,15 +235,15 @@ class TrayFeedback:
         Plays a synthesized tone (`_synth_tone`, see module docstring)
         through `self._player` (`_play_tone` by default) rather than
         `MessageBeep` or `Beep` — both proved unreliable/silent on real
-        hardware. Distinct tones per outcome so like / remove / error are
-        distinguishable without looking at the tray. `player` is an
-        injectable seam so tests can capture playback without touching
-        `winsound`/real audio.
+        hardware. Distinct tones per outcome so like / remove / undo /
+        error are distinguishable without looking at the tray. `player`
+        is an injectable seam so tests can capture playback without
+        touching `winsound`/real audio.
         """
         if not success:
             tone = self._tones["error"]
-        elif kind == "remove":
-            tone = self._tones["remove"]
+        elif kind in ("remove", "undo"):
+            tone = self._tones[kind]
         else:
             tone = self._tones["like"]
         self._player(tone)
