@@ -274,10 +274,12 @@ async def test_undo_increment_never_reaches_an_older_increment(
 
 @pytest.mark.asyncio
 async def test_undo_increment_touches_only_its_own_key(storage: Storage) -> None:
+    """The pipeline only ever undoes its latest press, so that is the one
+    undone here; Sheets refuses to blank a row with rows below it (#278)."""
     await storage.increment("user-1", _track("trk-a"))
     await storage.increment("user-1", _track("trk-b"))
 
-    await storage.undo_increment("user-1", _track("trk-a"))
+    await storage.undo_increment("user-1", _track("trk-b"))
 
-    assert await storage.get_count("user-1", _track("trk-a")) == 0
-    assert await storage.get_count("user-1", _track("trk-b")) == 1
+    assert await storage.get_count("user-1", _track("trk-a")) == 1
+    assert await storage.get_count("user-1", _track("trk-b")) == 0

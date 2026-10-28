@@ -519,18 +519,23 @@ Both hooks are concrete methods whose default raises
 working. The pipeline logs that as "not undoable" and does not count it
 as a failure. When an effect cannot be taken back, raise
 `NotImplementedError` yourself with the reason as the message. That
-reason is the log line. `follow_artist` does this for its artist-track
-record, and for a provider that cannot unfollow. A `PreLikeAction` has
-nothing to undo: it only reads.
+reason is the log line. `follow_artist` does this for a provider that
+cannot unfollow. Its artist-track record counts a track once, so it is
+left as it is and only logged. A `PreLikeAction` has nothing to undo: it
+only reads.
 
 Shipped reverses: `archive_remove` adds the track back to the archive
 (at the end; the API has no insert-at-position). `promote_to_best`
 removes the track from *Best* only if this press added it.
 `follow_artist` unfollows only the artists this press followed.
 `like_cooldown` puts back the stamp the press replaced, so the track can
-be liked again at once. `google_sheets_storage` takes one off the count,
-or blanks the row the press created. When the sheet no longer reads what the
-press left (another device pressed since), it changes nothing and says so.
+be liked again at once. `google_sheets_storage` takes one off the count
+the sheet reads now, so a press another device made since is kept, but it
+never writes a count below 1. A row the press created is blanked only while
+its count is still the one the press wrote and it is still the last row of
+the tab: a blank row inside the table could make the next append shift rows
+that other devices have cached by number. Otherwise it changes nothing and
+says so.
 
 ## Adding an extension — checklist
 

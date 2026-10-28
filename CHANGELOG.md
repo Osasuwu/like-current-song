@@ -28,7 +28,8 @@ you sign in from its Settings window.
   notification naming the step that failed play when it did not. Set the
   hotkey in the settings window or `--setup` (`trigger.undo_hotkey`); a combo
   the like or remove hotkey already uses is refused. Copies put back in the
-  archive go to its end.
+  archive go to its end. A remove press closes the window, so an undo never
+  puts back what it just removed.
 - **Android: undo a like by repeating the trigger within 10 seconds (#267).**
   When the phone likes a Spotify track in the background, the same media-button
   pattern again within 10 seconds of the like takes it back: the track is

@@ -469,6 +469,55 @@ async def test_undo_keeps_a_press_another_device_made_since(sim_and_storage) -> 
 
 
 @pytest.mark.asyncio
+async def test_undo_of_an_update_never_writes_a_count_below_one(
+    sim_and_storage,
+) -> None:
+    """Another device knocked the count down to 1 since this like: taking
+    one more off would write 0, so the undo refuses (#278 S5)."""
+    sim, storage = sim_and_storage
+    await storage.increment("user-1", _track("trk-a"))
+    await storage.increment("user-1", _track("trk-a"))
+    sim.rows[1][2] = 1
+    sim.calls.clear()
+
+    with pytest.raises(RuntimeError, match="changed since"):
+        await storage.undo_increment("user-1", _track("trk-a"))
+
+    assert _writes(sim) == []
+    assert sim.rows[1][2] == 1
+
+
+@pytest.mark.asyncio
+async def test_undo_never_blanks_a_row_with_rows_below_it(sim_and_storage) -> None:
+    """A blank row inside the table could split it for the next append and
+    shift rows another device has cached (#278 S4): only the last row of
+    the tab is blanked."""
+    sim, storage = sim_and_storage
+    await storage.increment("user-1", _track("trk-a"))
+    sim.rows.append(["user-1", "trk-phone", 1, "FALSE", "now"])  # the phone, since
+    sim.calls.clear()
+
+    with pytest.raises(RuntimeError, match="below it"):
+        await storage.undo_increment("user-1", _track("trk-a"))
+
+    assert _writes(sim) == []
+    assert sim.rows[1][:3] == ["user-1", "trk-a", 1]
+
+
+@pytest.mark.asyncio
+async def test_undo_blanks_a_last_row_with_only_blank_rows_below(
+    sim_and_storage,
+) -> None:
+    sim, storage = sim_and_storage
+    await storage.increment("user-1", _track("trk-a"))
+    sim.rows.append([])
+    sim.rows.append(["", "", ""])
+
+    assert await storage.undo_increment("user-1", _track("trk-a")) == 0
+    assert sim.rows[1] == []
+
+
+@pytest.mark.asyncio
 async def test_undo_never_clears_a_row_another_device_added_to(
     sim_and_storage,
 ) -> None:

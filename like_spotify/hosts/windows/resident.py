@@ -424,6 +424,9 @@ class _HostRuntime:
         # item's `enabled` only on `update_menu()`, so the "Undo last like"
         # item needs a refresh at each edge of the undo window.
         self.on_menu_change = None
+        # Bumped by every like press, so a close timer left by an older
+        # press knows it is stale and stops (#278 S3).
+        self._window_gen = 0
 
     def _call(self, coro, timeout: float = 5.0):
         return asyncio.run_coroutine_threadsafe(coro, self.loop).result(timeout=timeout)
@@ -431,13 +434,26 @@ class _HostRuntime:
     async def _emit_like(self) -> None:
         pipeline = self.wiring.pipeline
         await pipeline.run_once()
+        self._window_gen += 1
         # Every press opens a window or closes the one before (#270).
         self._menu_changed()
         if pipeline.undo_available():
             # The window closes on its own; turn the tray item off when it does.
             asyncio.get_running_loop().call_later(
-                pipeline.undo_window_s, self._menu_changed
+                pipeline.undo_window_s, self._refresh_when_closed, self._window_gen
             )
+
+    def _refresh_when_closed(self, gen: int) -> None:
+        if gen != self._window_gen:
+            return  # a newer press owns the window and its own timer
+        if self.wiring.pipeline.undo_available():
+            # asyncio may run a timer up to a clock tick early (#278 S3):
+            # the window is still open, so look again shortly.
+            asyncio.get_running_loop().call_later(
+                0.05, self._refresh_when_closed, gen
+            )
+            return
+        self._menu_changed()
 
     async def _emit_undo(self) -> None:
         await self.wiring.pipeline.undo_last()
@@ -454,6 +470,10 @@ class _HostRuntime:
 
     async def _emit_discard(self) -> None:
         if self.wiring.discard_pipeline is not None:
+            # The discard is the user's latest word on this track: an undo
+            # after it must not reverse the like before it (#278 S2).
+            await self.wiring.pipeline.close_undo()
+            self._menu_changed()
             await self.wiring.discard_pipeline.run_once()
 
     def _start_triggers(self, w: _Wiring) -> None:

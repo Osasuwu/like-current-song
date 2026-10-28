@@ -8,6 +8,7 @@ fake clock — no network, no keyboard, no tray.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 import pytest
@@ -216,6 +217,41 @@ class FailingUndoAction(PostLikeAction):
         raise RuntimeError("playlist gone")
 
 
+class GatedProvider(UndoProvider):
+    """Holds the next `like` or `unlike` until the test releases it, so a
+    second press can start while the first is still on the network."""
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._held: dict[str, tuple[asyncio.Event, asyncio.Event]] = {}
+
+    def hold(self, method: str) -> tuple[asyncio.Event, asyncio.Event]:
+        entered, release = asyncio.Event(), asyncio.Event()
+        self._held[method] = (entered, release)
+        return entered, release
+
+    async def _maybe_hold(self, method: str) -> None:
+        held = self._held.pop(method, None)
+        if held is not None:
+            entered, release = held
+            entered.set()
+            await release.wait()
+
+    async def like(self, track: CurrentTrack) -> None:
+        await self._maybe_hold("like")
+        await super().like(track)
+
+    async def unlike(self, track: CurrentTrack) -> None:
+        await self._maybe_hold("unlike")
+        await super().unlike(track)
+
+
+async def _let_others_run() -> None:
+    """Give every other ready task on the loop as many turns as it wants."""
+    for _ in range(50):
+        await asyncio.sleep(0)
+
+
 def _pipe(provider, fb, clock, **kwargs) -> Pipeline:
     return Pipeline(
         provider=provider, feedback=fb, undo_window_s=10.0, clock=clock, **kwargs
@@ -332,6 +368,46 @@ async def test_undo_reverses_both_legs_of_a_both_destination() -> None:
 
 
 @pytest.mark.asyncio
+async def test_both_with_storage_keeps_a_like_made_before_the_press() -> None:
+    """Under `both` the backfill probe answers "liked?"; the playlist leg
+    must still be judged by the playlist (#278 S5)."""
+    provider = UndoProvider(liked={"abc123"})
+    fb, clock = Feedback(), Clock()
+    pipe = _pipe(
+        provider,
+        fb,
+        clock,
+        storage=CountingStorage(),
+        like_destination=LikeDestination(BOTH, "Liked songs"),
+    )
+
+    await pipe.run_once()
+    await pipe.undo_last()
+
+    assert provider.liked == {"abc123"}
+    assert provider.playlist == set()
+
+
+@pytest.mark.asyncio
+async def test_both_with_storage_keeps_a_playlist_entry_made_before() -> None:
+    provider = UndoProvider(playlist={"abc123"})
+    fb, clock = Feedback(), Clock()
+    pipe = _pipe(
+        provider,
+        fb,
+        clock,
+        storage=CountingStorage(),
+        like_destination=LikeDestination(BOTH, "Liked songs"),
+    )
+
+    await pipe.run_once()
+    await pipe.undo_last()
+
+    assert provider.liked == set()
+    assert provider.playlist == {"abc123"}
+
+
+@pytest.mark.asyncio
 async def test_undo_runs_post_action_undos_in_reverse_order() -> None:
     log: list[str] = []
     provider = UndoProvider()
@@ -432,6 +508,115 @@ async def test_undo_reverses_only_the_most_recent_like() -> None:
 
     assert provider.unlike_calls == ["second"]
     assert provider.liked == {"abc123"}
+
+
+@pytest.mark.asyncio
+async def test_overlapping_presses_undo_the_one_pressed_last() -> None:
+    """Press 1 (X) is slow on the network, press 2 (Y) is fast. However
+    they finish, the undo reverses Y, the latest press, and leaves X."""
+    provider = GatedProvider()
+    fb, clock = Feedback(), Clock()
+    pipe = _pipe(provider, fb, clock)
+    provider.track = _track("X")
+    entered, release = provider.hold("like")
+
+    first = asyncio.create_task(pipe.run_once())
+    await entered.wait()
+    provider.track = _track("Y")
+    second = asyncio.create_task(pipe.run_once())
+    await _let_others_run()
+    release.set()
+    await asyncio.gather(first, second)
+    await pipe.undo_last()
+
+    assert provider.unlike_calls == ["Y"]
+    assert provider.liked == {"X"}
+
+
+@pytest.mark.asyncio
+async def test_undo_pressed_during_a_newer_press_reverses_that_press() -> None:
+    provider = GatedProvider()
+    fb, clock = Feedback(), Clock()
+    pipe = _pipe(provider, fb, clock)
+    provider.track = _track("X")
+    await pipe.run_once()
+
+    provider.track = _track("Y")
+    entered, release = provider.hold("like")
+    press = asyncio.create_task(pipe.run_once())
+    await entered.wait()
+    undo = asyncio.create_task(pipe.undo_last())
+    await _let_others_run()
+    release.set()
+    await asyncio.gather(press, undo)
+
+    assert provider.unlike_calls == ["Y"]
+    assert provider.liked == {"X"}
+    assert fb.last[:2] == (True, "Undone")
+
+
+@pytest.mark.asyncio
+async def test_a_like_pressed_while_an_undo_is_in_flight_ends_liked() -> None:
+    """The undo's unlike is still on the network when the same track is
+    liked again: the new press must see the track unliked, like it, and
+    open a window that can take that like back."""
+    provider = GatedProvider()
+    fb, clock = Feedback(), Clock()
+    pipe = _pipe(provider, fb, clock)
+    await pipe.run_once()
+
+    entered, release = provider.hold("unlike")
+    undo = asyncio.create_task(pipe.undo_last())
+    await entered.wait()
+    press = asyncio.create_task(pipe.run_once())
+    await _let_others_run()
+    release.set()
+    await asyncio.gather(undo, press)
+
+    assert provider.liked == {"abc123"}
+    assert pipe.undo_available() is True
+    await pipe.undo_last()
+    assert provider.liked == set()
+
+
+@pytest.mark.asyncio
+async def test_close_undo_shuts_the_window_without_touching_anything() -> None:
+    """A discard press closes the like's window (#278 S2): an undo after
+    it must not re-add, re-like or un-dislike anything."""
+    log: list[str] = []
+    provider = UndoProvider()
+    storage = CountingStorage()
+    fb, clock = Feedback(), Clock()
+    pipe = _pipe(
+        provider, fb, clock, storage=storage, post_like_actions=[JournalAction("a", log)]
+    )
+
+    await pipe.run_once()
+    await pipe.close_undo()
+    assert pipe.undo_available() is False
+    await pipe.undo_last()
+
+    assert provider.unlike_calls == []
+    assert storage.undo_calls == []
+    assert log == ["run a"]
+    assert fb.last[:2] == (False, "Nothing to undo")
+
+
+@pytest.mark.asyncio
+async def test_close_undo_waits_for_a_like_in_flight() -> None:
+    provider = GatedProvider()
+    fb, clock = Feedback(), Clock()
+    pipe = _pipe(provider, fb, clock)
+    entered, release = provider.hold("like")
+
+    press = asyncio.create_task(pipe.run_once())
+    await entered.wait()
+    close = asyncio.create_task(pipe.close_undo())
+    await _let_others_run()
+    release.set()
+    await asyncio.gather(press, close)
+
+    assert pipe.undo_available() is False
 
 
 @pytest.mark.asyncio

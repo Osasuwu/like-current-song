@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from collections.abc import Callable, Sequence
@@ -171,6 +172,12 @@ class Pipeline:
         self._undo_window_s = undo_window_s
         self._clock = clock
         self._undo: _UndoEntry | None = None
+        # Presses run one at a time (#278 B1/S1). Each hotkey press is its
+        # own coroutine, and unserialized they interleave at every await: a
+        # slow press finishing after a fast one would overwrite the journal
+        # with the older like, and a like racing an undo would probe the
+        # track before the undo's unlike landed.
+        self._press_lock = asyncio.Lock()
 
     @property
     def undo_window_s(self) -> float | None:
@@ -186,6 +193,20 @@ class Pipeline:
         )
 
     async def run_once(self) -> None:
+        async with self._press_lock:
+            await self._run_once()
+
+    async def close_undo(self) -> None:
+        """Close the undo window without reversing anything.
+
+        A discard press calls this (#278 S2): the user's latest action
+        must not be overridden by an undo of the like before it. It waits
+        for a press in flight, so that press cannot reopen the window.
+        """
+        async with self._press_lock:
+            self._undo = None
+
+    async def _run_once(self) -> None:
         # A new press closes the window of the one before, whatever this
         # press ends up doing: an undo must never reach past the latest
         # press to an older like.
@@ -373,7 +394,14 @@ class Pipeline:
         to first, the counter, the playlist leg, the service like. Each
         reverse is independent, so one failing costs none of the others;
         the feedback names whatever could not be reversed.
+
+        It waits for a press in flight and then reverses that press: the
+        latest press is the one the user means.
         """
+        async with self._press_lock:
+            await self._undo_last()
+
+    async def _undo_last(self) -> None:
         if not self.undo_available():
             self._undo = None
             window = self._undo_window_s

@@ -136,6 +136,8 @@ class GoogleSheetsStorage(Storage):
         # header row, so the first data row is index 2.
         self._row_index: dict[tuple[str, str], int] | None = None
         self._count_cache: dict[tuple[str, str], int] = {}
+        # The lowest row holding any value, as of the last full read (#278).
+        self._last_data_row = 1
         # #26 — distinct (user, artist, track) triples seen.
         self._artist_seen: set[tuple[str, str, str]] | None = None
         # Pairs already named as duplicated, so a sheet that carries one is
@@ -254,6 +256,10 @@ class GoogleSheetsStorage(Storage):
                 counts[key] = 0
         self._row_index = index
         self._count_cache = counts
+        self._last_data_row = max(
+            (n for n, row in enumerate(rows, start=1) if any(c != "" for c in row)),
+            default=1,
+        )
         for key, spares in duplicates.items():
             self._report_duplicate(key, index[key], spares)
 
@@ -379,6 +385,14 @@ class GoogleSheetsStorage(Storage):
                 raise RuntimeError(
                     f"the counter for {track_id} changed since the like "
                     f"(another device pressed?); left as it is"
+                )
+            if row_no != self._last_data_row:
+                # A blank row inside the table can split it, so the next
+                # `values.append` may insert above rows other devices have
+                # cached by number (#278 S4). Only the last row is safe.
+                raise RuntimeError(
+                    f"another row was added below it since the like; the "
+                    f"counter for {track_id} is left as it is"
                 )
             self._values_clear(f"{self._sheet}!A{row_no}:{_LAST_COLUMN}{row_no}")
             del self._row_index[key]
