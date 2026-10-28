@@ -27,6 +27,13 @@ sealed class UndoLeg {
      * reads; [previous] is the stamp it replaced, null when there was none.
      */
     data class CooldownStamp(val previous: Long?) : UndoLeg()
+
+    /**
+     * The like added one to the track's counter (#272): on the Google Sheet
+     * [sheet] names, or on this device's fallback counter when [sheet] is
+     * null. The undo lowers that same counter and never the other one.
+     */
+    data class TrackCount(val sheet: LikeCounter.Target?) : UndoLeg()
 }
 
 /**
@@ -218,6 +225,14 @@ object UndoJournal {
             .put("copies", leg.copies)
         // A null previous stamp is stored as an absent field.
         is UndoLeg.CooldownStamp -> JSONObject().put(F_KIND, K_COOLDOWN_STAMP).put("previous", leg.previous)
+        is UndoLeg.TrackCount -> JSONObject().put(F_KIND, K_TRACK_COUNT).apply {
+            val sheet = leg.sheet
+            if (sheet == null) {
+                put("store", STORE_LOCAL)
+            } else {
+                put("store", STORE_SHEET).put("spreadsheetId", sheet.spreadsheetId).put("userId", sheet.userId)
+            }
+        }
     }
 
     private fun decode(json: JSONObject): UndoLeg? = when (json.optString(F_KIND)) {
@@ -225,6 +240,14 @@ object UndoJournal {
         K_LIKE_PLAYLIST_ADD -> UndoLeg.LikePlaylistAdd(json.getString("playlistId"))
         K_ARCHIVE_REMOVE -> UndoLeg.ArchiveRemove(json.getString("playlistId"), json.getInt("copies"))
         K_COOLDOWN_STAMP -> UndoLeg.CooldownStamp(if (json.has("previous")) json.getLong("previous") else null)
+        K_TRACK_COUNT -> when (json.optString("store")) {
+            STORE_LOCAL -> UndoLeg.TrackCount(sheet = null)
+            STORE_SHEET -> UndoLeg.TrackCount(
+                LikeCounter.Target(json.getString("spreadsheetId"), json.getString("userId")),
+            )
+            // A store this build does not know: skip the leg rather than lower the wrong counter.
+            else -> null
+        }
         else -> null
     }
 
@@ -241,4 +264,7 @@ object UndoJournal {
     private const val K_LIKE_PLAYLIST_ADD = "like_playlist_add"
     private const val K_ARCHIVE_REMOVE = "archive_remove"
     private const val K_COOLDOWN_STAMP = "cooldown_stamp"
+    private const val K_TRACK_COUNT = "track_count"
+    private const val STORE_SHEET = "sheet"
+    private const val STORE_LOCAL = "local"
 }

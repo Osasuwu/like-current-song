@@ -49,6 +49,30 @@ class UndoRunnerTest {
             if (previous == null) stamps -= trackId else stamps[trackId] = previous
         }
 
+        /** The shared counter sheets, by spreadsheet id, then track id. A decrement floors at 0 as the real one does. */
+        val sheets = mutableMapOf<String, MutableMap<String, Int>>()
+
+        override fun decrementSheetCount(target: LikeCounter.Target, trackId: String): LikeCounter.CountOutcome {
+            calls += "sheet decrement ${target.spreadsheetId}"
+            if ("sheet decrement ${target.spreadsheetId}" in failing) {
+                return LikeCounter.CountOutcome.failed("the counter sheet refused the lowered count", 500)
+            }
+            val counts = sheets.getValue(target.spreadsheetId)
+            val next = ((counts[trackId] ?: 0) - 1).coerceAtLeast(0)
+            counts[trackId] = next
+            return LikeCounter.CountOutcome.counted(next)
+        }
+
+        /** This device's fallback counter: the real [LocalCounters] over in-memory prefs. */
+        val prefs = FakeSharedPreferences()
+
+        override fun decrementLocalCount(trackId: String) {
+            calls += "local decrement"
+            LocalCounters.decrement(prefs, LocalCounters.Kind.TRACK, trackId)
+        }
+
+        fun localCount(trackId: String) = LocalCounters.count(prefs, LocalCounters.Kind.TRACK, trackId)
+
         fun snapshot() = library.toSet() to playlists.mapValues { it.value.sorted() }
     }
 
@@ -173,5 +197,78 @@ class UndoRunnerTest {
         val result = UndoRunner.run(entry(UndoLeg.NativeSave(alreadySaved = false)), account)
 
         assertEquals(listOf(UndoRunner.Failure("native save", "HTTP 500: boom")), result.failures)
+    }
+
+    // ---- track counter (#272) -------------------------------------------------
+
+    private val sheet = LikeCounter.Target(spreadsheetId = "sheet-1", userId = "user-1")
+
+    @Test
+    fun `an undone like the sheet counted takes the sheet back to its count before the press, not this device`() {
+        val account = Account()
+        // Two likes this device counted while the sheet was unreachable, earlier.
+        repeat(2) { LocalCounters.increment(account.prefs, LocalCounters.Kind.TRACK, "trk-a") }
+        account.sheets["sheet-1"] = mutableMapOf("trk-a" to 4, "trk-b" to 9)
+        // What the like did:
+        account.sheets.getValue("sheet-1")["trk-a"] = 5
+
+        val result = UndoRunner.run(entry(UndoLeg.TrackCount(sheet)), account)
+
+        assertEquals(emptyList<UndoRunner.Failure>(), result.failures)
+        assertEquals(mapOf("trk-a" to 4, "trk-b" to 9), account.sheets["sheet-1"])
+        assertEquals(2, account.localCount("trk-a"))
+    }
+
+    @Test
+    fun `an undone like this device counted takes this device back to its count before the press, not the sheet`() {
+        val account = Account()
+        account.sheets["sheet-1"] = mutableMapOf("trk-a" to 7)
+        LocalCounters.increment(account.prefs, LocalCounters.Kind.TRACK, "trk-a")
+        // What the like did, the sheet being unreachable:
+        LocalCounters.increment(account.prefs, LocalCounters.Kind.TRACK, "trk-a")
+
+        val result = UndoRunner.run(entry(UndoLeg.TrackCount(sheet = null)), account)
+
+        assertEquals(emptyList<UndoRunner.Failure>(), result.failures)
+        assertEquals(1, account.localCount("trk-a"))
+        assertEquals(mapOf("trk-a" to 7), account.sheets["sheet-1"])
+        assertEquals(false, account.calls.any { it.startsWith("sheet decrement") })
+    }
+
+    @Test
+    fun `a counter that cannot be lowered is named, and the library, playlists and stamp are still reverted`() {
+        val account = Account(playlists = mutableMapOf("pl-like" to mutableListOf(other), "pl-arch" to mutableListOf(uri)))
+        account.sheets["sheet-1"] = mutableMapOf("trk-a" to 3)
+        account.stamps["trk-a"] = 9_000L
+        val before = account.snapshot()
+        // What the like did, in the order the worker does it -- the counter last:
+        account.library += uri
+        account.playlists.getValue("pl-like") += uri
+        account.playlists.getValue("pl-arch").removeAll { it == uri }
+        account.failing += "sheet decrement sheet-1"
+
+        val result = UndoRunner.run(
+            entry(
+                UndoLeg.NativeSave(alreadySaved = false),
+                UndoLeg.LikePlaylistAdd("pl-like"),
+                UndoLeg.CooldownStamp(previous = 1_000L),
+                UndoLeg.ArchiveRemove("pl-arch", copies = 1),
+                UndoLeg.TrackCount(sheet),
+            ),
+            account,
+        )
+
+        assertEquals(
+            listOf(UndoRunner.Failure("track counter (sheet)", "the counter sheet refused the lowered count (HTTP 500)")),
+            result.failures,
+        )
+        assertEquals(before, account.snapshot())
+        assertEquals(1_000L, account.stamps["trk-a"])
+    }
+
+    @Test
+    fun `the two counter legs are named apart, so the log says which counter failed`() {
+        assertEquals("track counter (sheet)", UndoRunner.legName(UndoLeg.TrackCount(sheet)))
+        assertEquals("track counter (this device)", UndoRunner.legName(UndoLeg.TrackCount(sheet = null)))
     }
 }

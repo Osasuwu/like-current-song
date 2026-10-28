@@ -344,6 +344,13 @@ class SpotifyLikeWorker(
 
         override fun restoreLikedAt(trackId: String, previous: Long?) =
             LocalCounters.restoreLikedAt(prefs, trackId, previous)
+
+        override fun decrementSheetCount(target: LikeCounter.Target, trackId: String): LikeCounter.CountOutcome =
+            LikeCounter.decrement(prefs, target, trackId)
+
+        override fun decrementLocalCount(trackId: String) {
+            LocalCounters.decrement(prefs, LocalCounters.Kind.TRACK, trackId)
+        }
     }
 
     /**
@@ -528,7 +535,7 @@ class SpotifyLikeWorker(
 
     private fun runRulePipeline(prefs: SharedPreferences, token: String, track: CurrentTrack, ruleConfig: RuleConfig) {
         val trackCount = runCatching { incrementTrackLikeCount(prefs, token, track.id) }
-            .getOrElse { LocalCounters.increment(prefs, LocalCounters.Kind.TRACK, track.id) }
+            .getOrElse { countTrackLocally(prefs, track.id) }
         if (ruleConfig.bestEnabled && ruleConfig.bestPlaylistName.isNotBlank()) {
             val bestName = ruleConfig.bestPlaylistName
             runCatching {
@@ -685,7 +692,13 @@ class SpotifyLikeWorker(
         getCurrentUserId(prefs, token)
         LikeCounter.target(prefs, MusicProvider.SPOTIFY)?.let { target ->
             val outcome = LikeCounter.increment(prefs, target, trackId)
-            outcome.count?.let { return it }
+            outcome.count?.let { count ->
+                // Journalled against this Sheet, so an undo lowers it and not
+                // the fallback (#272). Guarded: a throw here would send the
+                // caller to count the like a second time, locally.
+                runCatching { journal(UndoLeg.TrackCount(target)) }
+                return count
+            }
             // The like itself went through; only the shared count did not. Say
             // which, because "counted here only" with no reason sent users
             // looking for a sign-in problem they did not have (#200).
@@ -697,7 +710,22 @@ class SpotifyLikeWorker(
                 httpCode = outcome.httpCode
             )
         }
-        return LocalCounters.increment(prefs, LocalCounters.Kind.TRACK, trackId)
+        return countTrackLocally(prefs, trackId)
+    }
+
+    /**
+     * Counts the like on this device's fallback counter and journals that it
+     * did, so an undo lowers this counter and not the Sheet (#272).
+     *
+     * The track counter runs after [closePress], so a repeat can already have
+     * turned the entry to [UndoJournal.State.UNDOING]. The leg still reaches
+     * the undo: the undo job is queued on this job's unique work with
+     * APPEND_OR_REPLACE, so it starts only once this like job has finished.
+     */
+    private fun countTrackLocally(prefs: SharedPreferences, trackId: String): Int {
+        val count = LocalCounters.increment(prefs, LocalCounters.Kind.TRACK, trackId)
+        runCatching { journal(UndoLeg.TrackCount(sheet = null)) }
+        return count
     }
 
     /**

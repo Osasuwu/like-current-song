@@ -82,6 +82,17 @@ class UndoJournalTest {
     }
 
     @Test
+    fun `a track counter leg comes back naming the sheet it went to, or this device`() {
+        val legs = arrayOf(
+            UndoLeg.TrackCount(sheet = LikeCounter.Target(spreadsheetId = "sheet-1", userId = "user-1")),
+            UndoLeg.TrackCount(sheet = null),
+        )
+        val id = likedAt(50_000L, *legs)
+
+        assertEquals(legs.toList(), UndoJournal.entry(prefs, id)!!.legs)
+    }
+
+    @Test
     fun `a repeat mid-like is queued once, runs when the like finishes, and a third press is ignored`() {
         val id = UndoJournal.beginLike(prefs, 50_000L)
 

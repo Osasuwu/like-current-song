@@ -28,6 +28,14 @@ you sign in from its Settings window.
   covered: likes made with the app open, YouTube Music, the like counters
   (#272), and the best playlist and auto-follow (#273). Copies put back in the
   archive go to its end.
+- **Android: the undo also takes back the like counter (#272).** Undoing a
+  background Spotify like now lowers the track's like count by the one the like
+  added, on the counter the like went to: the shared Google Sheet, or this
+  phone's own count when the Sheet could not be reached. The count never drops
+  below zero. If the counter cannot be lowered, the rest of the undo still
+  happens, the error tone plays and the Logs screen names the counter. Two
+  devices changing the same Sheet count at the same moment can still lose one
+  of the changes.
 
 ### Changed
 

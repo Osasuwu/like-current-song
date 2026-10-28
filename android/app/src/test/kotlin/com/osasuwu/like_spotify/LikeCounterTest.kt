@@ -150,6 +150,43 @@ class LikeCounterTest {
         assertEquals(3 to 0, LikeCounter.findRow(body, "x", "y"))
     }
 
+    // ---- decrementPlan (#272) -------------------------------------------------
+
+    @Test
+    fun `an undo lowers the pair's own row by one`() {
+        val body = """
+            {"values":[
+              ["user_id","track_id","count","backfilled","updated_at"],
+              ["u","other","9","FALSE","2026-01-01T00:00:00Z"],
+              ["u","t","3","FALSE","2026-01-02T00:00:00Z"]
+            ]}
+        """.trimIndent()
+        assertEquals(3 to 2, LikeCounter.decrementPlan(body, "u", "t"))
+    }
+
+    @Test
+    fun `an undo takes a count of one to zero`() {
+        val body = """{"values":[["user_id","track_id","count"],["u","t","1"]]}"""
+        assertEquals(2 to 0, LikeCounter.decrementPlan(body, "u", "t"))
+    }
+
+    @Test
+    fun `an undo writes nothing when the row reads zero, is junk, or is missing`() {
+        // Never below 0: a row at 0 (or one whose count is unreadable, which
+        // findRow reads as 0) stays as it is, and a missing row is not created.
+        val body = """{"values":[["user_id","track_id","count"],["u","zero","0"],["u","junk","nope"]]}"""
+        assertNull(LikeCounter.decrementPlan(body, "u", "zero"))
+        assertNull(LikeCounter.decrementPlan(body, "u", "junk"))
+        assertNull(LikeCounter.decrementPlan(body, "u", "absent"))
+        assertNull(LikeCounter.decrementPlan(null, "u", "t"))
+    }
+
+    @Test
+    fun `an undo never writes a count below zero, even from a negative cell`() {
+        val body = """{"values":[["user_id","track_id","count"],["u","t","-2"]]}"""
+        assertNull(LikeCounter.decrementPlan(body, "u", "t"))
+    }
+
     // ---- rowFromA1Range -------------------------------------------------
 
     @Test
