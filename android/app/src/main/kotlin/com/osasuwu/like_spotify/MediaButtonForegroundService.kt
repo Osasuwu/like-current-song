@@ -53,6 +53,8 @@ class MediaButtonForegroundService : Service() {
      */
     private val listenerStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
+            // Journal first, so the re-post cannot carry an Undo whose window passed.
+            syncUndoAction()
             refreshNotification()
         }
     }
@@ -63,10 +65,29 @@ class MediaButtonForegroundService : Service() {
      */
     private var shownUndo: String? = null
 
+    /**
+     * Set first thing in [onDestroy]. A journal write queued just before it
+     * still reaches [journalListener] afterwards; this keeps that late call
+     * from re-posting a notification no service backs, or re-arming the timer.
+     */
+    private var destroyed = false
+
     private val mainHandler = Handler(Looper.getMainLooper())
 
     /** Takes the action down once the window it was offered in has passed. */
     private val undoWindowCheck = Runnable { syncUndoAction() }
+
+    /**
+     * [undoWindowCheck] runs on uptime, which stops while the device sleeps,
+     * and a like usually fires with the screen off. So the action is checked
+     * again whenever the screen comes back, before the user can see a stale
+     * one: [UndoJournal.openWindow] reads the wall clock.
+     */
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            syncUndoAction()
+        }
+    }
 
     /**
      * Sees every journal write in this process — a like finishing in the
@@ -131,6 +152,7 @@ class MediaButtonForegroundService : Service() {
         startForeground(AppConstants.NOTIFICATION_ID, buildNotification(active = true))
         sendServiceState(true)
         prefs().registerOnSharedPreferenceChangeListener(journalListener)
+        registerScreenReceiver()
         // A like may have finished while the service was down.
         syncUndoAction()
         if (!PlaybackNotificationListenerService.isEnabled(this)) {
@@ -183,9 +205,11 @@ class MediaButtonForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        destroyed = true
         likeExecutor.shutdown()
         mainHandler.removeCallbacks(undoWindowCheck)
         prefs().unregisterOnSharedPreferenceChangeListener(journalListener)
+        runCatching { unregisterReceiver(screenReceiver) }
         runCatching {
             LocalBroadcastManager.getInstance(this).unregisterReceiver(listenerStateReceiver)
         }
@@ -249,11 +273,20 @@ class MediaButtonForegroundService : Service() {
      * for the like the action was offered for, only inside its window.
      */
     private fun onUndoTapped(pressId: String?) {
-        if (pressId != null && UndoJournal.requestUndo(prefs(), pressId, System.currentTimeMillis())) {
-            log("Undo tapped in the notification: undoing the last like", actionType = "undo")
-            SpotifyLikeWorker.enqueueUndo(this, pressId)
-        } else {
-            log("Undo tapped, but that like can no longer be undone: nothing undone", actionType = "undo")
+        val accepted = pressId != null && UndoJournal.requestUndo(prefs(), pressId, System.currentTimeMillis())
+        val tappedState = pressId?.let { UndoJournal.entry(prefs(), it)?.state }
+        when (UndoActionSync.tap(accepted, tappedState)) {
+            UndoActionSync.Tap.UNDO -> {
+                log("Undo tapped in the notification: undoing the last like", actionType = "undo")
+                SpotifyLikeWorker.enqueueUndo(this, pressId!!)
+            }
+            UndoActionSync.Tap.ALREADY_UNDOING ->
+                log("Undo tapped while the undo is already under way", actionType = "undo")
+            UndoActionSync.Tap.TOO_LATE -> {
+                log("Undo tapped, but that like can no longer be undone: nothing undone", actionType = "undo")
+                // A visible button that did nothing must not be silent.
+                FeedbackPlayer.play(this, FeedbackKind.ERROR)
+            }
         }
         // Stale or not, the action must not stay up.
         syncUndoAction()
@@ -262,21 +295,31 @@ class MediaButtonForegroundService : Service() {
     /**
      * Brings the notification's Undo action in line with the journal: shown
      * while [UndoJournal.openWindow] has a like, gone the moment it has none.
-     * Re-posts only when that changes, and re-checks just past the window's
-     * close, so the action leaves on its own within [UndoJournal.WINDOW_MS].
+     * [UndoActionSync.next] decides; this applies it. Stopping removed the
+     * notification and destruction leaves no service behind it, so a late
+     * journal write then posts and re-arms nothing.
      */
     private fun syncUndoAction() {
         mainHandler.removeCallbacks(undoWindowCheck)
-        // Stopping removed the notification; a late journal write must not re-post it.
-        if (stoppedByUser) return
+        val halted = destroyed || stoppedByUser
         val now = System.currentTimeMillis()
-        val window = UndoJournal.openWindow(prefs(), now)
-        if (window?.pressId != shownUndo) {
-            shownUndo = window?.pressId
-            refreshNotification()
+        val window = if (halted) null else UndoJournal.openWindow(prefs(), now)
+        val plan = UndoActionSync.next(window, shownUndo, now, halted)
+        shownUndo = plan.offer
+        if (plan.repost) refreshNotification()
+        plan.recheckInMs?.let { mainHandler.postDelayed(undoWindowCheck, it) }
+    }
+
+    private fun registerScreenReceiver() {
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_USER_PRESENT)
         }
-        if (window != null) {
-            mainHandler.postDelayed(undoWindowCheck, window.closesAt - now + 1)
+        // System broadcasts still reach a not-exported receiver.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(screenReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(screenReceiver, filter)
         }
     }
 
@@ -478,8 +521,11 @@ class MediaButtonForegroundService : Service() {
     }
 
     /**
-     * Undoes the like [pressId]. The id rides along so a tap on an action
-     * that outlived its like cannot undo a newer one.
+     * Undoes the like [pressId]. Every Undo shares this one PendingIntent
+     * identity, and [PendingIntent.FLAG_UPDATE_CURRENT] rewrites its extra on
+     * each post, so the id is always the latest one offered. What keeps a
+     * stale tap from undoing anything is [UndoJournal.requestUndo]: the latest
+     * like, still finished, still inside its window.
      */
     private fun undoPendingIntent(pressId: String): PendingIntent {
         val undoIntent = Intent(this, MediaButtonForegroundService::class.java).apply {

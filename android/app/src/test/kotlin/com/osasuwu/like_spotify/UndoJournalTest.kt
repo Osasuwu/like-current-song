@@ -184,8 +184,10 @@ class UndoJournalTest {
         assertNull(UndoJournal.openWindow(prefs, 53_000L))
 
         val byTap = likedAt(70_000L, UndoLeg.NativeSave(alreadySaved = false))
-        UndoJournal.requestUndo(prefs, byTap, 71_000L)
+        assertTrue(UndoJournal.requestUndo(prefs, byTap, 71_000L))
         assertNull(UndoJournal.openWindow(prefs, 71_000L))
+        UndoJournal.finishUndo(prefs, byTap)
+        assertNull(UndoJournal.openWindow(prefs, 72_000L))
     }
 
     @Test
