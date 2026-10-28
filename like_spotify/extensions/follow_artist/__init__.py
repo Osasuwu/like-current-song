@@ -17,6 +17,14 @@ a small JSON list under the config dir of the artists this app has followed,
 written only after a follow went through, so a failed follow is retried on
 the next like. It is per device, like Android's `followed_artists`.
 
+Undo (#270) unfollows only the artists this press followed. Before a follow
+the action asks the provider whether the user already follows the artist;
+one they do is only remembered, so an undo never unfollows an artist the
+user chose to follow. When that check fails the follow goes ahead, and an
+undo leaves that artist followed and says so rather than guess. The
+artist-track record stays: it counts a track once however often it is
+liked, so the re-like after an undo does not count it twice.
+
 Runs against any `PlaylistCapableProvider` (Spotify follows the artist,
 YouTube Music subscribes to the artist's channel); other providers are a
 silent no-op. Storage absence is also a silent no-op
@@ -31,12 +39,22 @@ from pathlib import Path
 
 from like_spotify.core.actions import PostLikeAction
 from like_spotify.core.errors import AuthError
-from like_spotify.core.music_provider import PlaylistCapableProvider
+from like_spotify.core.music_provider import (
+    PlaylistCapableProvider,
+    UnfollowCapableProvider,
+)
 from like_spotify.core.storage import Storage
 from like_spotify.core.types import LikeContext
 
 DOMAIN = "follow_artist"
 DEFAULT_THRESHOLD = 5
+# `ctx.extras` key: {artist_id: how the follow this press made can be
+# undone} — `_NEW`, `_UNKNOWN` (the already-following check failed) or
+# `_IRREVERSIBLE` (the provider cannot unfollow).
+_FOLLOWED = "follow_artist.followed"
+_NEW = "new"
+_UNKNOWN = "unknown"
+_IRREVERSIBLE = "irreversible"
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +81,16 @@ class _FollowedStore:
         state.add(key)
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
+            self._path.write_text(json.dumps(sorted(state)), encoding="utf-8")
+        except OSError:
+            logger.warning("follow-artist: failed to persist state to %s", self._path)
+
+    def discard(self, key: str) -> None:
+        state = self._load()
+        if key not in state:
+            return
+        state.discard(key)
+        try:
             self._path.write_text(json.dumps(sorted(state)), encoding="utf-8")
         except OSError:
             logger.warning("follow-artist: failed to persist state to %s", self._path)
@@ -124,6 +152,22 @@ class FollowArtistAction(PostLikeAction):
             if count < self._threshold or self._followed.contains(followed_key):
                 continue
 
+            how = _IRREVERSIBLE
+            if isinstance(provider, UnfollowCapableProvider):
+                try:
+                    if await provider.is_following_artist(artist_id):
+                        # The user's own follow: remember it, never undo it.
+                        self._followed.add(followed_key)
+                        continue
+                    how = _NEW
+                except Exception as e:
+                    logger.warning(
+                        "follow-artist: already-following check failed (%s): %s",
+                        artist_id,
+                        e,
+                    )
+                    how = _UNKNOWN
+
             try:
                 await provider.follow_artist(artist_id)
             except AuthError as e:
@@ -137,6 +181,47 @@ class FollowArtistAction(PostLikeAction):
                 logger.warning("follow-artist API failed (%s): %s", artist_id, e)
                 continue
             self._followed.add(followed_key)
+            followed = ctx.extras.setdefault(_FOLLOWED, {})
+            assert isinstance(followed, dict)
+            followed[artist_id] = how
+
+    async def undo(self, ctx: LikeContext) -> None:
+        logger.info(
+            "follow-artist: the artist-track record is not undone — it counts "
+            "a track once, so the next like of it does not count it again"
+        )
+        followed = ctx.extras.get(_FOLLOWED)
+        if not followed:
+            return
+        assert isinstance(followed, dict)
+        provider = ctx.music_provider
+        failed: list[str] = []
+        irreversible: list[str] = []
+        for artist_id, how in followed.items():
+            if how == _IRREVERSIBLE or not isinstance(
+                provider, UnfollowCapableProvider
+            ):
+                irreversible.append(artist_id)
+                continue
+            if how == _UNKNOWN:
+                failed.append(
+                    f"{artist_id} left followed (could not tell whether "
+                    f"it was followed before)"
+                )
+                continue
+            try:
+                await provider.unfollow_artist(artist_id)
+            except Exception as e:
+                failed.append(f"{artist_id}: unfollow failed ({e})")
+                continue
+            self._followed.discard(f"{ctx.track.provider}:{artist_id}")
+        if failed:
+            raise RuntimeError("; ".join(failed))
+        if irreversible:
+            raise NotImplementedError(
+                f"{type(provider).__name__} cannot unfollow; "
+                f"{', '.join(irreversible)} left followed"
+            )
 
 
 def POST_LIKE_ACTION(

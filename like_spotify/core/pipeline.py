@@ -1,5 +1,6 @@
 import logging
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -9,6 +10,7 @@ from .music_provider import (
     DislikeCapableProvider,
     MusicProvider,
     PlaylistCapableProvider,
+    UnlikeCapableProvider,
 )
 from .storage import Storage
 from .types import CurrentTrack, LikeContext
@@ -84,6 +86,28 @@ class _LegFailure:
     reason: str  # the bare provider error, for the single-leg message
 
 
+# What undo does with one like leg (#270). REVERSE: this press added the
+# track, take it back. KEEP: it was there before the press, leave it.
+# UNKNOWN: the before-probe failed, so reversing could take away a like
+# the user already had — leave it, and say so.
+_REVERSE = "reverse"
+_KEEP = "keep"
+_UNKNOWN = "unknown"
+
+
+@dataclass
+class _UndoEntry:
+    """The effects one `run_once` actually performed, for `undo_last`."""
+
+    ctx: LikeContext
+    at: float
+    native: str | None  # None: the leg did not land (or is not configured)
+    playlist: str | None
+    playlist_id: str | None
+    counted_for: str | None  # the user id an increment was made for
+    actions: tuple[PostLikeAction, ...]
+
+
 class Pipeline:
     """Composes a MusicProvider + optional Storage + action chains.
 
@@ -108,6 +132,10 @@ class Pipeline:
         #173 — `like_destination`: the like can land in a playlist instead
               of (or as well as) the service's own like. Omit the argument
               and every step behaves exactly as it did before.
+        #270 — undo: with `undo_window_s` set, each press journals the
+              effects it performed and `undo_last` reverses exactly those
+              within the window. Omit it and no journal is kept and no
+              extra probe is spent.
     """
 
     def __init__(
@@ -118,6 +146,8 @@ class Pipeline:
         pre_like_actions: Sequence[PreLikeAction] = (),
         post_like_actions: Sequence[PostLikeAction] = (),
         like_destination: LikeDestination | None = None,
+        undo_window_s: float | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         destination = like_destination or LikeDestination()
         if destination.wants_playlist and not isinstance(
@@ -138,8 +168,28 @@ class Pipeline:
         self._post_actions = tuple(post_like_actions)
         self._destination = destination
         self._playlist_id: str | None = None  # cached after the first resolve
+        self._undo_window_s = undo_window_s
+        self._clock = clock
+        self._undo: _UndoEntry | None = None
+
+    @property
+    def undo_window_s(self) -> float | None:
+        return self._undo_window_s
+
+    def undo_available(self) -> bool:
+        """True while the last like can still be undone."""
+        entry = self._undo
+        return (
+            entry is not None
+            and self._undo_window_s is not None
+            and self._clock() - entry.at <= self._undo_window_s
+        )
 
     async def run_once(self) -> None:
+        # A new press closes the window of the one before, whatever this
+        # press ends up doing: an undo must never reach past the latest
+        # press to an older like.
+        self._undo = None
         try:
             track = await self._provider.get_currently_playing()
         except Exception as e:
@@ -174,15 +224,23 @@ class Pipeline:
         # ── Backfill probe (#24): only when Storage is wired. ─────────────
         # Soft fail to False — better to miss a +1 backfill than double-count.
         was_already_liked = False
+        probed: bool | None = None
         if self._storage is not None:
             try:
-                was_already_liked = await self._already_there(ctx.track)
+                probed = was_already_liked = await self._already_there(ctx.track)
             except Exception:
                 was_already_liked = False
 
+        # ── Undo probes (#270): was each leg's target there already? ─────
+        native_before = playlist_before = None
+        if self._undo_window_s is not None:
+            native_before, playlist_before = await self._probe_before(
+                ctx.track, probed
+            )
+
         # ── Like (#173: one leg per configured destination) ───────────────
-        liked, failures = await self._run_like_legs(ctx.track)
-        if not liked:
+        landed, failures = await self._run_like_legs(ctx.track)
+        if not landed:
             # Every leg failed. With a single leg the message is the raw
             # provider error, exactly as it has always been; only a `both`
             # config has anything to disambiguate.
@@ -205,12 +263,14 @@ class Pipeline:
         # `UserActionRequired` will repeat on every press until the user
         # does the thing its message names, so it also goes to the feedback.
         storage_problem: str | None = None
+        counted_for: str | None = None
         if self._storage is not None:
             try:
                 user_id = await self._provider.user_id()
                 ctx.like_count = await self._storage.increment(
                     user_id, ctx.track, was_already_liked
                 )
+                counted_for = user_id
             except Exception as e:
                 ctx.like_count = None
                 logger.warning(
@@ -229,6 +289,17 @@ class Pipeline:
                 logger.warning(
                     "PostLikeAction %s raised", type(action).__name__, exc_info=True
                 )
+
+        if self._undo_window_s is not None:
+            self._undo = _UndoEntry(
+                ctx=ctx,
+                at=self._clock(),
+                native=_leg_plan(NATIVE in landed, native_before),
+                playlist=_leg_plan(PLAYLIST in landed, playlist_before),
+                playlist_id=self._playlist_id,
+                counted_for=counted_for,
+                actions=self._post_actions,
+            )
 
         title = "Liked" if ctx.like_count is None else f"Liked × {ctx.like_count}"
         message = _display(ctx.track)
@@ -259,22 +330,150 @@ class Pipeline:
             return track.provider_track_id in track_ids
         return await self._provider.is_liked(track)
 
+    async def _probe_before(
+        self, track: CurrentTrack, probed: bool | None
+    ) -> tuple[bool | None, bool | None]:
+        """Was the track liked / in the destination playlist before this
+        press? None where the probe failed — undo then leaves that leg.
+
+        `probed` is the backfill probe's answer when it ran and succeeded;
+        it already answers one of the two questions (`_already_there`), so
+        that leg is not asked twice.
+        """
+        native_before: bool | None = None
+        playlist_before: bool | None = None
+        if probed is not None:
+            if self._destination.mode == PLAYLIST:
+                playlist_before = probed
+            else:
+                native_before = probed
+        if self._destination.wants_native and native_before is None:
+            try:
+                native_before = await self._provider.is_liked(track)
+            except Exception:
+                logger.warning("undo probe: is_liked failed", exc_info=True)
+        if self._destination.wants_playlist and playlist_before is None:
+            try:
+                track_ids = await self._playlist_provider().get_playlist_track_ids(
+                    await self._destination_playlist_id()
+                )
+                playlist_before = track.provider_track_id in track_ids
+            except Exception:
+                logger.warning("undo probe: playlist membership failed", exc_info=True)
+        return native_before, playlist_before
+
+    async def undo_last(self) -> None:
+        """Reverse the effects of the last like, if its window is open (#270).
+
+        Outside the window — no like yet, more than `undo_window_s` since
+        it, a newer press, or an undo already done — nothing is touched and
+        the feedback says there is nothing to undo. Inside it, the journal
+        closes first (a second undo is a no-op), then every effect is
+        reversed in the opposite order it was made: post-like actions last
+        to first, the counter, the playlist leg, the service like. Each
+        reverse is independent, so one failing costs none of the others;
+        the feedback names whatever could not be reversed.
+        """
+        if not self.undo_available():
+            self._undo = None
+            window = self._undo_window_s
+            hint = (
+                f"Undo works for {window:g} s after a like."
+                if window is not None
+                else "Undo is not enabled."
+            )
+            self._feedback(False, "Nothing to undo", hint, kind="undo")
+            return
+        entry = self._undo
+        assert entry is not None  # undo_available() checked it
+        self._undo = None
+        ctx = entry.ctx
+        failed: list[str] = []
+        reasons: list[str] = []
+
+        for action in reversed(entry.actions):
+            name = type(action).__name__
+            try:
+                await action.undo(ctx)
+            except NotImplementedError as e:
+                logger.info("PostLikeAction %s is not undoable: %s", name, e)
+            except Exception as e:
+                logger.warning("PostLikeAction %s undo failed", name, exc_info=True)
+                failed.append(f"{name} not undone")
+                reasons.append(f"{name}: {e}")
+
+        if entry.counted_for is not None and self._storage is not None:
+            name = type(self._storage).__name__
+            try:
+                await self._storage.undo_increment(entry.counted_for, ctx.track)
+            except NotImplementedError as e:
+                logger.info("Storage %s is not undoable: %s", name, e)
+            except Exception as e:
+                logger.warning("Storage %s undo failed", name, exc_info=True)
+                failed.append("counter not restored")
+                reasons.append(f"Counter: {e}")
+
+        playlist_name = self._destination.playlist_name
+        if entry.playlist == _UNKNOWN:
+            failed.append(f"still in {playlist_name}")
+            reasons.append(
+                f"Could not tell if it was in {playlist_name} before, so it stays."
+            )
+        elif entry.playlist == _REVERSE:
+            try:
+                playlist_id = entry.playlist_id or await self._destination_playlist_id()
+                await self._playlist_provider().remove_track_from_playlist(
+                    ctx.track.provider_track_id, playlist_id
+                )
+            except Exception as e:
+                logger.warning("undo: playlist remove failed", exc_info=True)
+                failed.append(f"still in {playlist_name}")
+                reasons.append(f"Could not remove from {playlist_name}: {e}")
+
+        if entry.native == _UNKNOWN:
+            failed.append("still liked")
+            reasons.append("Could not tell if it was liked before, so it stays liked.")
+        elif entry.native == _REVERSE:
+            if not isinstance(self._provider, UnlikeCapableProvider):
+                failed.append("still liked")
+                reasons.append(
+                    f"{type(self._provider).__name__} cannot take a like back."
+                )
+            else:
+                try:
+                    await self._provider.unlike(ctx.track)
+                except Exception as e:
+                    logger.warning("undo: unlike failed", exc_info=True)
+                    failed.append("still liked")
+                    reasons.append(f"Could not unlike: {e}")
+
+        display = _display(ctx.track)
+        if not failed:
+            self._feedback(True, "Undone", display, kind="undo")
+            return
+        summary = f"Undo incomplete — {_and(failed)}"
+        # The tray balloon shows the message and drops the title, so the
+        # failed legs are named in both.
+        self._feedback(
+            False, summary, "\n".join([display, summary, *reasons]), kind="undo"
+        )
+
     async def _run_like_legs(
         self, track: CurrentTrack
-    ) -> tuple[bool, list[_LegFailure]]:
-        """Run every configured leg. Returns (did anything land, failures).
+    ) -> tuple[set[str], list[_LegFailure]]:
+        """Run every configured leg. Returns (the legs that landed, failures).
 
         The legs are independent on purpose: under `both`, a playlist that
         was deleted must not cost the user the native like, and an expired
         playlist scope must not cost them the playlist entry.
         """
-        landed = False
+        landed: set[str] = set()
         failures: list[_LegFailure] = []
 
         if self._destination.wants_native:
             try:
                 await self._provider.like(track)
-                landed = True
+                landed.add(NATIVE)
             except Exception as e:
                 failures.append(
                     _LegFailure(
@@ -288,7 +487,7 @@ class Pipeline:
             name = self._destination.playlist_name
             try:
                 await self._add_to_destination_playlist(track)
-                landed = True
+                landed.add(PLAYLIST)
             except Exception as e:
                 failures.append(
                     _LegFailure(
@@ -536,6 +735,15 @@ class DiscardPipeline:
             logger.warning("playlist remove failed", exc_info=True)
             return f"Remove failed: {e}"
         return None
+
+
+def _leg_plan(landed: bool, was_there: bool | None) -> str | None:
+    """What `undo_last` does with one like leg — see `_REVERSE`."""
+    if not landed:
+        return None
+    if was_there is None:
+        return _UNKNOWN
+    return _KEEP if was_there else _REVERSE
 
 
 def _unique_names(*names: str) -> list[str]:

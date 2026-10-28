@@ -120,6 +120,19 @@ class SpotifyMusicProvider(MusicProvider):
     async def follow_artist(self, artist_id: str) -> None:
         await asyncio.to_thread(self._follow_artist_sync, artist_id)
 
+    # ── UnlikeCapableProvider / UnfollowCapableProvider (#270) ────────
+
+    async def unlike(self, track: CurrentTrack) -> None:
+        """Take back a like: the track leaves the library, as `dislike` does
+        on Spotify. Idempotent."""
+        await asyncio.to_thread(self._dislike_sync, track.provider_track_id)
+
+    async def is_following_artist(self, artist_id: str) -> bool:
+        return await asyncio.to_thread(self._is_following_artist_sync, artist_id)
+
+    async def unfollow_artist(self, artist_id: str) -> None:
+        await asyncio.to_thread(self._unfollow_artist_sync, artist_id)
+
     # ── DislikeCapableProvider ────────────────────────────────────────
 
     async def dislike(self, track: CurrentTrack) -> None:
@@ -332,8 +345,21 @@ class SpotifyMusicProvider(MusicProvider):
     def _is_liked_sync(self, track_id: str) -> bool:
         """`GET /me/library/contains`, falling back to `GET /me/tracks/contains`
         under the same rule as `_save_to_library`."""
+        return self._library_contains(
+            f"spotify:track:{track_id}", "/me/tracks/contains", {"ids": track_id}
+        )
+
+    def _is_following_artist_sync(self, artist_id: str) -> bool:
+        return self._library_contains(
+            f"spotify:artist:{artist_id}",
+            "/me/following/contains",
+            {"type": "artist", "ids": artist_id},
+        )
+
+    def _library_contains(self, uri: str, legacy_path: str, legacy_params) -> bool:
+        """`GET /me/library/contains` for `uri`, falling back to the legacy
+        `legacy_path` under the same rule as `_write_library`."""
         token = self._access_token()
-        uri = f"spotify:track:{track_id}"
         if not SpotifyMusicProvider._use_legacy_library_endpoints:
             r = requests.get(
                 f"{API_BASE}/me/library/contains",
@@ -347,9 +373,9 @@ class SpotifyMusicProvider(MusicProvider):
                 _raise_for_status(r)
 
         r = requests.get(
-            f"{API_BASE}/me/tracks/contains",
+            f"{API_BASE}{legacy_path}",
             headers={"Authorization": f"Bearer {token}"},
-            params={"ids": track_id},
+            params=legacy_params,
             timeout=5,
         )
         _raise_for_status(r)
@@ -457,6 +483,17 @@ class SpotifyMusicProvider(MusicProvider):
             )
 
         self._save_to_library(f"spotify:artist:{artist_id}", legacy)
+
+    def _unfollow_artist_sync(self, artist_id: str) -> None:
+        def legacy(token: str):
+            return requests.delete(
+                f"{API_BASE}/me/following",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"type": "artist", "ids": artist_id},
+                timeout=5,
+            )
+
+        self._remove_from_library(f"spotify:artist:{artist_id}", legacy)
 
     def _fetch_user_id_sync(self) -> str:
         token = self._access_token()

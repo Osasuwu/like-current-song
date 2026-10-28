@@ -602,3 +602,56 @@ def test_saved_like_destination_drives_the_host(tmp_paths) -> None:
 
     destination = _common.resolve_like_destination(_common.load_config())
     assert (destination.mode, destination.playlist_name) == ("both", "Songs")
+
+
+# ── Undo hotkey (#270) ─────────────────────────────────────────────────
+
+
+def test_undo_hotkey_defaults_and_loads() -> None:
+    assert Settings().undo_hotkey == _common.DEFAULT_UNDO_HOTKEY
+    assert model.settings_from_config({}).undo_hotkey == _common.DEFAULT_UNDO_HOTKEY
+    loaded = model.settings_from_config({"trigger": {"undo_hotkey": "ctrl+alt+u"}})
+    assert loaded.undo_hotkey == "ctrl+alt+u"
+
+
+def test_undo_hotkey_default_is_its_own_combo() -> None:
+    from like_spotify.extensions.tray_hotkey_trigger import DEFAULT_HOTKEY
+
+    assert _common.DEFAULT_UNDO_HOTKEY not in (DEFAULT_HOTKEY, _common.DEFAULT_REMOVE_HOTKEY)
+    assert model.validate(replace(Settings(), spotify_client_id="x")).ok
+
+
+def _undo_errors(**changes) -> list[str]:
+    s = replace(Settings(), spotify_client_id="x", **changes)
+    return [i.message for i in model.validate(s).errors if i.field == "undo_hotkey"]
+
+
+def test_undo_hotkey_clash_with_the_like_hotkey_is_refused() -> None:
+    (message,) = _undo_errors(undo_hotkey="CTRL+Shift+alt+W")
+    assert "like hotkey" in message
+
+
+def test_undo_hotkey_clash_with_the_discard_hotkey_is_refused() -> None:
+    (message,) = _undo_errors(remove_hotkey="ctrl+alt+d", undo_hotkey="Ctrl+Alt+D")
+    assert "discard hotkey" in message
+
+
+def test_blank_undo_hotkey_is_checked_as_the_default_it_falls_back_to() -> None:
+    (message,) = _undo_errors(undo_hotkey=" ", remove_hotkey=_common.DEFAULT_UNDO_HOTKEY)
+    assert "discard hotkey" in message
+
+
+def test_malformed_undo_hotkey_is_refused() -> None:
+    (message,) = _undo_errors(undo_hotkey="ctrl++z")
+    assert message.startswith("Undo hotkey")
+
+
+def test_distinct_undo_hotkey_is_valid() -> None:
+    assert _undo_errors(undo_hotkey="ctrl+alt+u") == []
+
+
+def test_undo_hotkey_round_trips_through_the_config(tmp_paths) -> None:
+    ConfigDocument().save(replace(Settings(), spotify_client_id="x", undo_hotkey="ctrl+alt+u"))
+
+    assert _common.resolve_undo_hotkey(_common.load_config()) == "ctrl+alt+u"
+    assert ConfigDocument().initial_settings().undo_hotkey == "ctrl+alt+u"

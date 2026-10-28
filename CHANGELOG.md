@@ -15,6 +15,20 @@ you sign in from its Settings window.
 
 ### Added
 
+- **Desktop: an undo hotkey and an "Undo last like" tray item (#270).**
+  For 10 seconds after a like, `Ctrl+Shift+Alt+Z` or the tray item takes the
+  press back: the like is removed (Spotify or YouTube Music), the track comes
+  off the like playlist and the best playlist if the press put it there, goes
+  back in the archive playlist if the press took it out, artists the press
+  followed are unfollowed, the Google Sheets counter goes back to what it was,
+  and the like cooldown forgets the press. A track you had already liked, or
+  an artist you already followed, stays. Undo reverses only that press and
+  only once; outside the window the tray item is greyed out and the hotkey
+  changes nothing and says there is nothing to undo. The undo tone plays when it worked; the error tone and a
+  notification naming the step that failed play when it did not. Set the
+  hotkey in the settings window or `--setup` (`trigger.undo_hotkey`); a combo
+  the like or remove hotkey already uses is refused. Copies put back in the
+  archive go to its end.
 - **Android: undo a like by repeating the trigger within 10 seconds (#267).**
   When the phone likes a Spotify track in the background, the same media-button
   pattern again within 10 seconds of the like takes it back: the track is

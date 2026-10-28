@@ -105,3 +105,40 @@ class DislikeCapableProvider(Protocol):
     async def dislike(self, track: CurrentTrack) -> None:
         """The strongest negative signal this service supports."""
         ...
+
+
+@runtime_checkable
+class UnlikeCapableProvider(Protocol):
+    """Optional capability: take back a like this app wrote (#270).
+
+    Declared like the two capabilities above — structural, not an ABC
+    method, so a provider written before undo existed keeps working; the
+    pipeline then reports that the like stays rather than failing. Only
+    called by `Pipeline.undo_last`, and only for a track that was *not*
+    liked before the press being undone, so an older like is never taken
+    away. Removing a like that is already gone is not an error.
+    """
+
+    async def unlike(self, track: CurrentTrack) -> None:
+        """Clear this service's like for `track`."""
+        ...
+
+
+@runtime_checkable
+class UnfollowCapableProvider(Protocol):
+    """Optional capability: read and reverse `follow_artist` (#270).
+
+    `FollowArtistAction` asks `is_following_artist` before it follows, so
+    it can tell an artist the user already followed (left alone by an
+    undo) from one this press followed (unfollowed by an undo). A provider
+    without it still follows artists; its follows are then not undoable,
+    and the action logs that instead of guessing.
+    """
+
+    async def is_following_artist(self, artist_id: str) -> bool:
+        """True if the user already follows `artist_id`."""
+        ...
+
+    async def unfollow_artist(self, artist_id: str) -> None:
+        """Stop following `artist_id`. Not following it is not an error."""
+        ...

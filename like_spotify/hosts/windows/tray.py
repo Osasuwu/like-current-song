@@ -28,6 +28,8 @@ def build_icon(
     state: Callable[[], tuple[str, bool, str | None, str]],
     on_like: Callable,
     on_discard: Callable,
+    on_undo: Callable,
+    undo_available: Callable[[], bool],
     on_settings: Callable,
     on_toggle_autostart: Callable,
     on_open_log: Callable,
@@ -37,6 +39,8 @@ def build_icon(
 
     `state()` returns the live
     `(hotkey, discard_enabled, discard_hotkey, discard_label)`.
+    `undo_available()` is true while the last like can still be undone
+    (#270); the caller refreshes the menu when that changes.
     """
     import pystray  # local import: heavy
 
@@ -53,6 +57,9 @@ def build_icon(
     menu = pystray.Menu(
         pystray.MenuItem(like_text, on_like, default=True),
         pystray.MenuItem(discard_text, on_discard, visible=lambda _item: state()[1]),
+        pystray.MenuItem(
+            "Undo last like", on_undo, enabled=lambda _item: undo_available()
+        ),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Settings…", on_settings),
         pystray.MenuItem(

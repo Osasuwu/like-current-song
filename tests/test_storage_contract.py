@@ -12,6 +12,9 @@ the abstraction promises:
       ignored after first encounter)
     - get_count for a never-touched key → 0
     - get_count for an existing key → current count
+    - undo_increment reverses the latest increment and only that one: an
+      undone first increment leaves no trace (the next press backfills
+      again), and a second undo reaches no older increment (#270)
 
 A regression that breaks the contract surfaces here *before* the
 impl-specific HTTP-shape tests catch it. Google Sheets is currently the
@@ -69,6 +72,8 @@ class SheetsSim:
         return FakeResponse(status_code=200, json_body={"values": list(rows)})
 
     def handle_post(self, url: str, **kw) -> FakeResponse:
+        if url.endswith(":clear"):
+            return self._clear(url)
         body = kw.get("json", {})
         sheet = self._sheet_for(url)
         rows = self.sheets.setdefault(sheet, [])
@@ -79,6 +84,14 @@ class SheetsSim:
             status_code=200,
             json_body={"updates": {"updatedRange": f"{sheet}!A{row_index}:E{row_index}"}},
         )
+
+    def _clear(self, url: str) -> FakeResponse:
+        """`values/<sheet>!A5:E5:clear` blanks one row; the row itself stays."""
+        tail = url.rsplit("/values/", 1)[-1].removesuffix(":clear")
+        sheet, _, a1 = tail.partition("!")
+        row_idx = int(a1.split(":")[0].lstrip("ABCDEFGHIJKLMNOPQRSTUVWXYZ"))
+        self.sheets[sheet][row_idx - 1] = []
+        return FakeResponse(status_code=200, json_body={"clearedRange": tail})
 
     def handle_put(self, url: str, **kw) -> FakeResponse:
         tail = url.rsplit("/values/", 1)[-1]
@@ -217,4 +230,54 @@ async def test_keys_are_independent(storage: Storage) -> None:
 
     assert await storage.get_count("user-1", _track("trk-a")) == 2
     assert await storage.get_count("user-2", _track("trk-a")) == 1
+    assert await storage.get_count("user-1", _track("trk-b")) == 1
+
+
+# ── Undo (#270) ──────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_undo_increment_restores_the_previous_count(storage: Storage) -> None:
+    await storage.increment("user-1", _track("trk-a"))
+    await storage.increment("user-1", _track("trk-a"))
+
+    assert await storage.undo_increment("user-1", _track("trk-a")) == 1
+    assert await storage.get_count("user-1", _track("trk-a")) == 1
+    assert await storage.increment("user-1", _track("trk-a")) == 2
+
+
+@pytest.mark.asyncio
+async def test_undone_first_increment_leaves_no_trace(storage: Storage) -> None:
+    """The next press is a first encounter again, so backfill still applies."""
+    await storage.increment("user-1", _track("trk-a"))
+
+    assert await storage.undo_increment("user-1", _track("trk-a")) == 0
+    assert await storage.get_count("user-1", _track("trk-a")) == 0
+    again = await storage.increment(
+        "user-1", _track("trk-a"), was_already_liked=True
+    )
+    assert again == 2
+
+
+@pytest.mark.asyncio
+async def test_undo_increment_never_reaches_an_older_increment(
+    storage: Storage,
+) -> None:
+    await storage.increment("user-1", _track("trk-a"))
+    await storage.increment("user-1", _track("trk-a"))
+    await storage.undo_increment("user-1", _track("trk-a"))
+
+    with pytest.raises(LookupError):
+        await storage.undo_increment("user-1", _track("trk-a"))
+    assert await storage.get_count("user-1", _track("trk-a")) == 1
+
+
+@pytest.mark.asyncio
+async def test_undo_increment_touches_only_its_own_key(storage: Storage) -> None:
+    await storage.increment("user-1", _track("trk-a"))
+    await storage.increment("user-1", _track("trk-b"))
+
+    await storage.undo_increment("user-1", _track("trk-a"))
+
+    assert await storage.get_count("user-1", _track("trk-a")) == 0
     assert await storage.get_count("user-1", _track("trk-b")) == 1

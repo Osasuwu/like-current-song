@@ -26,7 +26,7 @@ from like_spotify.extensions.google_sheets_storage.errors import (
     SHEETS_API_LIBRARY_URL,
     SheetsApiDisabledError,
 )
-from like_spotify.extensions.tray_hotkey_trigger import DEFAULT_HOTKEY
+from like_spotify.extensions.tray_hotkey_trigger import DEFAULT_HOTKEY, same_hotkey
 
 from . import _common
 
@@ -79,7 +79,8 @@ class _SetupAbort(Exception):
 
 def do_setup(reauth: bool = False) -> int:
     """Interactive wizard: music service → its OAuth (Spotify or YouTube)
-    → like destination → storage choice → archive playlist → autostart.
+    → like destination → storage choice → archive playlist → undo hotkey
+    → autostart.
 
     Re-runnable. Existing OAuth tokens (Spotify, YouTube, Google) are kept unless
     `reauth=True` is passed — turning the counter off and back on does NOT
@@ -99,6 +100,7 @@ def do_setup(reauth: bool = False) -> int:
         # Both providers speak the playlist capability, so the archive
         # step is offered whichever music service was picked.
         _setup_archive(cfg)
+        _setup_undo_hotkey(cfg)
         _setup_autostart()
     except _SetupAbort as e:
         print(f"Aborted: {e}", file=sys.stderr)
@@ -126,7 +128,7 @@ def _choose_provider(cfg: dict) -> str:
 
 
 def _setup_ytmusic(cfg: dict, *, reauth: bool) -> None:
-    print("\n[1/5] YouTube Music")
+    print("\n[1/6] YouTube Music")
     cfg.setdefault("trigger", {}).setdefault("hotkey", DEFAULT_HOTKEY)
     # Persist now so a later step's failure doesn't lose the provider choice.
     _common.save_config(cfg)
@@ -162,7 +164,7 @@ def _setup_ytmusic(cfg: dict, *, reauth: bool) -> None:
 
 
 def _setup_spotify(cfg: dict, *, reauth: bool) -> None:
-    print("\n[1/5] Spotify")
+    print("\n[1/6] Spotify")
     current_id = cfg.get("spotify", {}).get("client_id", "")
     client_id = _prompt_secret("  Client ID", current=current_id)
     if not client_id:
@@ -190,7 +192,7 @@ STORAGE_CHOICES = ["sheets", "none"]
 
 
 def _setup_storage(cfg: dict, *, reauth: bool) -> None:
-    print("\n[3/5] Storage (counts likes across devices)")
+    print("\n[3/6] Storage (counts likes across devices)")
     print(
         "  Optional. 'none' keeps every like working and just doesn't count\n"
         "  them; 'sheets' counts them into a Google Sheet you own, which is\n"
@@ -333,7 +335,7 @@ def _setup_like_destination(cfg: dict) -> None:
     Picking `native` leaves any playlist name in place instead of blanking
     it: switching back and forth shouldn't make the user retype it.
     """
-    print("\n[2/5] Where a like goes")
+    print("\n[2/6] Where a like goes")
     print(
         "  'native' likes the track on the music service — that's what feeds\n"
         "  its recommendations. 'playlist' adds it to a playlist of your own\n"
@@ -381,7 +383,7 @@ def _setup_archive(cfg: dict) -> None:
     so re-running setup for an unrelated step won't clobber the archive.
     Type `-` to turn the feature off; blank with nothing set = skip.
     """
-    print("\n[4/5] Playlist clean-up (optional)")
+    print("\n[4/6] Playlist clean-up (optional)")
     print(
         "  Name one of your playlists to curate (e.g. an archived copy of\n"
         "  Spotify's Discover Weekly, or a YouTube Music playlist).\n"
@@ -422,8 +424,39 @@ def _setup_archive(cfg: dict) -> None:
     print(f"  ✓ Discard hotkey: {remove_hotkey.upper()}")
 
 
+def _setup_undo_hotkey(cfg: dict) -> None:
+    """`trigger.undo_hotkey` (#270): takes back the last like.
+
+    Blank keeps the current combo (the default on a fresh config). A combo
+    the like or the discard hotkey already uses is refused and asked again:
+    two triggers on one combo would both fire on every press.
+    """
+    print("\n[5/6] Undo hotkey")
+    print(
+        "  Takes back the last like for 10 seconds after it: the like, its\n"
+        "  playlist entry and its count. Blank = keep."
+    )
+    trigger = cfg.setdefault("trigger", {})
+    taken = {
+        "like hotkey": trigger.get("hotkey") or DEFAULT_HOTKEY,
+        "discard hotkey": _common.resolve_remove_hotkey(cfg),
+    }
+    current = _common.resolve_undo_hotkey(cfg)
+    while True:
+        combo = _prompt("  Undo hotkey", default=current)
+        clash = next(
+            (name for name, other in taken.items() if same_hotkey(combo, other)),
+            None,
+        )
+        if clash is None:
+            break
+        print(f"  ✗ {combo.upper()} is already the {clash} — pick another.")
+    trigger["undo_hotkey"] = combo
+    print(f"  ✓ Undo hotkey: {combo.upper()}")
+
+
 def _setup_autostart() -> None:
-    print("\n[5/5] Autostart")
+    print("\n[6/6] Autostart")
     if sys.platform != "win32":
         # Print instructions only — issue AC: no auto-config on mac/linux.
         if sys.platform == "darwin":

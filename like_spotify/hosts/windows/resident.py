@@ -26,6 +26,7 @@ from like_spotify.core.pipeline import DiscardPipeline, Pipeline
 from like_spotify.extensions.tray_hotkey_trigger import (
     DEFAULT_HOTKEY,
     TRIGGER as make_tray_hotkey_trigger,
+    same_hotkey,
 )
 
 from .. import _common, _setup
@@ -309,6 +310,10 @@ def main(argv: list[str] | None = None) -> int:
 # ── Wiring (rebuildable, so a settings save applies live) ──────────────
 
 
+# How long after a like the undo hotkey and the tray item can take it back (#270).
+UNDO_WINDOW_S = 10.0
+
+
 class _NotReady(Exception):
     """Config can't drive the tray yet (no provider / not signed in)."""
 
@@ -325,6 +330,8 @@ class _Wiring:
     discard_pipeline: DiscardPipeline | None
     trigger: object
     discard_trigger: object | None
+    undo_hotkey: str
+    undo_trigger: object | None
 
     @property
     def discard_enabled(self) -> bool:
@@ -355,6 +362,7 @@ def _build_wiring(cfg: dict, feedback, *, make_trigger=make_tray_hotkey_trigger)
         pre_like_actions=pre_actions,
         post_like_actions=post_actions,
         like_destination=destination,
+        undo_window_s=UNDO_WINDOW_S,
     )
 
     # ── Second hotkey: discard-without-like ───────────────────────────────
@@ -372,6 +380,17 @@ def _build_wiring(cfg: dict, feedback, *, make_trigger=make_tray_hotkey_trigger)
         cfg, provider, feedback, destination
     )
     discard_enabled = discard_pipeline is not None and remove_hotkey != hotkey
+
+    # ── Third hotkey: undo the last like (#270) ───────────────────────────
+    # Skipped on a combo the like or the discard hotkey already uses: one
+    # press must not fire two pipelines. The settings window and the wizard
+    # refuse such a combo; only a hand-edited config can still carry one.
+    undo_hotkey = _common.resolve_undo_hotkey(cfg)
+    undo_enabled = not (
+        same_hotkey(undo_hotkey, hotkey) or same_hotkey(undo_hotkey, remove_hotkey)
+    )
+    if not undo_enabled:
+        _log(f"undo hotkey {undo_hotkey!r} is already taken by another hotkey; not registered")
     return _Wiring(
         hotkey=hotkey,
         remove_hotkey=remove_hotkey,
@@ -380,6 +399,8 @@ def _build_wiring(cfg: dict, feedback, *, make_trigger=make_tray_hotkey_trigger)
         discard_pipeline=discard_pipeline if discard_enabled else None,
         trigger=make_trigger(hotkey=hotkey),
         discard_trigger=make_trigger(hotkey=remove_hotkey) if discard_enabled else None,
+        undo_hotkey=undo_hotkey,
+        undo_trigger=make_trigger(hotkey=undo_hotkey) if undo_enabled else None,
     )
 
 
@@ -399,12 +420,37 @@ class _HostRuntime:
         self.wiring = wiring
         self._make_trigger = make_trigger
         self._lock = threading.Lock()
+        # Set by the tray once its icon exists (#270). pystray reads a menu
+        # item's `enabled` only on `update_menu()`, so the "Undo last like"
+        # item needs a refresh at each edge of the undo window.
+        self.on_menu_change = None
 
     def _call(self, coro, timeout: float = 5.0):
         return asyncio.run_coroutine_threadsafe(coro, self.loop).result(timeout=timeout)
 
     async def _emit_like(self) -> None:
-        await self.wiring.pipeline.run_once()
+        pipeline = self.wiring.pipeline
+        await pipeline.run_once()
+        # Every press opens a window or closes the one before (#270).
+        self._menu_changed()
+        if pipeline.undo_available():
+            # The window closes on its own; turn the tray item off when it does.
+            asyncio.get_running_loop().call_later(
+                pipeline.undo_window_s, self._menu_changed
+            )
+
+    async def _emit_undo(self) -> None:
+        await self.wiring.pipeline.undo_last()
+        self._menu_changed()  # an undo closes the window
+
+    def _menu_changed(self) -> None:
+        refresh = self.on_menu_change
+        if refresh is None:
+            return
+        try:
+            refresh()
+        except Exception:
+            _log("tray menu refresh failed")
 
     async def _emit_discard(self) -> None:
         if self.wiring.discard_pipeline is not None:
@@ -418,6 +464,9 @@ class _HostRuntime:
             if w.discard_trigger is not None:
                 self._call(w.discard_trigger.start(self._emit_discard))
                 started.append(w.discard_trigger)
+            if w.undo_trigger is not None:
+                self._call(w.undo_trigger.start(self._emit_undo))
+                started.append(w.undo_trigger)
         except BaseException:
             for t in started:
                 self._stop_trigger(t)
@@ -430,7 +479,7 @@ class _HostRuntime:
             pass
 
     def _stop_triggers(self, w: _Wiring) -> None:
-        for t in (w.trigger, w.discard_trigger):
+        for t in (w.trigger, w.discard_trigger, w.undo_trigger):
             if t is not None:
                 self._stop_trigger(t)
 
@@ -445,6 +494,13 @@ class _HostRuntime:
 
     def discard(self) -> None:
         asyncio.run_coroutine_threadsafe(self._emit_discard(), self.loop)
+
+    def undo(self):
+        """The tray item's press: the same coroutine the undo hotkey runs."""
+        return asyncio.run_coroutine_threadsafe(self._emit_undo(), self.loop)
+
+    def undo_available(self) -> bool:
+        return self.wiring.pipeline.undo_available()
 
     def state(self) -> tuple[str, bool, str | None, str]:
         """`(like hotkey, discard enabled, discard hotkey, discard label)`.
@@ -682,11 +738,14 @@ def _run_resident_host() -> int:
         state=runtime.state,
         on_like=lambda _icon, _item: runtime.like(),
         on_discard=lambda _icon, _item: runtime.discard(),
+        on_undo=lambda _icon, _item: runtime.undo(),
+        undo_available=runtime.undo_available,
         on_settings=on_settings,
         on_toggle_autostart=on_toggle_autostart,
         on_open_log=on_open_log,
         on_quit=lambda _icon, _item: shutdown(),
     )
+    runtime.on_menu_change = icon.update_menu
 
     def _startup_notify():
         time.sleep(0.5)

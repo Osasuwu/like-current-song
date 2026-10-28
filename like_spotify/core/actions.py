@@ -44,3 +44,22 @@ class PostLikeAction(ABC):
 
     @abstractmethod
     async def run(self, ctx: LikeContext) -> None: ...
+
+    async def undo(self, ctx: LikeContext) -> None:
+        """Reverse what `run` did for this `ctx` (#270).
+
+        Called by `Pipeline.undo_last` with the same `ctx` object `run`
+        received, within the undo window, at most once, and in reverse
+        chain order. `run` should record what it actually changed in
+        `ctx.extras` (under a key of its own) so `undo` reverses exactly
+        that and nothing a press before it did. Called even when `run`
+        raised, so record each effect as it happens.
+
+        Raise to report a reverse that failed; the pipeline names the
+        action in the undo feedback. Not abstract, so an action written
+        before undo existed keeps working: the default raises
+        `NotImplementedError`, which the pipeline logs as "not undoable"
+        and does not count as a failure. Raise it yourself, with the
+        reason as the message, for an effect that cannot be taken back.
+        """
+        raise NotImplementedError(f"{type(self).__name__} has no undo")
