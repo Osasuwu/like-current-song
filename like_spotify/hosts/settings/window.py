@@ -97,6 +97,7 @@ class SettingsWindow:
 
         self.v_hotkey = tk.StringVar(value=s.hotkey)
         self.v_remove_hotkey = tk.StringVar(value=s.remove_hotkey)
+        self.v_undo_hotkey = tk.StringVar(value=s.undo_hotkey)
         self.v_volume = tk.IntVar(value=round(s.feedback_volume * 100))
         self.v_volume_label = tk.StringVar()
 
@@ -325,12 +326,14 @@ class SettingsWindow:
         box = self._section(parent, "Hotkeys")
         self._entry(box, "Like current track", self.v_hotkey, 0, width=28)
         self._entry(box, "Discard current track", self.v_remove_hotkey, 1, width=28)
+        self._entry(box, "Undo last like", self.v_undo_hotkey, 2, width=28)
         self._hint(
             box,
             "Keys joined with '+', e.g. ctrl+shift+alt+w. Discard dislikes the "
             "track on your music service (where that service has a dislike) and "
-            "takes it out of the archive playlist, if one is set.",
-            2,
+            "takes it out of the archive playlist, if one is set. Undo takes "
+            "back the last like for 10 seconds after it.",
+            3,
         )
         return box
 
@@ -650,6 +653,7 @@ class SettingsWindow:
             sheets_spreadsheet_id=self.v_sheet_id.get().strip(),
             hotkey=self.v_hotkey.get().strip(),
             remove_hotkey=self.v_remove_hotkey.get().strip(),
+            undo_hotkey=self.v_undo_hotkey.get().strip(),
             feedback_volume=int(float(self.v_volume.get())) / 100,
             archive_enabled=self.v_archive_on.get(),
             archive_playlist=self.v_archive_name.get().strip(),
@@ -730,6 +734,8 @@ def _keyboard_problems(s: model.Settings) -> list[str]:
     combos = [("Like hotkey", s.hotkey)]
     if s.remove_hotkey.strip():
         combos.append(("Discard hotkey", s.remove_hotkey))
+    if s.undo_hotkey.strip():
+        combos.append(("Undo hotkey", s.undo_hotkey))
     problems = []
     for label, combo in combos:
         try:

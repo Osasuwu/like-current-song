@@ -35,6 +35,14 @@ happening, and they are the same three the Android half runs (#193/#201):
   both read "no row yet" and both append one.
 * A tab that already holds two rows for one pair resolves to the
   **topmost** of them, and the spare is reported, never deleted.
+
+Undo (#270) takes back the latest increment this instance made for a pair,
+once. It re-reads the tab first, so a press the phone made in between is
+kept: an update is undone by writing one less than the count the sheet holds
+*now*, and an append by blanking the row it made — but only while that row
+still holds the count it was seeded with. A row another device has added to
+since is left alone, with an error. `updated_at` is not rolled back, and a
+blanked row stays in the tab as an empty line, skipped by every reader.
 """
 
 from __future__ import annotations
@@ -65,6 +73,7 @@ from .schema import (
     HEADER_ROW,
     SPREADSHEET_TITLE,
     UPDATED_AT_COLUMN,
+    column_of,
     create_request_body,
 )
 
@@ -127,11 +136,17 @@ class GoogleSheetsStorage(Storage):
         # header row, so the first data row is index 2.
         self._row_index: dict[tuple[str, str], int] | None = None
         self._count_cache: dict[tuple[str, str], int] = {}
+        # The lowest row holding any value, as of the last full read (#278).
+        self._last_data_row = 1
         # #26 — distinct (user, artist, track) triples seen.
         self._artist_seen: set[tuple[str, str, str]] | None = None
         # Pairs already named as duplicated, so a sheet that carries one is
         # reported once and not on every press (#202).
         self._reported_duplicates: set[tuple[str, str]] = set()
+        # #270 — what the latest increment of each pair did, so
+        # `undo_increment` reverses exactly that once: `_UPDATED`, or the
+        # count an append seeded. Popped by the undo, even one that fails.
+        self._last_increment: dict[tuple[str, str], int] = {}
         # The read-then-write round trip is serialized here, and the caches
         # above are only touched under it.
         #
@@ -162,6 +177,11 @@ class GoogleSheetsStorage(Storage):
     async def get_count(self, user_id: str, track: CurrentTrack) -> int:
         return await asyncio.to_thread(
             self._get_count_sync, user_id, track.provider_track_id
+        )
+
+    async def undo_increment(self, user_id: str, track: CurrentTrack) -> int:
+        return await asyncio.to_thread(
+            self._undo_increment_sync, user_id, track.provider_track_id
         )
 
     async def record_artist_track(
@@ -236,6 +256,10 @@ class GoogleSheetsStorage(Storage):
                 counts[key] = 0
         self._row_index = index
         self._count_cache = counts
+        self._last_data_row = max(
+            (n for n, row in enumerate(rows, start=1) if any(c != "" for c in row)),
+            default=1,
+        )
         for key, spares in duplicates.items():
             self._report_duplicate(key, index[key], spares)
 
@@ -311,12 +335,14 @@ class GoogleSheetsStorage(Storage):
                 [[now]],
             )
             self._count_cache[key] = new_count
+            self._last_increment[key] = _UPDATED
             return new_count
 
         # APPEND new row. Backfill flag honoured on this first encounter.
         new_count = 2 if was_already_liked else 1
         row = [user_id, track_id, new_count, "TRUE" if was_already_liked else "FALSE", now]
         appended_index = self._values_append(row)
+        self._last_increment[key] = new_count
         # A range that could not be read is no row at all, so it is not
         # cached: row 0 would send the next like to `C0`. Leaving the pair
         # out means the next like re-reads the tab, finds the row this call
@@ -325,6 +351,56 @@ class GoogleSheetsStorage(Storage):
             self._row_index[key] = appended_index
             self._count_cache[key] = new_count
         return new_count
+
+    def _undo_increment_sync(self, user_id: str, track_id: str) -> int:
+        key = (user_id, track_id)
+        with self._lock:
+            seeded = self._last_increment.pop(key, None)
+            if seeded is None:
+                raise LookupError(f"no increment of {track_id} to undo")
+            # The phone or a second desktop may have pressed since: read the
+            # count the sheet holds now, not the one this instance last saw.
+            self._invalidate()
+            self._ensure_loaded()
+            assert self._row_index is not None
+            row_no = self._row_index.get(key)
+            if row_no is None:
+                raise RuntimeError(f"the counter row for {track_id} is gone")
+            count = self._count_cache.get(key, 0)
+
+            if seeded == _UPDATED:
+                # The floor is 0, as on the phone: its undo (#272) leaves a
+                # row it created at 0, and a like of that row here is 0 -> 1
+                # (#278 S6).
+                if count < 1:
+                    raise RuntimeError(
+                        f"the counter for {track_id} changed since the like "
+                        f"(it reads {count}); left as it is"
+                    )
+                self._values_update(
+                    f"{self._sheet}!{COUNT_COLUMN}{row_no}:{COUNT_COLUMN}{row_no}",
+                    [[count - 1]],
+                )
+                self._count_cache[key] = count - 1
+                return count - 1
+
+            if count != seeded:
+                raise RuntimeError(
+                    f"the counter for {track_id} changed since the like "
+                    f"(another device pressed?); left as it is"
+                )
+            if row_no != self._last_data_row:
+                # A blank row inside the table can split it, so the next
+                # `values.append` may insert above rows other devices have
+                # cached by number (#278 S4). Only the last row is safe.
+                raise RuntimeError(
+                    f"another row was added below it since the like; the "
+                    f"counter for {track_id} is left as it is"
+                )
+            self._values_clear(f"{self._sheet}!A{row_no}:{_LAST_COLUMN}{row_no}")
+            del self._row_index[key]
+            self._count_cache.pop(key, None)
+            return 0
 
     def _get_count_sync(self, user_id: str, track_id: str) -> int:
         with self._lock:
@@ -401,6 +477,19 @@ class GoogleSheetsStorage(Storage):
         if r.status_code >= 400:
             raise RuntimeError(f"sheets update {r.status_code}: {r.text}")
 
+    def _values_clear(self, range_a1: str) -> None:
+        r = requests.post(
+            f"{API_BASE}/{self._sid}/values/{range_a1}:clear",
+            headers=self._headers(),
+            json={},
+            timeout=self._timeout,
+        )
+        if r.status_code >= 500:
+            raise TransientError(f"sheets clear 5xx: {r.status_code}")
+        _raise_if_api_disabled(r)
+        if r.status_code >= 400:
+            raise RuntimeError(f"sheets clear {r.status_code}: {r.text}")
+
     def _values_append(self, row: list) -> int:
         """Append one row to the primary Likes sheet; return the 1-based
         row index it landed on."""
@@ -428,6 +517,13 @@ class GoogleSheetsStorage(Storage):
 
 
 # ── Module-level helpers ─────────────────────────────────────────────────
+
+
+# `_last_increment` value for an increment that updated an existing row; an
+# append stores the count it seeded instead, which is always 1 or 2.
+_UPDATED = 0
+# The row an undone append blanks runs across the whole header.
+_LAST_COLUMN = column_of(HEADER_ROW, HEADER_ROW[-1])
 
 
 def _raise_if_api_disabled(r) -> None:

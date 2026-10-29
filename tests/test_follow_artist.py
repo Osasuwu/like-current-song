@@ -65,6 +65,10 @@ class FakeSpotifyProvider(SpotifyMusicProvider):
             raise RuntimeError("503 from the follow endpoint")
         self.follow_calls.append(artist_id)
 
+    async def is_following_artist(self, artist_id: str) -> bool:
+        # The real method would call Spotify with the token above (#270).
+        return False
+
 
 def _track(track_id: str, artist_ids: tuple[str, ...] = ("art1",)) -> CurrentTrack:
     return CurrentTrack(

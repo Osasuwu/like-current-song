@@ -378,3 +378,91 @@ async def test_dislike_surfaces_rate_limits(monkeypatch, tmp_path) -> None:
         await p.dislike(_track())
 
     assert len(calls) == 1
+
+
+# ── unlike / is_following_artist / unfollow_artist (#270) ────────────
+
+
+def test_spotify_provider_can_undo_a_like_and_a_follow(tmp_path) -> None:
+    from like_spotify.core.music_provider import (
+        UnfollowCapableProvider,
+        UnlikeCapableProvider,
+    )
+
+    p = _provider(tmp_path)
+    assert isinstance(p, UnlikeCapableProvider)
+    assert isinstance(p, UnfollowCapableProvider)
+
+
+@pytest.mark.asyncio
+async def test_unlike_deletes_the_track_from_the_library(monkeypatch, tmp_path) -> None:
+    calls = _record(monkeypatch, "delete", lambda url: FakeResponse(status_code=200))
+
+    await _provider(tmp_path).unlike(_track("trk-42"))
+
+    assert len(calls) == 1
+    assert calls[0]["url"].endswith("/me/library")
+    assert calls[0]["params"] == {"uris": "spotify:track:trk-42"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body,expected", [([True], True), ([False], False)])
+async def test_is_following_artist_asks_the_library(
+    monkeypatch, tmp_path, body, expected
+) -> None:
+    calls = _record(
+        monkeypatch, "get", lambda url: FakeResponse(status_code=200, json_body=body)
+    )
+
+    assert await _provider(tmp_path).is_following_artist("art-7") is expected
+    assert calls[-1]["url"].endswith("/me/library/contains")
+    assert calls[-1]["params"] == {"uris": "spotify:artist:art-7"}
+
+
+@pytest.mark.asyncio
+async def test_is_following_artist_falls_back_to_the_legacy_endpoint(
+    monkeypatch, tmp_path
+) -> None:
+    def respond(url):
+        if url.endswith("/me/library/contains"):
+            return FakeResponse(status_code=404, text="not found")
+        return FakeResponse(status_code=200, json_body=[True])
+
+    calls = _record(monkeypatch, "get", respond)
+
+    assert await _provider(tmp_path).is_following_artist("art-7") is True
+    assert [c["url"].rsplit("/v1", 1)[-1] for c in calls] == [
+        "/me/library/contains",
+        "/me/following/contains",
+    ]
+    assert calls[-1]["params"] == {"type": "artist", "ids": "art-7"}
+
+
+@pytest.mark.asyncio
+async def test_unfollow_artist_deletes_through_the_library(
+    monkeypatch, tmp_path
+) -> None:
+    calls = _record(monkeypatch, "delete", lambda url: FakeResponse(status_code=200))
+
+    await _provider(tmp_path).unfollow_artist("art-7")
+
+    assert len(calls) == 1
+    assert calls[0]["url"].endswith("/me/library")
+    assert calls[0]["params"] == {"uris": "spotify:artist:art-7"}
+
+
+@pytest.mark.asyncio
+async def test_unfollow_artist_falls_back_to_the_legacy_endpoint(
+    monkeypatch, tmp_path
+) -> None:
+    def respond(url):
+        if url.endswith("/me/library"):
+            return FakeResponse(status_code=403, text="forbidden")
+        return FakeResponse(status_code=200)
+
+    calls = _record(monkeypatch, "delete", respond)
+
+    await _provider(tmp_path).unfollow_artist("art-7")
+
+    assert calls[-1]["url"].endswith("/me/following")
+    assert calls[-1]["params"] == {"type": "artist", "ids": "art-7"}
