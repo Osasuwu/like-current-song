@@ -567,7 +567,9 @@ class SpotifyLikeWorker(
                 // copy: BestPromotion holds that rule and its tests (#245).
                 var bestId: String? = null
                 var addResult: ApiResult? = null
-                val outcome = BestPromotion.run(
+                // Only the press that promoted the track hands the undo a
+                // best leg; one that found it already there leaves it (#273).
+                val outcome = BestPromotion.runJournalled(
                     prefs,
                     trackCount,
                     ruleConfig.bestThreshold,
@@ -588,6 +590,8 @@ class SpotifyLikeWorker(
                             result.success
                         }
                     },
+                    playlistId = { bestId },
+                    journal = ::journal,
                 )
                 when (outcome) {
                     BestPromotion.Outcome.NOT_DUE -> Unit
@@ -616,9 +620,6 @@ class SpotifyLikeWorker(
                         httpCode = addResult?.statusCode
                     )
                 }
-                // Only the press that promoted the track hands the undo a
-                // best leg; one that found it already there leaves it (#273).
-                BestPromotion.undoLeg(outcome, bestId)?.let { journal(it) }
             }.onFailure {
                 log(
                     "Best promotion failed: ${it.message}",
@@ -641,12 +642,7 @@ class SpotifyLikeWorker(
             // when there is one, else this device's -- never likes (#243).
             // A track this press added to the artist's tally is handed to
             // the undo; one the tally already held is not (#273).
-            val artistCount = LocalCounters.artistFollowCount(
-                prefs,
-                artistId,
-                track.id,
-                onAdded = { journal(UndoLeg.ArtistTrack(artistId)) },
-            ) {
+            val artistCount = ArtistFollowing.trackCount(prefs, artistId, track.id, ::journal) {
                 sharedArtistTrackCount(prefs, token, artistId, track.id)
             }
             val shouldFollow = LocalCounters.shouldFollow(
@@ -668,10 +664,10 @@ class SpotifyLikeWorker(
                         result = "info"
                     )
                 }
-                val result = followArtist(artistId, token)
+                val result = ArtistFollowing.follow(prefs, artistId, wasFollowing, ::journal) {
+                    followArtist(artistId, token)
+                }
                 if (result.success) {
-                    LocalCounters.markArtistFollowed(prefs, artistId)
-                    journal(UndoLeg.ArtistFollow(artistId, alreadyFollowed = wasFollowing != false))
                     log(
                         "Auto-followed artist: $artistId",
                         actionType = "follow_artist",
@@ -789,9 +785,7 @@ class SpotifyLikeWorker(
     ): Int? {
         getCurrentUserId(prefs, token)
         val target = LikeCounter.target(prefs, MusicProvider.SPOTIFY) ?: return null
-        val outcome = LikeCounter.recordArtistTrack(prefs, target, artistId, trackId) {
-            journal(UndoLeg.ArtistTrackRow(artistId, target))
-        }
+        val outcome = ArtistFollowing.sheetTrackCount(prefs, target, artistId, trackId, ::journal)
         outcome.count?.let { return it }
         log(
             "Artist like counted on this device only: ${outcome.failure}",

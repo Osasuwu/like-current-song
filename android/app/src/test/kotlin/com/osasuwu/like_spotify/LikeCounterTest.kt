@@ -336,4 +336,36 @@ class LikeCounterTest {
         assertNull(LikeCounter.artistTrackRow("""{"values":[["me","a","t1","created_at"]]}""", "me", "a", "t1"))
         assertNull(LikeCounter.artistTrackRow(null, "me", "a", "t1"))
     }
+
+    // ---- clearArtistTrack (#273, #282) -------------------------------------------------
+
+    @Test
+    fun `undoing an artist tally row sends one clear for that row's cells and nothing else`() {
+        val sheet = FakeSheet { method, _ ->
+            if (method == "GET") FakeSheet.Reply(200, artistTab) else FakeSheet.Reply(200, "{}")
+        }
+
+        val failure = LikeCounter.clearArtistTrack(
+            FakeSheet.signedInPrefs(),
+            LikeCounter.Target("sheet-1", "me"),
+            "artist-a",
+            "t2",
+            connect = sheet::open,
+        )
+
+        assertNull(failure)
+        // (me, artist-a, t2) is row 3 of artistTab: values.clear on ArtistTracks!A3:D3,
+        // URL-encoded, with an empty JSON body (Sheets API v4).
+        assertEquals(
+            listOf(
+                FakeSheet.Request("GET", "https://sheets.googleapis.com/v4/spreadsheets/sheet-1/values/ArtistTracks", ""),
+                FakeSheet.Request(
+                    "POST",
+                    "https://sheets.googleapis.com/v4/spreadsheets/sheet-1/values/ArtistTracks%21A3%3AD3:clear",
+                    "{}",
+                ),
+            ),
+            sheet.requests,
+        )
+    }
 }
