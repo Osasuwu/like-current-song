@@ -10,9 +10,10 @@ Two halves that share Spotify state and a cross-device like counter:
 - **Desktop** (Python, `like_spotify/`) — a *pluggable framework* with five
   extension points (`Trigger`, `MusicProvider`, `Storage`, `PreLikeAction`,
   `PostLikeAction`). Each extension is a folder under `extensions/` with a
-  `manifest.json`, wired in by a builder function + a registry entry in
-  `hosts/_common.py`. The manifest is metadata only — nothing reads it at
-  runtime, and automatic discovery is #144; don't describe it as shipped.
+  `manifest.json`; `hosts/_extensions.py` discovers them from those
+  manifests at startup (#144). The registries in `hosts/_common.py` are
+  the fallback for the shipped extensions, whose construction isn't
+  declarative (OAuth, legacy config keys, the cooldown pair).
   Default flavor: Windows tray host + global hotkey; `_stub.py` CLI fallback
   on macOS/Linux.
 

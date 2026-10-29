@@ -129,15 +129,42 @@ The one exception is `like_cooldown`, which is a *pair* of actions (a
 `PreLikeAction` gate and a `PostLikeAction` recorder sharing one store) and
 so exports `build_like_cooldown()` returning both instead.
 
-**There is no automatic discovery yet.** A host picks your extension up
-because someone imported it and registered its factory in
-`like_spotify/hosts/_common.py` — one builder function and one entry in
-the matching registry (`_STORAGE_BUILDERS`, `PROVIDER_BUILDERS`,
-`_ACTION_EXTENSION_BUILDERS`). That is the whole wiring cost, and the
-checklist below walks it. Scanning `extensions/` for manifests and
-loading them without that edit is [#144](https://github.com/Osasuwu/like-current-song/issues/144);
-the manifest shape here is what that work will read, which is why it is
-worth filling in properly now.
+**Hosts discover extensions from their manifests** ([#144](https://github.com/Osasuwu/like-current-song/issues/144)).
+At startup `like_spotify/hosts/_extensions.py` reads every
+`like_spotify/extensions/*/manifest.json` (folders starting with `_` or
+`.` are skipped). A manifest that is missing, unreadable, not valid JSON
+or fails validation costs that one folder a one-line note on stderr,
+never a crash. So does a second folder that reuses a taken `domain` or
+config key. A new folder with a valid manifest is picked up without
+touching `hosts/_common.py`:
+
+- **`music_provider`** is used when `music.provider` in `config.json`
+  equals its config key.
+- **`storage`** is used when `storage.backend` equals its config key.
+- **`pre_like_action` / `post_like_action`** run on every like, after the
+  shipped ones, unless their `actions.<key>` block sets
+  `"enabled": false`.
+- **`trigger`** is listed but not built: each host owns its trigger (the
+  tray hotkey on Windows, the one-shot CLI on the stub).
+
+The config key is the manifest's optional `config_key`, defaulting to
+`domain`. The factory is called with the extension's config block as
+keyword arguments: `cfg[<key>]` for a provider or backend,
+`cfg["actions"][<key>]` for an action, with `enabled` removed. It also
+gets `config_dir` (the folder `config.json` lives in) and, for an action,
+`storage` (the counter backend, or `None`) when its signature names
+them. A factory that raises, or returns something that is not the
+extension point's ABC, is skipped with a note.
+
+The shipped extensions are still built by hand-written builders in
+`_common.py` (`_STORAGE_BUILDERS`, `PROVIDER_BUILDERS`,
+`_ACTION_EXTENSION_BUILDERS`). Those builders handle what a manifest
+can't declare: OAuth token files, legacy config spellings, and
+`like_cooldown`'s gate/recorder pair. They are the fallback for that
+kind of construction, and they win over a discovered extension with the
+same key. The `--setup` wizard and the Settings window offer only the
+shipped services and backends. A discovered one is configured by editing
+`config.json`, and the Settings window keeps it when it saves.
 
 Example manifest:
 
@@ -154,12 +181,16 @@ Example manifest:
 }
 ```
 
-`stage` is one of `experimental | beta | stable | deprecated`, and it
-is documentation, not something enforced at runtime — nothing reads the
-manifest yet (see above). `requirements` is pip-compatible; resolving it
-at first enable is part of [#144](https://github.com/Osasuwu/like-current-song/issues/144),
-so for now declare a dependency there **and** say so in your extension's
-README.
+Discovery needs `domain`, `extension_point`, `name` and `stage`;
+`domain` (and `config_key`, if set) must be Python identifiers. `stage`
+is one of `experimental | beta | stable | deprecated`. It is shown, not
+enforced: `like-current-song --config` lists every installed extension
+with its extension point and stage. `requirements` is pip-compatible. A
+requirement that doesn't parse rejects the manifest. One that isn't met
+(not installed, or the wrong version) is named once on stderr and in the
+`--config` listing, but the extension is still loaded. Nothing installs
+it for you, so also say so in your extension's README. A frozen
+(PyInstaller) build ships no package metadata, so it skips the check.
 
 ### 1. `Trigger` — emit a like intent
 
@@ -495,13 +526,16 @@ will simply leave that leg out.
    `domain`, `extension_point`, `name`, `description`,
    `codeowners`, `requirements`, and `stage`.
 3. Register the manifest in `pyproject.toml`'s
-   `[tool.setuptools.package-data]` block so it ships in the wheel.
-4. If the extension needs configuration, prompt for it in
-   `like_spotify/hosts/_setup.py::do_setup` (the wizard) and read it
-   from `cfg` in a `_build_*` helper registered in `_common.py`'s
-   `_STORAGE_BUILDERS` (storage backends) or `_ACTION_EXTENSION_BUILDERS`
-   (pre/post-like actions) — adding an extension is one function + one
-   registry entry, not a new `if`/`elif` branch.
+   `[tool.setuptools.package-data]` block so it ships in the wheel —
+   discovery reads it at runtime, and a test fails if one is missing.
+4. Configuration comes from `config.json` as keyword arguments to your
+   factory (see *Anatomy of an extension*), so a declarative extension
+   needs no edit to `hosts/_common.py`. Only when construction can't be
+   expressed that way (an OAuth flow, a legacy config spelling, one
+   factory serving two extension points) write a `_build_*` helper and
+   register it in `_common.py`'s `_STORAGE_BUILDERS`,
+   `PROVIDER_BUILDERS` or `_ACTION_EXTENSION_BUILDERS`. To prompt for it
+   in the wizard, extend `like_spotify/hosts/_setup.py::do_setup`.
 5. Tests under `tests/`. For `Storage`, drop your fixture into the
    parametrised contract suite (`tests/test_storage_contract.py`). For
    everything else, small async unit tests against the interface +

@@ -30,8 +30,8 @@ hiddenimports += [
     "winrt.windows.media.control",
 ]
 
-# Metadata only, nothing reads it at runtime; shipped so the bundle mirrors
-# the wheel.
+# Read at startup to discover extensions (#144): an extension whose
+# manifest is missing from the bundle is not loaded.
 datas = collect_data_files("like_spotify", includes=["**/manifest.json"])
 
 # The file icon is the tray logo at 256 px, drawn from the same code, so there

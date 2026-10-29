@@ -28,6 +28,16 @@ you sign in from its Settings window.
   covered: likes made with the app open, YouTube Music, the like counters
   (#272), and the best playlist and auto-follow (#273). Copies put back in the
   archive go to its end.
+- **Desktop: extensions are discovered from their `manifest.json` (#144).** A
+  new folder under `like_spotify/extensions/` with a valid manifest is loaded
+  at startup by the Windows host and the CLI stub, with no edit to the host
+  code. A music provider or counter backend is selected by name in
+  `config.json`, and an extra action runs unless its block sets
+  `"enabled": false`. A broken manifest skips that one folder with a one-line
+  note. An unmet requirement is named but does not stop the extension.
+  `like-current-song --config` now lists every extension with its stage, and
+  the Settings window keeps a discovered provider or backend when it saves.
+  The desktop package now depends on `packaging`.
 
 ### Changed
 

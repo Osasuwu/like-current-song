@@ -557,3 +557,56 @@ def test_config_listing_names_unmet_requirements(fake_root, cfg_dir, capsys) -> 
     assert _listing(capsys.readouterr().out) == [
         f"  Record (record, post_like_action, stable); needs {_ABSENT}>=1 (not installed)",
     ]
+
+
+# ── Slice 6: the Settings window keeps a discovered provider and backend ──
+# The window offers only the shipped names. A config selecting a dropped-in
+# one must still open, validate and save without losing that selection.
+
+
+def _error_fields(s) -> set[str]:
+    from like_spotify.hosts.settings import model
+
+    return {issue.field for issue in model.validate(s).errors}
+
+
+def test_settings_window_accepts_a_discovered_provider(fake_root, cfg_dir) -> None:
+    from like_spotify.hosts.settings import model
+
+    fake_root.add("fakeprov", _manifest(domain="fakeprov", extension_point="music_provider"), _PROVIDER_SRC)
+
+    s = model.settings_from_config({"music": {"provider": "fakeprov"}, "fakeprov": {"user": "u"}})
+
+    assert s.provider == "fakeprov"
+    assert "provider" not in _error_fields(s)
+
+
+def test_settings_window_save_keeps_a_discovered_storage_backend(fake_root, cfg_dir) -> None:
+    from dataclasses import replace
+
+    from like_spotify.hosts.settings import model
+
+    fake_root.add(
+        "fake_store",
+        _manifest(domain="fake_store", extension_point="storage", config_key="fakedb"),
+        _STORAGE_SRC,
+    )
+    cfg = {"music": {"provider": "ytmusic"}, "storage": {"backend": "fakedb"}, "fakedb": {"path": "x.db"}}
+
+    loaded = model.settings_from_config(cfg)
+    out = model.apply_settings(cfg, replace(loaded, feedback_volume=0.25), baseline=loaded)
+
+    assert loaded.storage_backend == "fakedb"
+    assert "storage_backend" not in _error_fields(loaded)
+    assert out["storage"]["backend"] == "fakedb"
+    assert out["fakedb"] == {"path": "x.db"}
+
+
+def test_settings_window_still_rejects_a_name_no_extension_has(fake_root, cfg_dir) -> None:
+    from dataclasses import replace
+
+    from like_spotify.hosts.settings import model
+
+    s = replace(model.settings_from_config({}), provider="nosuch", storage_backend="nosuch")
+
+    assert {"provider", "storage_backend"} <= _error_fields(s)
