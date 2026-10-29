@@ -122,6 +122,15 @@ def test_scan_ignores_private_and_cache_folders(fake_root, capsys) -> None:
         (_manifest(requirements="requests"), "'requirements' must be a list of strings"),
         (_manifest(requirements=["requests >>> 2"]), "invalid requirement 'requests >>> 2'"),
         (_manifest(config_key="a-b"), "'config_key' must be a Python identifier"),
+        # Round 2 (review of #284): inputs that used to escape as a crash.
+        (_manifest(extension_point=["storage"]), "'extension_point' must be one of"),
+        (_manifest(extension_point={"storage": 1}), "'extension_point' must be one of"),
+        pytest.param(
+            '{"domain": "x", "n": ' + "9" * 5000 + "}", "manifest.json is not valid JSON", id="huge-int"
+        ),
+        pytest.param("[" * 200_000 + "]" * 200_000, "manifest.json is not valid JSON", id="deep-nesting"),
+        (_manifest(extension_point="storage", config_key="music"), "'config_key' 'music' is reserved"),
+        (_manifest(domain="actions", extension_point="music_provider"), "'config_key' 'actions' is reserved"),
     ],
 )
 def test_bad_manifest_is_skipped_with_one_line_note(fake_root, capsys, manifest, reason) -> None:
@@ -134,6 +143,60 @@ def test_bad_manifest_is_skipped_with_one_line_note(fake_root, capsys, manifest,
     (note,) = _notes(capsys.readouterr().err)
     assert note["folder"] == "bad"
     assert note["reason"].startswith(reason), note["reason"]
+
+
+def test_an_unexpected_error_in_one_folder_is_a_note_and_the_rest_still_load(fake_root, capsys, monkeypatch) -> None:
+    """Defence in depth: whatever a manifest does to the parser, one folder
+    never stops the others from loading."""
+    real_parse = _extensions.parse_manifest
+
+    def parse(data, folder, package):
+        if folder == "bad":
+            raise RuntimeError("boom")
+        return real_parse(data, folder, package)
+
+    monkeypatch.setattr(_extensions, "parse_manifest", parse)
+    fake_root.add("bad", _manifest(domain="bad"))
+    fake_root.add("good", _manifest(domain="good"))
+
+    assert [e.folder for e in _extensions.scan(fake_root.root, fake_root.package)] == ["good"]
+    (note,) = _notes(capsys.readouterr().err)
+    assert (note["folder"], note["reason"]) == ("bad", "unexpected error: RuntimeError: boom")
+
+
+def test_one_bad_manifest_does_not_stop_the_host_building_its_chains(fake_root, cfg_dir, capsys) -> None:
+    """The review's startup repro: a list-valued extension_point used to
+    raise TypeError out of build_action_chains, so the host never started."""
+    from like_spotify.hosts import _common
+
+    fake_root.add("bad", _manifest(domain="bad", extension_point=["post_like_action"]))
+    fake_root.add("record", _manifest(domain="record", extension_point="post_like_action"), _POST_SRC)
+
+    _pre, post = _common.build_action_chains({}, None)
+
+    assert "Record" in [type(a).__name__ for a in post]
+    (note,) = _notes(capsys.readouterr().err)
+    assert note["folder"] == "bad"
+
+
+def test_manifest_saved_with_a_utf8_bom_loads(fake_root, capsys) -> None:
+    # Older Notepad saves "UTF-8" with a BOM; that is still a valid manifest.
+    d = fake_root.add("bom", None)
+    (d / "manifest.json").write_bytes(b"\xef\xbb\xbf" + json.dumps(_manifest(domain="bom")).encode("utf-8"))
+
+    assert [e.domain for e in _extensions.scan(fake_root.root, fake_root.package)] == ["bom"]
+    assert capsys.readouterr().err == ""
+
+
+def test_folder_whose_name_is_not_an_identifier_is_skipped_with_a_note(fake_root, capsys) -> None:
+    # The folder name becomes part of the import path: `a.b` would import
+    # a different module, and `my-ext` cannot be imported at all.
+    fake_root.add("my-ext", _manifest(domain="myext"))
+    fake_root.add("good", _manifest(domain="good"))
+
+    assert [e.folder for e in _extensions.scan(fake_root.root, fake_root.package)] == ["good"]
+    (note,) = _notes(capsys.readouterr().err)
+    assert (note["folder"], note["reason"]) == ("my-ext", "folder name must be a Python identifier")
 
 
 def test_unreadable_manifest_is_skipped_with_a_note(fake_root, capsys) -> None:
@@ -354,6 +417,35 @@ def test_build_storage_constructs_a_discovered_backend_by_its_config_key(fake_ro
     assert storage.path == "x.db"
 
 
+def test_discovered_storage_gets_the_folder_config_json_lives_in(fake_root, cfg_dir) -> None:
+    from like_spotify.hosts import _common
+
+    fake_root.add(
+        "dir_store",
+        _manifest(domain="dir_store", extension_point="storage", config_key="dirdb"),
+        _STORAGE_SRC.replace("def STORAGE(path):", "def STORAGE(path, config_dir):").replace(
+            "s.path = path", "s.path = path\n    s.config_dir = config_dir"
+        ),
+    )
+
+    storage = _common.build_storage({"storage": {"backend": "dirdb"}, "dirdb": {"path": "x.db"}})
+
+    assert storage.config_dir == cfg_dir
+
+
+def test_discovered_storage_returning_the_wrong_kind_of_object_is_none_with_a_note(fake_root, cfg_dir, capsys) -> None:
+    from like_spotify.hosts import _common
+
+    fake_root.add(
+        "wrong_store",
+        _manifest(domain="wrong_store", extension_point="storage"),
+        "def STORAGE():\n    return 'not a storage'\n",
+    )
+
+    assert _common.build_storage({"storage": {"backend": "wrong_store"}}) is None
+    assert "extension 'wrong_store' could not be built: STORAGE returned str, not Storage" in capsys.readouterr().err
+
+
 def test_build_action_chains_appends_discovered_actions_after_the_shipped_ones(fake_root, cfg_dir) -> None:
     from like_spotify.hosts import _common
 
@@ -496,6 +588,25 @@ def test_met_requirements_and_ones_for_another_platform_are_not_problems() -> No
     ext = _ext("pytest>=1", f"{_ABSENT}>=1; sys_platform == 'no-such-os'")
 
     assert _extensions.requirement_problems(ext) == []
+
+
+def test_an_installed_version_that_is_not_pep440_is_a_problem_not_a_crash(monkeypatch) -> None:
+    # packaging 23.0 (the declared floor) raises InvalidVersion from
+    # SpecifierSet.contains on such a version; newer releases return False.
+    monkeypatch.setattr(_extensions.metadata, "version", lambda name: "2.0-custom-build_x")
+
+    ext = _ext("somepkg>=1")
+
+    assert _extensions.requirement_problems(ext) == [
+        "somepkg>=1 (found 2.0-custom-build_x, not a valid version)"
+    ]
+    assert _extensions.describe(ext).endswith("; needs somepkg>=1 (found 2.0-custom-build_x, not a valid version)")
+
+
+def test_an_installed_prerelease_inside_the_range_meets_the_requirement(monkeypatch) -> None:
+    monkeypatch.setattr(_extensions.metadata, "version", lambda name: "2.0rc1")
+
+    assert _extensions.requirement_problems(_ext("somepkg>=1")) == []
 
 
 def test_requirements_are_not_checked_in_a_frozen_build(monkeypatch) -> None:

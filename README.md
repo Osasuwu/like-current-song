@@ -20,7 +20,7 @@ At your computer, a **global keyboard shortcut** does the same thing: press `Ctr
 
 Open source (MIT). It talks to your music service through that service's official API, using a developer app you create yourself. There's no UI scraping, and your tokens stay on your devices.
 
-For developers: the desktop side is a **pluggable framework** with five extension points (`Trigger`, `MusicProvider`, `Storage`, `PreLikeAction`, `PostLikeAction`). Nine extensions ship across those five seams, plus one skeleton, each a folder under `like_spotify/extensions/` with a `manifest.json` describing it. Hosts discover them from those manifests at startup, so adding one is a new folder, with no edit to the host code. See [CONTRIBUTING.md](CONTRIBUTING.md).
+For developers: the desktop side is a **pluggable framework** with five extension points (`Trigger`, `MusicProvider`, `Storage`, `PreLikeAction`, `PostLikeAction`). Nine extensions ship across those five seams, plus one skeleton, each a folder under `like_spotify/extensions/` with a `manifest.json` describing it. Hosts discover them from those manifests at startup, so adding one is a new folder, with no edit to the host code (a wheel install also needs its manifest listed in `pyproject.toml`). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## How it works
 
@@ -633,7 +633,9 @@ good way to see the `Trigger` seam end to end.
 
 Each lives in its own folder under `like_spotify/extensions/` with a
 `manifest.json` describing it. The hosts read those manifests at startup, so
-a new folder with a valid manifest is picked up without editing the host code.
+a new folder with a valid manifest is picked up without editing the host code
+(to ship it in the wheel, also list the manifest in `pyproject.toml`'s
+package-data; see CONTRIBUTING).
 `like-current-song --config` lists what was found, with each extension's
 stage. Nothing in `core/` or the pipeline knows the names above.
 

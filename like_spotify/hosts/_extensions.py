@@ -21,6 +21,7 @@ from importlib import metadata
 from pathlib import Path
 
 from packaging.requirements import InvalidRequirement, Requirement
+from packaging.version import InvalidVersion, Version
 
 import like_spotify.extensions as _extensions_pkg
 
@@ -38,6 +39,10 @@ EXTENSION_POINTS: dict[str, str] = {
 }
 
 STAGES = ("stable", "beta", "experimental", "deprecated")
+
+# Top-level config.json blocks the hosts own. A provider or storage reads
+# `cfg[<config_key>]`, so it may not take one of these names.
+RESERVED_CONFIG_KEYS = frozenset({"music", "storage", "actions", "trigger", "like"})
 
 
 def _config_path(extension_point: str, key: str) -> str:
@@ -94,7 +99,7 @@ def parse_manifest(data: object, folder: str, package: str) -> Extension:
     domain = _identifier(data, "domain")
 
     point = data.get("extension_point")
-    if point not in EXTENSION_POINTS:
+    if not isinstance(point, str) or point not in EXTENSION_POINTS:
         raise ManifestError(
             f"'extension_point' must be one of {', '.join(EXTENSION_POINTS)}, got {point!r}"
         )
@@ -119,6 +124,8 @@ def parse_manifest(data: object, folder: str, package: str) -> Extension:
             raise ManifestError(f"invalid requirement {req!r}: {reason}") from None
 
     config_key = _identifier(data, "config_key") if "config_key" in data else domain
+    if point in ("music_provider", "storage") and config_key in RESERVED_CONFIG_KEYS:
+        raise ManifestError(f"'config_key' '{config_key}' is reserved for the host's own settings")
 
     description = data.get("description", "")
     return Extension(
@@ -158,12 +165,14 @@ def _read(folder: Path) -> object:
     if not path.exists():
         raise ManifestError("no manifest.json")
     try:
-        text = path.read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8-sig")  # Notepad may add a BOM
     except (OSError, UnicodeDecodeError) as e:
         raise ManifestError(f"cannot read manifest.json: {e}") from None
     try:
         return json.loads(text)
-    except json.JSONDecodeError as e:
+    # ValueError covers JSONDecodeError and an integer past Python's digit
+    # limit; RecursionError is deeply nested arrays or objects.
+    except (ValueError, RecursionError) as e:
         raise ManifestError(f"manifest.json is not valid JSON: {e}") from None
 
 
@@ -185,10 +194,17 @@ def scan(root: Path, package: str) -> list[Extension]:
     for folder in folders:
         if folder.name.startswith(("_", ".")):
             continue
+        if not folder.name.isidentifier():
+            # It becomes part of the import path: `a.b` would import another module.
+            _skip(folder.name, "folder name must be a Python identifier")
+            continue
         try:
             ext = parse_manifest(_read(folder), folder.name, package)
         except ManifestError as e:
             _skip(folder.name, str(e))
+            continue
+        except Exception as e:  # one folder must never stop the rest loading
+            _skip(folder.name, f"unexpected error: {type(e).__name__}: {e}")
             continue
         if ext.domain in domains:
             _skip(folder.name, f"domain '{ext.domain}' is already used by '{domains[ext.domain]}'")
@@ -240,6 +256,12 @@ def requirement_problems(ext: Extension) -> list[str] | None:
             found = metadata.version(req.name)
         except metadata.PackageNotFoundError:
             problems.append(f"{text} (not installed)")
+            continue
+        try:
+            Version(found)
+        except InvalidVersion:
+            # packaging 23.x raises from `contains` on such a version.
+            problems.append(f"{text} (found {found}, not a valid version)")
             continue
         if not req.specifier.contains(found, prereleases=True):
             problems.append(f"{text} (found {found})")

@@ -132,10 +132,12 @@ so exports `build_like_cooldown()` returning both instead.
 **Hosts discover extensions from their manifests** ([#144](https://github.com/Osasuwu/like-current-song/issues/144)).
 At startup `like_spotify/hosts/_extensions.py` reads every
 `like_spotify/extensions/*/manifest.json` (folders starting with `_` or
-`.` are skipped). A manifest that is missing, unreadable, not valid JSON
+`.` are skipped; the folder name must be a Python identifier, since it is
+the import path). A manifest that is missing, unreadable, not valid JSON
 or fails validation costs that one folder a one-line note on stderr,
-never a crash. So does a second folder that reuses a taken `domain` or
-config key. A new folder with a valid manifest is picked up without
+never a crash, and the other folders still load. So does a second folder
+that reuses a taken `domain` or config key. A UTF-8 byte-order mark is
+accepted. A new folder with a valid manifest is picked up without
 touching `hosts/_common.py`:
 
 - **`music_provider`** is used when `music.provider` in `config.json`
@@ -148,7 +150,8 @@ touching `hosts/_common.py`:
   tray hotkey on Windows, the one-shot CLI on the stub).
 
 The config key is the manifest's optional `config_key`, defaulting to
-`domain`. The factory is called with the extension's config block as
+`domain`. A provider or backend may not use one of the host's own
+top-level blocks (`music`, `storage`, `actions`, `trigger`, `like`). The factory is called with the extension's config block as
 keyword arguments: `cfg[<key>]` for a provider or backend,
 `cfg["actions"][<key>]` for an action, with `enabled` removed. It also
 gets `config_dir` (the folder `config.json` lives in) and, for an action,
