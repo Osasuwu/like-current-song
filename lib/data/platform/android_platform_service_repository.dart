@@ -8,6 +8,7 @@ import '../../domain/entities/music_provider.dart';
 import '../../domain/entities/music_routing.dart';
 import '../../domain/entities/rule_config.dart';
 import '../../domain/entities/trigger_config.dart';
+import '../../domain/entities/undo_window.dart';
 import '../../domain/repositories/platform_service_repository.dart';
 
 class AndroidPlatformServiceRepository implements PlatformServiceRepository {
@@ -174,6 +175,34 @@ class AndroidPlatformServiceRepository implements PlatformServiceRepository {
       ));
     }
     return logs;
+  }
+
+  @override
+  Future<UndoWindow?> undoWindow() async {
+    try {
+      return UndoWindow.fromChannel(
+        await _methodChannel.invokeMethod<Object?>('getUndoWindow'),
+      );
+    } on PlatformException {
+      // No window is the safe reading: the button stays hidden, and the
+      // gesture and the notification action still undo.
+      return null;
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
+  @override
+  Future<UndoTapResult> undoLike(String pressId) async {
+    final result = await _methodChannel.invokeMethod<String>(
+      'undoLike',
+      <String, dynamic>{'pressId': pressId},
+    );
+    return switch (result) {
+      'UNDO' => UndoTapResult.undo,
+      'ALREADY_UNDOING' => UndoTapResult.alreadyUndoing,
+      _ => UndoTapResult.tooLate,
+    };
   }
 
   @override

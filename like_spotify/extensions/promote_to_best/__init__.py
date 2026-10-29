@@ -23,6 +23,11 @@ Two things keep the 4th, 5th… like from adding the track again:
   the playlist, because both providers accept duplicates. Found already
   there, it is only remembered.
 
+Undo (#270) takes the track back out of the playlist only when this press
+added it, and forgets it only when this press remembered it — so the next
+like at the threshold promotes it again, and a track that was already in
+the playlist stays there.
+
 The trigger uses `ctx.like_count` (populated by the Pipeline from the last
 `Storage.increment` call). Runs against any provider that speaks
 `PlaylistCapableProvider` (Spotify, YouTube Music); others are a silent
@@ -43,6 +48,10 @@ from like_spotify.core.types import LikeContext
 DOMAIN = "promote_to_best"
 DEFAULT_THRESHOLD = 3
 DEFAULT_PLAYLIST_NAME = "Best of the best of the best"
+# `ctx.extras` keys: (track_id, playlist_id) this press added, and the
+# promoted-memory key this press wrote.
+_ADDED = "promote_to_best.added"
+_REMEMBERED = "promote_to_best.remembered"
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +77,16 @@ class _PromotedStore:
         state.add(key)
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
+            self._path.write_text(json.dumps(sorted(state)), encoding="utf-8")
+        except OSError:
+            logger.warning("promote-to-best: failed to persist state to %s", self._path)
+
+    def discard(self, key: str) -> None:
+        state = self._load()
+        if key not in state:
+            return
+        state.discard(key)
+        try:
             self._path.write_text(json.dumps(sorted(state)), encoding="utf-8")
         except OSError:
             logger.warning("promote-to-best: failed to persist state to %s", self._path)
@@ -119,6 +138,7 @@ class PromoteToBestAction(PostLikeAction):
             members = await provider.get_playlist_track_ids(self._playlist_id)
             if track_id not in members:
                 await provider.add_track_to_playlist(track_id, self._playlist_id)
+                ctx.extras[_ADDED] = (track_id, self._playlist_id)
         except AuthError as e:
             logger.warning(
                 "promote-to-best unauthorized (%s) — re-run "
@@ -130,6 +150,18 @@ class PromoteToBestAction(PostLikeAction):
             logger.warning("promote-to-best failed: %s", e)
             return
         self._promoted.add(promoted_key)
+        ctx.extras[_REMEMBERED] = promoted_key
+
+    async def undo(self, ctx: LikeContext) -> None:
+        added = ctx.extras.get(_ADDED)
+        if added is not None:
+            provider = ctx.music_provider
+            assert isinstance(provider, PlaylistCapableProvider)
+            track_id, playlist_id = added
+            await provider.remove_track_from_playlist(track_id, playlist_id)
+        remembered = ctx.extras.get(_REMEMBERED)
+        if remembered is not None:
+            self._promoted.discard(str(remembered))
 
 
 def POST_LIKE_ACTION(

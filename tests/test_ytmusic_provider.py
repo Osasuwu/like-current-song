@@ -770,6 +770,8 @@ async def test_follow_artist_action_subscribes_at_threshold(
     provider = YouTubeMusicProvider(token_path=token_path, now_playing=_reader(None))
     provider._token_provider = lambda: "test-token"
     http = FakeHttp(monkeypatch, {
+        # The already-subscribed check before the follow (#270).
+        ("GET", "subscriptions"): [FakeResponse(200, {"items": []})],
         ("POST", "subscriptions"): [FakeResponse(200, {"id": "sub"})],
     })
     storage = CountingStorage()
@@ -784,3 +786,84 @@ async def test_follow_artist_action_subscribes_at_threshold(
     (sub,) = http.of("POST", "subscriptions")
     assert sub["json"]["snippet"]["resourceId"]["channelId"] == "UCartist"
     assert {u for u, _a, _t in storage.seen} == {"g-1"}
+
+
+# ── unlike / is_following_artist / unfollow_artist (#270) ──────────────
+
+
+def test_youtube_provider_can_undo_a_like_and_a_follow(tmp_path) -> None:
+    from like_spotify.core.music_provider import (
+        UnfollowCapableProvider,
+        UnlikeCapableProvider,
+    )
+
+    assert isinstance(_provider(tmp_path), UnlikeCapableProvider)
+    assert isinstance(_provider(tmp_path), UnfollowCapableProvider)
+
+
+@pytest.mark.asyncio
+async def test_unlike_clears_the_rating(monkeypatch, tmp_path) -> None:
+    """`none`, not `dislike`: an undone like leaves the video unrated."""
+    http = FakeHttp(monkeypatch, {("POST", "videos/rate"): [FakeResponse(204)]})
+
+    await _provider(tmp_path).unlike(_track("abc"))
+
+    (rate,) = http.of("POST", "videos/rate")
+    assert rate["params"] == {"id": "abc", "rating": "none"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "items,expected", [([{"id": "sub-1"}], True), ([], False)]
+)
+async def test_is_following_artist_reads_my_subscription_to_the_channel(
+    monkeypatch, tmp_path, items, expected
+) -> None:
+    http = FakeHttp(monkeypatch, {
+        ("GET", "subscriptions"): [FakeResponse(200, {"items": items})],
+    })
+
+    assert await _provider(tmp_path).is_following_artist("UCartist") is expected
+
+    (get,) = http.of("GET", "subscriptions")
+    assert get["params"]["mine"] == "true"
+    assert get["params"]["forChannelId"] == "UCartist"
+
+
+@pytest.mark.asyncio
+async def test_unfollow_artist_deletes_that_subscription(monkeypatch, tmp_path) -> None:
+    http = FakeHttp(monkeypatch, {
+        ("GET", "subscriptions"): [FakeResponse(200, {"items": [{"id": "sub-1"}]})],
+        ("DELETE", "subscriptions"): [FakeResponse(204)],
+    })
+
+    await _provider(tmp_path).unfollow_artist("UCartist")
+
+    (delete,) = http.of("DELETE", "subscriptions")
+    assert delete["params"] == {"id": "sub-1"}
+
+
+@pytest.mark.asyncio
+async def test_unfollow_artist_not_subscribed_is_not_an_error(
+    monkeypatch, tmp_path
+) -> None:
+    http = FakeHttp(monkeypatch, {
+        ("GET", "subscriptions"): [FakeResponse(200, {"items": []})],
+    })
+
+    await _provider(tmp_path).unfollow_artist("UCartist")
+
+    assert http.of("DELETE", "subscriptions") == []
+
+
+@pytest.mark.asyncio
+async def test_unfollow_artist_failed_delete_raises(monkeypatch, tmp_path) -> None:
+    FakeHttp(monkeypatch, {
+        ("GET", "subscriptions"): [FakeResponse(200, {"items": [{"id": "sub-1"}]})],
+        ("DELETE", "subscriptions"): [FakeResponse(500, {})],
+    })
+
+    from like_spotify.core.errors import TransientError
+
+    with pytest.raises(TransientError):
+        await _provider(tmp_path).unfollow_artist("UCartist")

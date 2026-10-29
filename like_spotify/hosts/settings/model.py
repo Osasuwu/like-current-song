@@ -37,15 +37,33 @@ from like_spotify.extensions.like_cooldown import DEFAULT_MINUTES as DEFAULT_COO
 from like_spotify.extensions.promote_to_best import (
     DEFAULT_THRESHOLD as DEFAULT_BEST_THRESHOLD,
 )
-from like_spotify.extensions.tray_hotkey_trigger import DEFAULT_HOTKEY
+from like_spotify.extensions.tray_hotkey_trigger import DEFAULT_HOTKEY, same_hotkey
 
-from .. import _common
+from .. import _common, _extensions
 
 PROVIDER_LABELS: dict[str, str] = {
     "spotify": "Spotify",
     "ytmusic": "YouTube Music (beta, Windows)",
 }
 STORAGE_BACKENDS: tuple[str, ...] = ("none", "sheets")
+
+
+def _known_provider(name: str) -> bool:
+    """A shipped provider, or one an installed manifest declares (#144)."""
+    return name in _common.PROVIDER_BUILDERS or (
+        _extensions.find(("music_provider",), name) is not None
+    )
+
+
+def _known_backend(name: str) -> bool:
+    """A shipped backend, or one an installed manifest declares (#144).
+
+    The window lists only the shipped ones; a discovered backend a config
+    already selects must still read back, validate and survive a Save.
+    """
+    return name in STORAGE_BACKENDS or (
+        _extensions.find(("storage",), name) is not None
+    )
 
 # Where a like lands (#173) — a core like setting, not an extra action:
 # it changes what one press *does*, which is why it isn't tucked into the
@@ -100,6 +118,7 @@ class Settings:
 
     hotkey: str = DEFAULT_HOTKEY
     remove_hotkey: str = _common.DEFAULT_REMOVE_HOTKEY
+    undo_hotkey: str = _common.DEFAULT_UNDO_HOTKEY
     feedback_volume: float = _common.DEFAULT_FEEDBACK_VOLUME
 
     archive_enabled: bool = False
@@ -151,7 +170,7 @@ def _infer_storage_backend(cfg: dict) -> str:
     leaves the counter off) and saves.
     """
     backend = _section(cfg, "storage").get("backend", "")
-    return backend if backend in STORAGE_BACKENDS else "none"
+    return backend if _known_backend(backend) else "none"
 
 
 def _infer_like_destination(cfg: dict) -> str:
@@ -218,6 +237,7 @@ def settings_from_config(cfg: dict) -> Settings:
         sheets_spreadsheet_id=_section(cfg, "sheets").get("spreadsheet_id", "") or "",
         hotkey=trigger.get("hotkey") or DEFAULT_HOTKEY,
         remove_hotkey=trigger.get("remove_hotkey") or _common.DEFAULT_REMOVE_HOTKEY,
+        undo_hotkey=_common.resolve_undo_hotkey({"trigger": trigger}),
         feedback_volume=_common.resolve_feedback_volume({"trigger": trigger}),
         archive_enabled=(
             not fresh and bool(archive_name) and bool(archive.get("enabled", True))
@@ -276,7 +296,7 @@ def validate(s: Settings) -> Validation:
     def err(field: str, msg: str) -> None:
         errors.append(Issue(field, msg))
 
-    if s.provider not in _common.PROVIDER_BUILDERS:
+    if not _known_provider(s.provider):
         err("provider", f"Unknown music service '{s.provider}'.")
     if s.provider == "spotify" and not s.spotify_client_id.strip():
         err(
@@ -292,7 +312,7 @@ def validate(s: Settings) -> Validation:
         # destination the host quietly falls back out of.
         err("like_playlist", "Add the name of the playlist likes should go to.")
 
-    if s.storage_backend not in STORAGE_BACKENDS:
+    if not _known_backend(s.storage_backend):
         err("storage_backend", f"Unknown storage backend '{s.storage_backend}'.")
     elif s.storage_backend == "sheets" and not s.sheets_spreadsheet_id.strip():
         # A warning, not an error: the window can now make the spreadsheet,
@@ -318,11 +338,22 @@ def validate(s: Settings) -> Validation:
         problem = hotkey_problem(s.remove_hotkey)
         if problem:
             err("remove_hotkey", f"Discard hotkey {problem}.")
-        elif _norm_hotkey(s.remove_hotkey) == _norm_hotkey(s.hotkey):
+        elif same_hotkey(s.remove_hotkey, s.hotkey):
             err(
                 "remove_hotkey",
                 "The discard hotkey must differ from the like hotkey.",
             )
+    # The undo hotkey (#270) is always live, so it is always checked. A
+    # blank field loads as the default, so the default is what a blank
+    # field must not clash with — and the same goes for the discard field.
+    undo = s.undo_hotkey.strip() or _common.DEFAULT_UNDO_HOTKEY
+    problem = hotkey_problem(undo)
+    if problem:
+        err("undo_hotkey", f"Undo hotkey {problem}.")
+    elif same_hotkey(undo, s.hotkey):
+        err("undo_hotkey", "The undo hotkey must differ from the like hotkey.")
+    elif same_hotkey(undo, s.remove_hotkey.strip() or _common.DEFAULT_REMOVE_HOTKEY):
+        err("undo_hotkey", "The undo hotkey must differ from the discard hotkey.")
 
     if not 0.0 <= s.feedback_volume <= 1.0:
         err("feedback_volume", "Feedback volume must be between 0 and 100%.")
@@ -353,10 +384,6 @@ def validate(s: Settings) -> Validation:
             )
 
     return Validation(tuple(errors), tuple(warnings))
-
-
-def _norm_hotkey(combo: str) -> str:
-    return "+".join(part.strip().lower() for part in combo.split("+"))
 
 
 # ── Writing ────────────────────────────────────────────────────────────
@@ -438,6 +465,8 @@ def apply_settings(cfg: dict, s: Settings, baseline: Settings | None = None) -> 
         _ensure(out, "trigger")["hotkey"] = s.hotkey.strip()
     if _changed(s, baseline, "remove_hotkey"):
         _ensure(out, "trigger")["remove_hotkey"] = s.remove_hotkey.strip()
+    if _changed(s, baseline, "undo_hotkey"):
+        _ensure(out, "trigger")["undo_hotkey"] = s.undo_hotkey.strip()
     if _changed(s, baseline, "feedback_volume"):
         _ensure(out, "trigger")["feedback_volume"] = round(s.feedback_volume, 2)
 

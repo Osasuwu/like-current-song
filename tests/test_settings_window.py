@@ -71,3 +71,49 @@ def test_handler_is_bound_on_text_fields(root, cls) -> None:
 
     assert "_on_ctrl_key" in root.bind_class(cls, "<Control-KeyPress>")
     assert root.bind_class(cls, "<Button-3>")
+
+
+
+def test_undo_hotkey_round_trips_through_the_window(root, tmp_path, monkeypatch) -> None:
+    """#270: the window shows the saved undo hotkey and saves an edit."""
+    import json
+
+    from like_spotify.hosts import _common
+    from like_spotify.hosts.settings import model, services
+
+    monkeypatch.setattr(_common, "CONFIG_FILE", tmp_path / "config.json")
+    monkeypatch.setattr(_common, "GOOGLE_TOKEN_FILE", tmp_path / "google_token.json")
+    monkeypatch.setattr(_common, "YOUTUBE_TOKEN_FILE", tmp_path / "youtube_token.json")
+    monkeypatch.setattr(services, "autostart_enabled", lambda: None)
+    _common.CONFIG_FILE.write_text(
+        json.dumps({"spotify": {"client_id": "x"}, "trigger": {"undo_hotkey": "ctrl+alt+u"}}),
+        encoding="utf-8",
+    )
+
+    w = window.SettingsWindow(root, model.ConfigDocument(), from_tray=True)
+    assert w.v_undo_hotkey.get() == "ctrl+alt+u"
+
+    w.v_undo_hotkey.set(" ctrl+alt+y ")
+    s, problems = w.collect()
+    assert problems == [] and s is not None
+    assert model.validate(s).ok
+    w.doc.save(s)
+
+    assert _common.resolve_undo_hotkey(_common.load_config()) == "ctrl+alt+y"
+
+
+def test_keyboard_check_covers_the_undo_hotkey(monkeypatch) -> None:
+    import sys
+    import types
+
+    from like_spotify.hosts.settings import model
+
+    def parse_hotkey(combo):
+        if combo == "bogus":
+            raise ValueError("unknown key")
+
+    monkeypatch.setitem(sys.modules, "keyboard", types.SimpleNamespace(parse_hotkey=parse_hotkey))
+    s = model.Settings(undo_hotkey="bogus")
+
+    (problem,) = window._keyboard_problems(s)
+    assert problem.startswith("Undo hotkey 'bogus'")

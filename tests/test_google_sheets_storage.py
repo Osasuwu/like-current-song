@@ -47,6 +47,12 @@ class SheetsSim:
 
     def handle_post(self, url: str, **kw) -> FakeResponse:
         self.calls.append(("POST", url, kw))
+        if url.endswith(":clear"):
+            # '.../values/Likes!A3:E3:clear' blanks the row; the row stays.
+            a1 = url.rsplit("!", 1)[-1].removesuffix(":clear")
+            row = int(a1.split(":")[0].lstrip("ABCDEFGHIJKLMNOPQRSTUVWXYZ"))
+            self.rows[row - 1] = []
+            return FakeResponse(status_code=200, json_body={})
         body = kw.get("json", {})
         values = body.get("values", [])
         if not values:
@@ -403,3 +409,187 @@ async def test_unparseable_append_range_is_not_cached_as_row_zero(
     data_rows = [r for r in sim.rows[1:] if r[1] == "trk-a"]
     assert len(data_rows) == 1
     assert data_rows[0][2] == 2
+
+
+# ── Undo (#270) ──────────────────────────────────────────────────────────
+
+
+def _writes(sim: SheetsSim) -> list[tuple[str, str, dict]]:
+    return [c for c in sim.calls if c[0] in ("POST", "PUT")]
+
+
+@pytest.mark.asyncio
+async def test_undo_of_an_update_rewrites_only_the_count_cell(sim_and_storage) -> None:
+    sim, storage = sim_and_storage
+    await storage.increment("user-1", _track("trk-a"))
+    await storage.increment("user-1", _track("trk-a"))
+    sim.calls.clear()
+
+    assert await storage.undo_increment("user-1", _track("trk-a")) == 1
+
+    writes = _writes(sim)
+    assert len(writes) == 1
+    method, url, kw = writes[0]
+    assert method == "PUT"
+    assert url.endswith("/values/Likes!C2:C2")
+    assert kw["json"] == {"values": [[1]]}
+    assert sim.rows[1][2] == 1
+
+
+@pytest.mark.asyncio
+async def test_undo_of_an_append_clears_that_row(sim_and_storage) -> None:
+    sim, storage = sim_and_storage
+    await storage.increment("user-1", _track("trk-b"))
+    await storage.increment("user-1", _track("trk-a"))
+    sim.calls.clear()
+
+    assert await storage.undo_increment("user-1", _track("trk-a")) == 0
+
+    writes = _writes(sim)
+    assert len(writes) == 1
+    method, url, _ = writes[0]
+    assert method == "POST"
+    assert url.endswith("/values/Likes!A3:E3:clear")
+    assert sim.rows[2] == []
+    assert sim.rows[1][1] == "trk-b"
+
+
+@pytest.mark.asyncio
+async def test_undo_keeps_a_press_another_device_made_since(sim_and_storage) -> None:
+    """The phone wrote to the row after this like: undo takes one off the
+    count the sheet holds now, not the count this instance last saw."""
+    sim, storage = sim_and_storage
+    await storage.increment("user-1", _track("trk-a"))
+    await storage.increment("user-1", _track("trk-a"))
+    sim.rows[1][2] = 5
+
+    assert await storage.undo_increment("user-1", _track("trk-a")) == 4
+    assert sim.rows[1][2] == 4
+    assert await storage.get_count("user-1", _track("trk-a")) == 4
+
+
+@pytest.mark.asyncio
+async def test_undo_of_a_like_on_a_row_left_at_zero_puts_it_back_to_zero(
+    sim_and_storage,
+) -> None:
+    """The phone's undo (#272) leaves a row it created at 0. A desktop like
+    of that track takes it to 1, and its undo takes it back to 0 (#278 S6)."""
+    sim, storage = sim_and_storage
+    sim.rows.append(["user-1", "trk-a", 0, "FALSE", "2026-10-29T00:00:00Z"])
+
+    assert await storage.increment("user-1", _track("trk-a")) == 1
+    assert await storage.undo_increment("user-1", _track("trk-a")) == 0
+
+    assert sim.rows[1][:3] == ["user-1", "trk-a", 0]
+    assert await storage.get_count("user-1", _track("trk-a")) == 0
+
+
+@pytest.mark.asyncio
+async def test_undo_of_an_update_never_writes_a_count_below_zero(
+    sim_and_storage,
+) -> None:
+    """Another device took the count down to 0 since this like: there is
+    nothing left to take off, so the undo refuses (#278 S6)."""
+    sim, storage = sim_and_storage
+    await storage.increment("user-1", _track("trk-a"))
+    await storage.increment("user-1", _track("trk-a"))
+    sim.rows[1][2] = 0
+    sim.calls.clear()
+
+    with pytest.raises(RuntimeError, match="changed since"):
+        await storage.undo_increment("user-1", _track("trk-a"))
+
+    assert _writes(sim) == []
+    assert sim.rows[1][2] == 0
+
+
+@pytest.mark.asyncio
+async def test_undo_never_blanks_a_row_with_rows_below_it(sim_and_storage) -> None:
+    """A blank row inside the table could split it for the next append and
+    shift rows another device has cached (#278 S4): only the last row of
+    the tab is blanked."""
+    sim, storage = sim_and_storage
+    await storage.increment("user-1", _track("trk-a"))
+    sim.rows.append(["user-1", "trk-phone", 1, "FALSE", "now"])  # the phone, since
+    sim.calls.clear()
+
+    with pytest.raises(RuntimeError, match="below it"):
+        await storage.undo_increment("user-1", _track("trk-a"))
+
+    assert _writes(sim) == []
+    assert sim.rows[1][:3] == ["user-1", "trk-a", 1]
+
+
+@pytest.mark.asyncio
+async def test_undo_blanks_a_last_row_with_only_blank_rows_below(
+    sim_and_storage,
+) -> None:
+    sim, storage = sim_and_storage
+    await storage.increment("user-1", _track("trk-a"))
+    sim.rows.append([])
+    sim.rows.append(["", "", ""])
+
+    assert await storage.undo_increment("user-1", _track("trk-a")) == 0
+    assert sim.rows[1] == []
+
+
+@pytest.mark.asyncio
+async def test_undo_never_clears_a_row_another_device_added_to(
+    sim_and_storage,
+) -> None:
+    sim, storage = sim_and_storage
+    await storage.increment("user-1", _track("trk-a"))
+    sim.rows[1][2] = 2
+    sim.calls.clear()
+
+    with pytest.raises(RuntimeError, match="changed since"):
+        await storage.undo_increment("user-1", _track("trk-a"))
+
+    assert _writes(sim) == []
+    assert sim.rows[1][:3] == ["user-1", "trk-a", 2]
+
+
+@pytest.mark.asyncio
+async def test_undo_finds_a_row_whose_append_range_was_unreadable(
+    sim_and_storage, monkeypatch
+) -> None:
+    sim, storage = sim_and_storage
+    real_post = sim.handle_post
+
+    def post_without_range(url: str, **kw) -> FakeResponse:
+        r = real_post(url, **kw)
+        if url.endswith(":append"):
+            return FakeResponse(status_code=200, json_body={"updates": {}})
+        return r
+
+    monkeypatch.setattr(
+        "like_spotify.extensions.google_sheets_storage.requests.post",
+        post_without_range,
+    )
+    await storage.increment("user-1", _track("trk-a"))
+
+    assert await storage.undo_increment("user-1", _track("trk-a")) == 0
+    assert sim.rows[1] == []
+
+
+@pytest.mark.asyncio
+async def test_failed_undo_write_is_not_retried_on_an_older_press(
+    sim_and_storage, monkeypatch
+) -> None:
+    """The reverse is spent once tried: a second undo must not reach the
+    press before it, even when the first one failed."""
+    sim, storage = sim_and_storage
+    await storage.increment("user-1", _track("trk-a"))
+    await storage.increment("user-1", _track("trk-a"))
+
+    def put_5xx(url: str, **kw) -> FakeResponse:
+        return FakeResponse(status_code=503, text="busy")
+
+    monkeypatch.setattr(
+        "like_spotify.extensions.google_sheets_storage.requests.put", put_5xx
+    )
+    with pytest.raises(TransientError):
+        await storage.undo_increment("user-1", _track("trk-a"))
+    with pytest.raises(LookupError):
+        await storage.undo_increment("user-1", _track("trk-a"))
+    assert sim.rows[1][2] == 2

@@ -91,6 +91,7 @@ def test_setup_writes_config_and_runs_oauth(
         "",  # [2/5] like destination — default native
         "none",                # Storage backend
         "",                    # [4/5] archive playlist name — blank = skip
+        "",  # [5/6] undo hotkey — default
         # autostart prompt only fires on win32 — we patch sys.platform off
     ]
     monkeypatch.setattr("builtins.input", _scripted_input(answers))
@@ -116,6 +117,7 @@ def test_setup_skips_spotify_oauth_when_tokens_present(
         "",  # [2/5] like destination — default native
         "none",
         "",  # [4/5] archive — skip
+        "",  # [5/6] undo hotkey — default
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -135,6 +137,7 @@ def test_setup_reauth_forces_oauth_even_with_tokens(
         "",  # [2/5] like destination — default native
         "none",
         "",  # [4/5] archive — skip
+        "",  # [5/6] undo hotkey — default
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -164,6 +167,7 @@ def test_setup_storage_none_writes_backend_marker(
         "",  # [2/5] like destination — default native
         "none",
         "",  # [4/5] archive — skip
+        "",  # [5/6] undo hotkey — default
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -187,6 +191,7 @@ def test_setup_archive_writes_playlist_and_remove_hotkey(
         "none",
         "Discover Weekly Archive",  # [4/5] archive playlist name
         "ctrl+shift+alt+e",         # [4/5] remove hotkey (override default)
+        "",  # [5/6] undo hotkey — default
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -214,6 +219,7 @@ def test_setup_archive_blank_disables_previously_set_name(
         "",  # [2/5] like destination — default native
         "none",
         "-",  # [4/5] archive — '-' turns it off (blank would KEEP it)
+        "",  # [5/6] undo hotkey — default
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -239,6 +245,7 @@ def test_setup_archive_overwrites_existing_name(
         "none",
         "New Archive",        # [4/5] archive — rename
         "ctrl+shift+alt+q",   # [4/5] remove hotkey
+        "",  # [5/6] undo hotkey — default
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -261,6 +268,7 @@ def test_setup_archive_dash_when_nothing_configured_disables_cleanly(
         "",  # [2/5] like destination — default native
         "none",
         "-",  # [4/5] archive — explicit off with nothing set
+        "",  # [5/6] undo hotkey — default
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -333,6 +341,7 @@ def test_setup_creates_the_spreadsheet_and_stores_its_id(
         "sheets",
         "",  # spreadsheet — bare Enter takes 'create'
         "",  # [4/5] archive — skip
+        "",  # [5/6] undo hotkey — default
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -360,6 +369,7 @@ def test_setup_keeps_the_configured_spreadsheet_rather_than_making_a_second(
         "sheets",
         "",  # spreadsheet — bare Enter keeps what is configured
         "",  # [4/5] archive — skip
+        "",  # [5/6] undo hotkey — default
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -383,6 +393,7 @@ def test_setup_second_spreadsheet_needs_a_confirmation(
         "create",  # asked for a second one…
         "n",       # …then said no
         "",        # [4/5] archive — skip
+        "",  # [5/6] undo hotkey — default
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -402,6 +413,7 @@ def test_setup_skip_turns_the_counter_off_without_aborting(
         "sheets",
         "skip",
         "",  # [4/5] archive — skip
+        "",  # [5/6] undo hotkey — default
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -473,6 +485,7 @@ def test_setup_does_not_default_to_a_retired_backend(
         "",  # [2/5] like destination — default native
         "",  # storage backend — bare Enter takes the default
         "",  # [4/5] archive — skip
+        "",  # [5/6] undo hotkey — default
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -495,6 +508,7 @@ def test_setup_sheets_branch_runs_google_oauth(
         "paste",
         "spreadsheet-id-xyz",
         "",  # [4/5] archive — skip
+        "",  # [5/6] undo hotkey — default
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -540,6 +554,7 @@ def test_setup_sheets_skips_google_oauth_when_refresh_token_present(
         "paste",
         "spreadsheet-id-xyz",
         "",  # [4/5] archive — skip
+        "",  # [5/6] undo hotkey — default
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -794,6 +809,7 @@ def test_setup_ytmusic_runs_google_oauth(
         "",             # [2/5] like destination — default native
         "none",         # storage
         "",             # [4/5] archive — skip
+        "",  # [5/6] undo hotkey — default
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -818,6 +834,7 @@ def test_setup_ytmusic_offers_archive_step(
         "none",             # storage
         "YT Archive",       # [4/5] archive playlist name
         "",                 # remove hotkey — default
+        "",  # [5/6] undo hotkey — default
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -870,6 +887,7 @@ def test_setup_writes_the_like_destination(tmp_paths, fake_provider, monkeypatch
         "  Songs  ",     # …and the playlist it goes to
         "none",          # [3/5] storage backend
         "",              # [4/5] archive — skip
+        "",  # [5/6] undo hotkey — default
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -889,6 +907,7 @@ def test_setup_native_destination_needs_no_playlist(
         "native",  # [2/5] spelled out rather than defaulted
         "none",
         "",
+        "",  # [5/6] undo hotkey — default
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -915,6 +934,7 @@ def test_setup_re_offers_the_configured_destination(
         "",  # …playlist name — keep `Songs`
         "none",
         "",
+        "",  # [5/6] undo hotkey — default
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
@@ -937,9 +957,72 @@ def test_setup_keeps_the_playlist_name_when_switching_to_native(
     )
     monkeypatch.setattr("builtins.input", _scripted_input([
         "", "", "native", "none", "",
+        "",  # [5/6] undo hotkey — default
     ]))
     monkeypatch.setattr(_common.sys, "platform", "linux")
 
     assert _setup.do_setup(reauth=False) == 0
     cfg = _common.load_config()
     assert cfg["like"] == {"destination": "native", "playlist_name": "Songs"}
+
+
+
+# ── Undo hotkey (#270) ─────────────────────────────────────────────────
+
+
+def test_resolve_undo_hotkey_default_and_override() -> None:
+    assert _common.resolve_undo_hotkey({}) == _common.DEFAULT_UNDO_HOTKEY
+    assert _common.resolve_undo_hotkey({"trigger": {"undo_hotkey": "ctrl+u"}}) == "ctrl+u"
+
+
+def test_setup_asks_for_the_undo_hotkey(tmp_paths, fake_provider, monkeypatch) -> None:
+    monkeypatch.setattr("builtins.input", _scripted_input([
+        "",  # music service — default spotify
+        "abc123client",
+        "",  # like destination — default native
+        "none",
+        "",  # archive playlist — skip
+        "ctrl+alt+u",  # undo hotkey
+    ]))
+    monkeypatch.setattr(_common.sys, "platform", "linux")
+
+    assert _setup.do_setup(reauth=False) == 0
+    assert _common.resolve_undo_hotkey(_common.load_config()) == "ctrl+alt+u"
+
+
+def test_setup_undo_hotkey_blank_keeps_the_current_one(monkeypatch) -> None:
+    monkeypatch.setattr("builtins.input", _scripted_input([""]))
+    cfg = {"trigger": {"undo_hotkey": "ctrl+alt+u"}}
+
+    _setup._setup_undo_hotkey(cfg)
+
+    assert cfg["trigger"]["undo_hotkey"] == "ctrl+alt+u"
+
+
+def test_setup_undo_hotkey_blank_on_a_fresh_config_is_the_default(monkeypatch) -> None:
+    monkeypatch.setattr("builtins.input", _scripted_input([""]))
+    cfg: dict = {}
+
+    _setup._setup_undo_hotkey(cfg)
+
+    assert cfg["trigger"]["undo_hotkey"] == _common.DEFAULT_UNDO_HOTKEY
+
+
+@pytest.mark.parametrize(
+    "trigger, clash, named",
+    [
+        ({}, "CTRL+SHIFT+ALT+W", "like hotkey"),
+        ({"hotkey": "ctrl+alt+l"}, "Ctrl+Alt+L", "like hotkey"),
+        ({"remove_hotkey": "ctrl+alt+d"}, "ctrl+ALT+d", "discard hotkey"),
+    ],
+)
+def test_setup_undo_hotkey_refuses_a_clash_and_asks_again(
+    monkeypatch, capsys, trigger, clash, named
+) -> None:
+    monkeypatch.setattr("builtins.input", _scripted_input([clash, "ctrl+alt+u"]))
+    cfg = {"trigger": dict(trigger)}
+
+    _setup._setup_undo_hotkey(cfg)
+
+    assert cfg["trigger"]["undo_hotkey"] == "ctrl+alt+u"
+    assert named in capsys.readouterr().out

@@ -26,6 +26,8 @@ from like_spotify.core.music_provider import PlaylistCapableProvider
 from like_spotify.core.types import LikeContext
 
 DOMAIN = "archive_remove"
+# `ctx.extras` key: (track_id, playlist_id) of the removal this press made.
+_REMOVED = "archive_remove.removed"
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +66,21 @@ class ArchiveRemoveAction(PostLikeAction):
         await provider.remove_track_from_playlist(track_id, self._playlist_id)
         # Update local snapshot so a re-trigger in the same session stays no-op.
         self._track_ids.discard(track_id)
+        ctx.extras[_REMOVED] = (track_id, self._playlist_id)
+
+    async def undo(self, ctx: LikeContext) -> None:
+        """Put back the track this press removed (#270); nothing else.
+
+        It goes back at the end of the playlist, not at the position it had.
+        """
+        removed = ctx.extras.get(_REMOVED)
+        if removed is None:
+            return  # this press removed nothing
+        provider = ctx.music_provider
+        assert isinstance(provider, PlaylistCapableProvider)
+        track_id, playlist_id = removed
+        await provider.add_track_to_playlist(track_id, playlist_id)
+        self._track_ids.add(track_id)
 
     async def _resolve(self, provider: PlaylistCapableProvider) -> None:
         self._resolved = True

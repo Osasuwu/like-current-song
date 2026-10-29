@@ -19,6 +19,8 @@ the mobile repository splits the check from the record:
       `MusicProvider.like` succeeds, stamping the current time. Recording
       only on confirmed success (not from the gate) means a failed like
       never starts the cooldown, so a genuine retry isn't blocked.
+      Its `undo` (#270) puts back the stamp the press replaced, so an
+      undone like does not hold the track in its cooldown.
 """
 
 from __future__ import annotations
@@ -33,6 +35,9 @@ from like_spotify.core.types import LikeContext
 
 DOMAIN = "like_cooldown"
 DEFAULT_MINUTES = 10
+
+# Per-press undo state in `ctx.extras`: (track_id, stamp it replaced or None).
+_PREVIOUS = "like_cooldown.previous"
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +54,15 @@ class _CooldownStore:
     def record(self, track_id: str, at: float) -> None:
         state = self._load()
         state[track_id] = at
+        self._save(state)
+
+    def restore(self, track_id: str, at: float | None) -> None:
+        """Set the track's stamp back to `at`; `None` drops it."""
+        state = self._load()
+        if at is None:
+            state.pop(track_id, None)
+        else:
+            state[track_id] = at
         self._save(state)
 
     def _load(self) -> dict[str, float]:
@@ -84,7 +98,14 @@ class LikeCooldownRecorder(PostLikeAction):
         self._store = store
 
     async def run(self, ctx: LikeContext) -> None:
-        self._store.record(ctx.track.provider_track_id, time.time())
+        track_id = ctx.track.provider_track_id
+        ctx.extras[_PREVIOUS] = (track_id, self._store.last_liked_at(track_id))
+        self._store.record(track_id, time.time())
+
+    async def undo(self, ctx: LikeContext) -> None:
+        previous = ctx.extras.get(_PREVIOUS)
+        if previous is not None:
+            self._store.restore(*previous)
 
 
 def build_like_cooldown(

@@ -62,12 +62,16 @@ from like_spotify.extensions.promote_to_best import (
 )
 from like_spotify.extensions.spotify import MUSIC_PROVIDER as make_spotify_provider
 from like_spotify.extensions.ytmusic import MUSIC_PROVIDER as make_ytmusic_provider
+from like_spotify.hosts import _extensions
 
 # Second hotkey: remove the current track from the archive playlist WITHOUT
 # liking it. Distinct from DEFAULT_HOTKEY (the like trigger). The desktop can
 # bind arbitrarily many triggers; headphones are limited to one media-button
 # pattern, so this is desktop-only by design.
 DEFAULT_REMOVE_HOTKEY = "ctrl+shift+alt+q"
+
+# Third hotkey (#270): take back the last like within the undo window.
+DEFAULT_UNDO_HOTKEY = "ctrl+shift+alt+z"
 
 # Beep loudness (0.0-1.0) for the synthesized tray tone (#53). Tuned down
 # from the tone's initial full-scale level, which was audible but jarring
@@ -124,8 +128,10 @@ def _build_sheets_storage(cfg: dict) -> Storage | None:
         return None
 
 
-# Backend name → builder. Adding a backend is one function + one entry here,
-# not another `elif` in `build_storage`.
+# Backend name → hand-written builder, for the shipped backend only: it reads
+# an env-var fallback and the Google token file, which no manifest describes.
+# Any other backend is found by its manifest (`_extensions`) and needs no
+# entry here (#144).
 _STORAGE_BUILDERS: dict[str, Callable[[dict], Storage | None]] = {
     "sheets": _build_sheets_storage,
 }
@@ -146,10 +152,12 @@ _RETIRED_BACKENDS: dict[str, str] = {
 def build_storage(cfg: dict) -> Storage | None:
     """Return the configured Storage impl, or None when none is wired.
 
-    Selection (set in `cfg["storage"]["backend"]`) dispatches through
-    `_STORAGE_BUILDERS`:
+    Selection (set in `cfg["storage"]["backend"]`):
         - "sheets"   → GoogleSheetsStorage, backed by tokens persisted
           in `GOOGLE_TOKEN_FILE` (refreshed automatically).
+        - any other name an installed storage extension's manifest selects
+          by (`config_key`, default its `domain`) → built from the
+          `cfg[<name>]` block, see `_extensions.build`.
         - "none" / missing / unknown → None. Pipeline treats `None` as
           "counter silently unavailable" — AC #22 says like still succeeds.
 
@@ -166,7 +174,12 @@ def build_storage(cfg: dict) -> Storage | None:
         return None
 
     builder = _STORAGE_BUILDERS.get(backend)
-    return builder(cfg) if builder else None
+    if builder:
+        return builder(cfg)
+    ext = _extensions.find(("storage",), backend)
+    if ext is None:
+        return None
+    return _extensions.build(ext, cfg.get(backend), config_dir=CONFIG_FILE.parent)
 
 
 def resolve_archive_playlist_name(cfg: dict) -> str:
@@ -293,9 +306,11 @@ def _build_follow_artist_actions(
         return None, None
 
 
-# Extension name → builder, in the order each contributes to the chains.
-# Adding an extension is one function + one entry here, not a new branch in
-# `build_action_chains` itself.
+# Hand-written builders for the shipped action extensions, in the order each
+# contributes to the chains. They stay hand-written because no manifest can
+# say what they need: legacy config keys, a pre/post pair sharing one store,
+# state files the tests relocate. A new action extension needs no entry here:
+# its manifest is found by `_extensions` and it is appended after these (#144).
 _ACTION_EXTENSION_BUILDERS: list[tuple[str, _ActionChainBuilder]] = [
     ("like_cooldown", _build_like_cooldown_actions),
     ("archive_remove", _build_archive_remove_actions),
@@ -326,6 +341,29 @@ def build_action_chains(
             pre_actions.append(pre)
         if post is not None:
             post_actions.append(post)
+
+    # Then every other installed action extension, in folder order, each
+    # built from its `actions.<config_key>` block (#144).
+    hand_built = {name for name, _builder in _ACTION_EXTENSION_BUILDERS}
+    nested = cfg.get("actions") if isinstance(cfg.get("actions"), dict) else {}
+    for ext in _extensions.installed():
+        if ext.extension_point not in ("pre_like_action", "post_like_action"):
+            continue
+        if ext.config_key in hand_built:
+            continue
+        section = nested.get(ext.config_key)
+        section = section if isinstance(section, dict) else {}
+        if not section.get("enabled", True):
+            continue
+        action = _extensions.build(
+            ext, section, config_dir=CONFIG_FILE.parent, storage=storage
+        )
+        if action is None:
+            continue
+        if ext.extension_point == "pre_like_action":
+            pre_actions.append(action)
+        else:
+            post_actions.append(action)
 
     return pre_actions, post_actions
 
@@ -363,8 +401,12 @@ def _build_ytmusic_provider(_cfg: dict):
     return make_ytmusic()
 
 
-# Provider name → builder. None means "not configured yet" (host shows the
-# setup hint); a provider without tokens means "configured, not authorized".
+# Provider name → hand-written builder for the shipped providers, which read
+# an env-var fallback and token paths the tests relocate. None means "not
+# configured yet" (host shows the setup hint); a provider without tokens
+# means "configured, not authorized". The setup wizard and Settings window
+# offer only these names, since each needs its own setup steps. Any other
+# provider is found by its manifest (`_extensions`) and needs no entry (#144).
 PROVIDER_BUILDERS: dict[str, Callable[[dict], object | None]] = {
     "spotify": _build_spotify_provider,
     "ytmusic": _build_ytmusic_provider,
@@ -375,10 +417,18 @@ def build_provider(cfg: dict):
     """Return the configured MusicProvider, or None when it isn't set up.
 
     Selected by `cfg["music"]["provider"]` (default "spotify", so configs
-    written before YouTube Music support keep working unchanged).
+    written before YouTube Music support keep working unchanged). A name
+    that is not a shipped provider is looked up among the installed
+    extensions' manifests and built from the `cfg[<name>]` block.
     """
-    builder = PROVIDER_BUILDERS.get(resolve_provider_name(cfg))
-    return builder(cfg) if builder else None
+    name = resolve_provider_name(cfg)
+    builder = PROVIDER_BUILDERS.get(name)
+    if builder:
+        return builder(cfg)
+    ext = _extensions.find(("music_provider",), name)
+    if ext is None:
+        return None
+    return _extensions.build(ext, cfg.get(name), config_dir=CONFIG_FILE.parent)
 
 
 DEFAULT_LIKE_DESTINATION = NATIVE
@@ -450,6 +500,11 @@ def resolve_like_destination(cfg: dict, provider=None) -> LikeDestination:
 
 def resolve_remove_hotkey(cfg: dict) -> str:
     return cfg.get("trigger", {}).get("remove_hotkey", DEFAULT_REMOVE_HOTKEY)
+
+
+def resolve_undo_hotkey(cfg: dict) -> str:
+    """`trigger.undo_hotkey`; missing or blank → the default (#270)."""
+    return cfg.get("trigger", {}).get("undo_hotkey") or DEFAULT_UNDO_HOTKEY
 
 
 def resolve_feedback_volume(cfg: dict) -> float:
@@ -608,6 +663,11 @@ def print_config_paths() -> int:
     print(f"Spotify token: {SPOTIFY_TOKEN_FILE}")
     print(f"Google token:  {GOOGLE_TOKEN_FILE}")
     print(f"YouTube token: {YOUTUBE_TOKEN_FILE}")
+    # Installed extensions with their stage, so a user can see what is beta
+    # or experimental before enabling it (#144).
+    print("Extensions:")
+    for ext in _extensions.installed():
+        print(f"  {_extensions.describe(ext)}")
     return 0
 
 

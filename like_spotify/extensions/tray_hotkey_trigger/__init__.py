@@ -16,6 +16,17 @@ from like_spotify.core.trigger import EmitFn, Trigger
 DEFAULT_HOTKEY = "ctrl+shift+alt+w"
 
 
+def same_hotkey(a: str, b: str) -> bool:
+    """True when two combos name the same keys: case and the spaces around
+    '+' do not matter. Two triggers on one combo would both fire on every
+    press, so every place that accepts a hotkey refuses a duplicate."""
+
+    def norm(combo: str) -> str:
+        return "+".join(part.strip().lower() for part in combo.strip().split("+"))
+
+    return norm(a) == norm(b)
+
+
 class TrayHotkeyTrigger(Trigger):
     def __init__(self, hotkey: str = DEFAULT_HOTKEY) -> None:
         self.hotkey = hotkey

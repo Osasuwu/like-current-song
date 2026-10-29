@@ -154,6 +154,20 @@ class YouTubeMusicProvider(MusicProvider):
     async def follow_artist(self, artist_id: str) -> None:
         await asyncio.to_thread(self._subscribe_sync, artist_id)
 
+    # ── UnlikeCapableProvider / UnfollowCapableProvider (#270) ────────
+
+    async def unlike(self, track: CurrentTrack) -> None:
+        """Take back a like with `rating=none`, not `dislike`: an undone like
+        leaves the video unrated, as it was before the press."""
+        await asyncio.to_thread(self._rate_sync, track.provider_track_id, "none")
+
+    async def is_following_artist(self, artist_id: str) -> bool:
+        subs = await asyncio.to_thread(self._my_subscriptions_sync, artist_id)
+        return bool(subs)
+
+    async def unfollow_artist(self, artist_id: str) -> None:
+        await asyncio.to_thread(self._unsubscribe_sync, artist_id)
+
     # ── DislikeCapableProvider ────────────────────────────────────────
 
     async def dislike(self, track: CurrentTrack) -> None:
@@ -374,6 +388,31 @@ class YouTubeMusicProvider(MusicProvider):
         if r.status_code == 400 and _error_reason(r) == "subscriptionDuplicate":
             return  # already subscribed: follow is idempotent
         _raise_for_status(r)
+
+    def _my_subscriptions_sync(self, channel_id: str) -> list[str]:
+        """Ids of the user's subscriptions to `channel_id` — 1 quota unit."""
+        r = requests.get(
+            f"{API_BASE}/subscriptions",
+            headers=self._auth(),
+            params={"part": "id", "mine": "true", "forChannelId": channel_id},
+            timeout=5,
+        )
+        _raise_for_status(r)
+        return [it["id"] for it in r.json().get("items", []) if it.get("id")]
+
+    def _unsubscribe_sync(self, channel_id: str) -> None:
+        """Delete the subscription to `channel_id`. Not subscribed is not an
+        error: unfollow is idempotent, as follow is."""
+        for sub_id in self._my_subscriptions_sync(channel_id):
+            r = requests.delete(
+                f"{API_BASE}/subscriptions",
+                headers=self._auth(),
+                params={"id": sub_id},
+                timeout=5,
+            )
+            if r.status_code == 404:
+                continue  # already gone
+            _raise_for_status(r)
 
 
 # ── Module-level helpers ──────────────────────────────────────────────
