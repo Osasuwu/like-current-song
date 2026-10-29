@@ -67,7 +67,7 @@ object BackgroundLog {
         // keeps `logcat *:W` useful without having to know the tag.
         if (result == "failure" || result == "error") Log.w(TAG, line) else Log.i(TAG, line)
 
-        if (context == null || MainActivity.isFlutterAttached) return
+        if (context == null || FlutterAttachment.attached) return
         // Nothing here is worth crashing a like over.
         runCatching {
             persist(context, encodeEntry(System.currentTimeMillis(), message, actionType, result, targetId, httpCode))

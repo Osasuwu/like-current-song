@@ -58,8 +58,8 @@ data class MusicRouting(
  * This is the one native place that decides where a like goes: [resolve] is
  * the whole rule, and it is the same rule as
  * `ActiveMusicServiceRepository.resolveRouting` in Dart. Change one, change
- * the other. It lives natively because the trigger usually fires with the
- * Flutter engine detached ([MediaButtonForegroundService.likeInBackground]).
+ * the other. It lives natively because the trigger likes natively, app open
+ * or not ([TriggerLike]).
  */
 enum class MusicProvider(
     val id: String,

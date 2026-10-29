@@ -21,6 +21,7 @@ import '../../domain/entities/spotify_auth_state.dart';
 import '../../domain/entities/like_counter_config.dart';
 import '../../domain/entities/track_info.dart';
 import '../../domain/entities/trigger_config.dart';
+import '../../domain/entities/undo_window.dart';
 import '../../domain/repositories/music_routing_repository.dart';
 import '../../domain/repositories/music_service_repository.dart';
 import '../../domain/repositories/platform_service_repository.dart';
@@ -71,6 +72,9 @@ class AppController extends StateNotifier<AppState> {
   StreamSubscription<Map<String, dynamic>>? _nativeEventsSub;
   StreamSubscription<Uri>? _linkSub;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+
+  /// Hides the Undo button once its window closes; see [_showUndoWindow].
+  Timer? _undoWindowTimer;
 
   Future<void> _initialize() async {
     state = state.copyWith(loading: true, clearError: true);
@@ -132,6 +136,8 @@ class AppController extends StateNotifier<AppState> {
 
       _nativeEventsSub ??=
           _platformServiceRepository.events().listen(_onNativeEvent);
+      // After subscribing, so a window that opens in between is not missed.
+      await refreshUndoWindow();
       _linkSub ??= _appLinks.uriLinkStream.listen(_onIncomingLink);
       _connectivitySub ??= Connectivity()
           .onConnectivityChanged
@@ -759,91 +765,74 @@ class AppController extends StateNotifier<AppState> {
       return;
     }
 
-    if (type == 'trigger_like') {
-      unawaited(_handleNativeTriggerLike());
+    if (type == 'undo_window') {
+      _showUndoWindow(UndoWindow.fromChannel(value));
       return;
     }
   }
 
-  Future<void> _handleNativeTriggerLike() async {
+  /// Asks the native journal for the current undo window and shows it.
+  ///
+  /// Called at start-up so a like made while the app was closed can be undone
+  /// from the button once it opens (#268); later changes arrive as
+  /// `undo_window` events. A failure only hides the button: the gesture and
+  /// the notification action still undo.
+  Future<void> refreshUndoWindow() async {
     try {
-      state = state.copyWith(clearError: true, clearLikeResult: true, liking: true);
-      final result = await _musicServiceRepository.likeCurrentTrack();
-      state = state.copyWith(lastLikeResult: result, liking: false);
+      _showUndoWindow(await _platformServiceRepository.undoWindow());
+    } catch (_) {
+      _showUndoWindow(null);
+    }
+  }
 
-      await _platformServiceRepository.playFeedbackTone(
-        success: result.trackLiked || result.skippedCooldown,
-      );
+  /// Shows [window] until it closes, or hides the button for null. The
+  /// journal sends no event when a window simply runs out, so a timer hides
+  /// it just past its close time (the close itself is inclusive). A window
+  /// that has already closed is hidden on the timer's first turn.
+  void _showUndoWindow(UndoWindow? window) {
+    _undoWindowTimer?.cancel();
+    _undoWindowTimer = null;
+    if (window == null) {
+      state = state.copyWith(clearUndoWindow: true);
+      return;
+    }
+    state = state.copyWith(undoWindow: window);
+    _undoWindowTimer = Timer(
+      window.closesAt.difference(DateTime.now()) +
+          const Duration(milliseconds: 1),
+      () => state = state.copyWith(clearUndoWindow: true),
+    );
+  }
 
-      if (result.skippedCooldown) {
-        await addLog(
-          actionType: 'like_track',
-          targetId: result.trackName,
-          result: LogResult.info,
-          message: 'Skipped — ${result.trackName} was liked recently (cooldown)',
-        );
-        return;
-      }
-
+  /// The main screen's Undo button: undoes the like the window offers,
+  /// through the same native path as the gesture, so it plays the same tone
+  /// and vibration (#268). The button hides at once; the journal's own event
+  /// then confirms that.
+  Future<void> undoLastLike() async {
+    final window = state.undoWindow;
+    if (window == null) return;
+    _showUndoWindow(null);
+    try {
+      final result = await _platformServiceRepository.undoLike(window.pressId);
       await addLog(
-        actionType: 'like_track',
-        targetId: result.trackName,
-        result: LogResult.success,
-        message: _likedMessage(result),
+        actionType: 'undo',
+        result: LogResult.info,
+        message: switch (result) {
+          UndoTapResult.undo => 'Undo tapped in the app: undoing the last like',
+          UndoTapResult.alreadyUndoing =>
+            'Undo tapped while the undo is already under way',
+          UndoTapResult.tooLate =>
+            'Undo tapped, but that like can no longer be undone: nothing undone',
+        },
       );
-      if (result.removedFromArchive) {
-        await addLog(
-          actionType: 'archive_remove',
-          result: LogResult.success,
-          message: 'Removed from archive playlist',
-        );
-      }
-      if (result.addedToLikePlaylist) {
-        await addLog(
-          actionType: 'like_playlist_add',
-          targetId: result.trackName,
-          result: LogResult.success,
-          message: 'Added to like playlist',
-        );
-      }
-      if (result.partialFailureMessage != null) {
-        // Half of a "both" like did not go through. The like still counted,
-        // so this is a separate line rather than a failed like.
-        await addLog(
-          actionType: 'like_playlist_add',
-          targetId: result.trackName,
-          result: LogResult.failure,
-          message: result.partialFailureMessage!,
-        );
-      }
-      if (result.addedToBest) {
-        await addLog(
-          actionType: 'best_add',
-          result: LogResult.success,
-          message: 'Added to best playlist',
-        );
-      }
-      if (result.followedArtistNames.isNotEmpty) {
-        await addLog(
-          actionType: 'follow_artist',
-          result: LogResult.success,
-          message: 'Auto-followed: ${result.followedArtistNames.join(", ")}',
-        );
-      }
-    } on MusicServiceNotConnectedException catch (error) {
-      state = state.copyWith(lastError: error.toString(), liking: false);
-      await _platformServiceRepository.playFeedbackTone(success: false);
-      await _logNotConnected(error);
     } catch (error) {
-      state = state.copyWith(lastError: error.toString(), liking: false);
-      await _platformServiceRepository.playFeedbackTone(success: false);
       await addLog(
-        actionType: 'like_track',
+        actionType: 'undo',
         result: LogResult.failure,
-        httpCode: error is MusicServiceHttpException ? error.statusCode : null,
-        message: 'Like from trigger failed: $error',
+        message: 'Undo from the app failed: $error',
       );
-      await _tryQueueCurrentTrack();
+      // Nothing was undone: offer the like again while it still can be.
+      await refreshUndoWindow();
     }
   }
 
@@ -853,6 +842,7 @@ class AppController extends StateNotifier<AppState> {
     _nativeEventsSub?.cancel();
     _linkSub?.cancel();
     _connectivitySub?.cancel();
+    _undoWindowTimer?.cancel();
     super.dispose();
   }
 }

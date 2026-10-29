@@ -15,6 +15,19 @@ you sign in from its Settings window.
 
 ### Added
 
+- **Android: an Undo button on the main screen, and undo with the app open
+  (#268).** A trigger like made while the app is open now goes the same way as
+  one made in the background, so repeating the trigger within 10 seconds undoes
+  it too. While the last Spotify like can be undone, the main screen shows an
+  "Undo last like" button under "Like current track now"; tapping it does
+  exactly what repeating the trigger does, tone and vibration included. A like
+  made in the background can be undone from the button once you open the app,
+  while its 10 seconds last. The button goes as soon as the like is undone in
+  any way, and when the 10 seconds are up. A trigger like made with the app
+  open no longer fills the result card on the main screen; the Logs screen
+  still shows it. With no network, a trigger made with the app open no longer
+  plays the failure tone at once: like one made in the background, it waits
+  for the network and then likes the track playing at that moment.
 - **Android: an Undo action in the listener notification (#269).** For the
   10 seconds a background Spotify like can be undone, the notification shows
   an Undo button after Stop (and Grant access, when it is there). Tapping it
