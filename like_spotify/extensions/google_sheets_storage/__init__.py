@@ -43,6 +43,13 @@ kept: an update is undone by writing one less than the count the sheet holds
 still holds the count it was seeded with. A row another device has added to
 since is left alone, with an error. `updated_at` is not rolled back, and a
 blanked row stays in the tab as an empty line, skipped by every reader.
+
+The ArtistTracks tab gets the same once-only undo (#283). A record that
+appended the triple blanks its row again, found by re-reading the tab, so
+rows the phone or a second desktop appended since stay counted; a record
+that found the triple already there wrote nothing and its undo writes
+nothing. The tab is a set, not a counter, so any row of the triple will do;
+the bottom-most is taken, as Android's `LikeCounter.artistTrackRow` does.
 """
 
 from __future__ import annotations
@@ -147,6 +154,11 @@ class GoogleSheetsStorage(Storage):
         # `undo_increment` reverses exactly that once: `_UPDATED`, or the
         # count an append seeded. Popped by the undo, even one that fails.
         self._last_increment: dict[tuple[str, str], int] = {}
+        # #283 — whether the latest record of each triple added it to the
+        # ArtistTracks tab, so `undo_record_artist_track` takes back only a
+        # track that record counted, once. Popped by the undo, even one that
+        # fails.
+        self._last_artist_record: dict[tuple[str, str, str], bool] = {}
         # The read-then-write round trip is serialized here, and the caches
         # above are only touched under it.
         #
@@ -189,6 +201,13 @@ class GoogleSheetsStorage(Storage):
     ) -> int:
         return await asyncio.to_thread(
             self._record_artist_track_sync, user_id, artist_id, track_id
+        )
+
+    async def undo_record_artist_track(
+        self, user_id: str, artist_id: str, track_id: str
+    ) -> int:
+        return await asyncio.to_thread(
+            self._undo_record_artist_track_sync, user_id, artist_id, track_id
         )
 
     # ── Internals ────────────────────────────────────────────────────────
@@ -420,28 +439,39 @@ class GoogleSheetsStorage(Storage):
         """
         if self._artist_seen is not None:
             return
+        self._artist_seen = _triples(self._read_artist_rows())
+
+    def _read_artist_rows(self) -> list[list]:
+        """Read the ArtistTracks tab as it is now, header included.
+
+        A tab that does not exist yet reads as empty: the append in
+        `_record_artist_track_sync` will fail until the user creates it,
+        consistent with first-run on the Likes sheet.
+
+        Caller holds `_lock`.
+        """
         r = requests.get(
             f"{API_BASE}/{self._sid}/values/{self._artist_sheet}",
             headers=self._headers(),
             timeout=self._timeout,
         )
         if r.status_code == 400:
-            # Sheet tab doesn't exist yet — start empty; the append below
-            # will fail until the user creates the tab. Keep behaviour
-            # consistent with first-run on the Likes sheet.
-            self._artist_seen = set()
-            return
+            return []
         if r.status_code >= 500:
             raise TransientError(f"sheets get 5xx: {r.status_code}")
         _raise_if_api_disabled(r)
         if r.status_code >= 400:
             raise RuntimeError(f"sheets get {r.status_code}: {r.text}")
-        rows = r.json().get("values", []) or []
-        seen: set[tuple[str, str, str]] = set()
-        for row in rows[1:]:
-            if len(row) >= 3:
-                seen.add((row[0], row[1], row[2]))
-        self._artist_seen = seen
+        return r.json().get("values", []) or []
+
+    def _artist_count(self, user_id: str, artist_id: str) -> int:
+        """Distinct tracks recorded for (user, artist). Caller holds `_lock`."""
+        assert self._artist_seen is not None
+        return sum(
+            1
+            for (u, a, _t) in self._artist_seen
+            if u == user_id and a == artist_id
+        )
 
     def _record_artist_track_sync(
         self, user_id: str, artist_id: str, track_id: str
@@ -450,18 +480,45 @@ class GoogleSheetsStorage(Storage):
             self._ensure_artist_loaded()
             assert self._artist_seen is not None
             triple = (user_id, artist_id, track_id)
-            if triple not in self._artist_seen:
+            added = triple not in self._artist_seen
+            if added:
                 self._values_append_to(
                     self._artist_sheet,
                     [user_id, artist_id, track_id, _now_iso()],
                 )
                 self._artist_seen.add(triple)
-            # Count distinct tracks for this (user, artist).
-            return sum(
-                1
-                for (u, a, _t) in self._artist_seen
-                if u == user_id and a == artist_id
-            )
+            self._last_artist_record[triple] = added
+            return self._artist_count(user_id, artist_id)
+
+    def _undo_record_artist_track_sync(
+        self, user_id: str, artist_id: str, track_id: str
+    ) -> int:
+        triple = (user_id, artist_id, track_id)
+        with self._lock:
+            added = self._last_artist_record.pop(triple, None)
+            if added is None:
+                raise LookupError(
+                    f"no record of {track_id} for artist {artist_id} to undo"
+                )
+            if not added:
+                # The track was on the record before this press counted it.
+                self._ensure_artist_loaded()
+                return self._artist_count(user_id, artist_id)
+            # Read the tab as it is now: the phone or a second desktop may
+            # have appended rows since, and those stay counted.
+            rows = self._read_artist_rows()
+            row_no = _bottom_row_of(rows, triple)
+            if row_no is not None:
+                # Blanking a row inside this tab is safe, unlike on Likes
+                # (#278 S4): it is a set, and no half caches it by row
+                # number. The phone's undo (#273) clears the same row.
+                self._values_clear(
+                    f"{self._artist_sheet}!A{row_no}:"
+                    f"{_ARTIST_LAST_COLUMN}{row_no}"
+                )
+                rows = rows[: row_no - 1] + rows[row_no:]
+            self._artist_seen = _triples(rows)
+            return self._artist_count(user_id, artist_id)
 
     def _values_update(self, range_a1: str, values: list[list]) -> None:
         r = requests.put(
@@ -524,6 +581,33 @@ class GoogleSheetsStorage(Storage):
 _UPDATED = 0
 # The row an undone append blanks runs across the whole header.
 _LAST_COLUMN = column_of(HEADER_ROW, HEADER_ROW[-1])
+# The row an undone artist-track record blanks (#283).
+_ARTIST_LAST_COLUMN = column_of(ARTIST_HEADER_ROW, ARTIST_HEADER_ROW[-1])
+
+
+def _triples(rows: list[list]) -> set[tuple[str, str, str]]:
+    """The distinct `(user, artist, track)` triples of an ArtistTracks read.
+
+    Row 1 is the header; a row with fewer than three cells (a blanked one
+    included) is skipped.
+    """
+    return {(row[0], row[1], row[2]) for row in rows[1:] if len(row) >= 3}
+
+
+def _bottom_row_of(
+    rows: list[list], triple: tuple[str, str, str]
+) -> int | None:
+    """1-based number of the lowest data row holding `triple`, or None.
+
+    The lowest, as the Android half picks (`LikeCounter.artistTrackRow`).
+    Which one does not change the count: the tab is a set, so with two
+    rows for the triple, clearing either leaves the track counted.
+    """
+    for offset in range(len(rows), 1, -1):
+        row = rows[offset - 1]
+        if len(row) >= 3 and (row[0], row[1], row[2]) == triple:
+            return offset
+    return None
 
 
 def _raise_if_api_disabled(r) -> None:

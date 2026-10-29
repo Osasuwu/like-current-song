@@ -21,9 +21,13 @@ Undo (#270) unfollows only the artists this press followed. Before a follow
 the action asks the provider whether the user already follows the artist;
 one they do is only remembered, so an undo never unfollows an artist the
 user chose to follow. When that check fails the follow goes ahead, and an
-undo leaves that artist followed and says so rather than guess. The
-artist-track record stays: it counts a track once however often it is
-liked, so the re-like after an undo does not count it twice.
+undo leaves that artist followed and says so rather than guess. The undo
+also hands each artist-track record the press made back to
+`Storage.undo_record_artist_track` (#283), followed or not: a record that
+added the track takes it back off, so the artist's count reads what it read
+before the press and an already-counted track cannot bring the follow back
+one real track early. A storage without that undo leaves the record and the
+undo says so.
 
 Runs against any `PlaylistCapableProvider` (Spotify follows the artist,
 YouTube Music subscribes to the artist's channel); other providers are a
@@ -52,6 +56,9 @@ DEFAULT_THRESHOLD = 5
 # undone} — `_NEW`, `_UNKNOWN` (the already-following check failed) or
 # `_IRREVERSIBLE` (the provider cannot unfollow).
 _FOLLOWED = "follow_artist.followed"
+# `ctx.extras` key: [(user_id, artist_id)] for each record this press made,
+# in order — the ones `undo` hands back to `Storage.undo_record_artist_track`.
+_RECORDED = "follow_artist.recorded"
 _NEW = "new"
 _UNKNOWN = "unknown"
 _IRREVERSIBLE = "irreversible"
@@ -147,6 +154,9 @@ class FollowArtistAction(PostLikeAction):
                     e,
                 )
                 continue
+            recorded = ctx.extras.setdefault(_RECORDED, [])
+            assert isinstance(recorded, list)
+            recorded.append((user_id, artist_id))
 
             followed_key = f"{ctx.track.provider}:{artist_id}"
             if count < self._threshold or self._followed.contains(followed_key):
@@ -186,22 +196,57 @@ class FollowArtistAction(PostLikeAction):
             followed[artist_id] = how
 
     async def undo(self, ctx: LikeContext) -> None:
-        logger.info(
-            "follow-artist: the artist-track record is not undone — it counts "
-            "a track once, so the next like of it does not count it again"
-        )
+        """Unfollow, then unrecord; each leg runs whatever the other did.
+        A leg that failed raises `RuntimeError` (naming every leg left
+        undone); one that cannot be reversed at all raises
+        `NotImplementedError`, which the pipeline reports as not undoable."""
+        failed: list[str] = []
+        irreversible: list[str] = []
+        await self._unfollow(ctx, failed, irreversible)
+        await self._unrecord(ctx, failed, irreversible)
+        if failed:
+            raise RuntimeError("; ".join(failed + irreversible))
+        if irreversible:
+            raise NotImplementedError("; ".join(irreversible))
+
+    async def _unrecord(
+        self, ctx: LikeContext, failed: list[str], irreversible: list[str]
+    ) -> None:
+        """Hand each record this press made back to the storage (#283), so
+        the artist's count reads what it read before the press."""
+        recorded = ctx.extras.get(_RECORDED) or []
+        assert isinstance(recorded, list)
+        left: list[str] = []
+        for user_id, artist_id in recorded:
+            try:
+                await self._storage.undo_record_artist_track(
+                    user_id, artist_id, ctx.track.provider_track_id
+                )
+            except NotImplementedError:
+                left.append(artist_id)
+            except Exception as e:
+                failed.append(f"{artist_id}: artist-track record not restored ({e})")
+        if left:
+            irreversible.append(
+                f"{type(self._storage).__name__} cannot reverse an artist-track "
+                f"record; {', '.join(left)} left counted"
+            )
+
+    async def _unfollow(
+        self, ctx: LikeContext, failed: list[str], irreversible: list[str]
+    ) -> None:
+        """Unfollow each artist this press followed (#270)."""
         followed = ctx.extras.get(_FOLLOWED)
         if not followed:
             return
         assert isinstance(followed, dict)
         provider = ctx.music_provider
-        failed: list[str] = []
-        irreversible: list[str] = []
+        left: list[str] = []
         for artist_id, how in followed.items():
             if how == _IRREVERSIBLE or not isinstance(
                 provider, UnfollowCapableProvider
             ):
-                irreversible.append(artist_id)
+                left.append(artist_id)
                 continue
             if how == _UNKNOWN:
                 failed.append(
@@ -215,12 +260,10 @@ class FollowArtistAction(PostLikeAction):
                 failed.append(f"{artist_id}: unfollow failed ({e})")
                 continue
             self._followed.discard(f"{ctx.track.provider}:{artist_id}")
-        if failed:
-            raise RuntimeError("; ".join(failed))
-        if irreversible:
-            raise NotImplementedError(
+        if left:
+            irreversible.append(
                 f"{type(provider).__name__} cannot unfollow; "
-                f"{', '.join(irreversible)} left followed"
+                f"{', '.join(left)} left followed"
             )
 
 

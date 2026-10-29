@@ -8,7 +8,6 @@ against a provider fake that keeps the state an undo has to restore.
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
 import pytest
@@ -17,8 +16,10 @@ from like_spotify.core.storage import Storage
 from like_spotify.core.types import CurrentTrack, LikeContext
 from like_spotify.extensions.archive_remove import ArchiveRemoveAction
 from like_spotify.extensions.follow_artist import FollowArtistAction
+from like_spotify.extensions.google_sheets_storage import GoogleSheetsStorage
 from like_spotify.extensions.like_cooldown import build_like_cooldown
 from like_spotify.extensions.promote_to_best import PromoteToBestAction
+from tests.test_storage_contract import SheetsSim
 
 
 class Provider:
@@ -85,9 +86,12 @@ class FollowOnlyProvider(Provider):
     unfollow_artist = None  # type: ignore[assignment]
 
 
-class ArtistStorage(Storage):
-    def __init__(self, count: int) -> None:
+class LegacyArtistStorage(Storage):
+    """A storage written before #283: it records, but has no undo for it."""
+
+    def __init__(self, count: int, record_raises: Exception | None = None) -> None:
         self._count = count
+        self._record_raises = record_raises
 
     async def increment(self, user_id, track, was_already_liked=False) -> int:
         return 1
@@ -96,7 +100,42 @@ class ArtistStorage(Storage):
         return 0
 
     async def record_artist_track(self, user_id, artist_id, track_id) -> int:
+        if self._record_raises is not None:
+            raise self._record_raises
         return self._count
+
+
+class ArtistStorage(LegacyArtistStorage):
+    """A constant count, with every undo of a record kept."""
+
+    def __init__(
+        self,
+        count: int,
+        record_raises: Exception | None = None,
+        undo_raises: Exception | None = None,
+    ) -> None:
+        super().__init__(count, record_raises)
+        self._undo_raises = undo_raises
+        self.undone: list[tuple[str, str, str]] = []
+
+    async def undo_record_artist_track(self, user_id, artist_id, track_id) -> int:
+        self.undone.append((user_id, artist_id, track_id))
+        if self._undo_raises is not None:
+            raise self._undo_raises
+        return self._count
+
+
+@pytest.fixture
+def shared_sheet(monkeypatch):
+    """A GoogleSheetsStorage factory over one simulated spreadsheet: each
+    call is a fresh instance (a restart, another device) on the same tabs."""
+    sim = SheetsSim()
+    for verb in ("get", "post", "put"):
+        monkeypatch.setattr(
+            f"like_spotify.extensions.google_sheets_storage.requests.{verb}",
+            getattr(sim, f"handle_{verb}"),
+        )
+    return lambda: GoogleSheetsStorage(spreadsheet_id="s", token_provider=lambda: "tok")
 
 
 def _ctx(
@@ -321,23 +360,168 @@ async def test_follow_on_a_provider_that_cannot_unfollow_is_not_undoable(
 
 
 @pytest.mark.asyncio
-async def test_follow_undo_with_no_follow_this_press_is_quiet(
-    tmp_path: Path, caplog
+async def test_follow_undo_with_no_follow_this_press_only_reverses_the_record(
+    tmp_path: Path,
 ) -> None:
-    """Below the threshold nothing was followed; the artist-track record
-    stays (re-liking a track never counts it twice) and that is logged."""
+    """Below the threshold nothing was followed; the undo still reverses
+    the record the press made, and touches the provider not at all."""
+    provider = Provider()
+    storage = ArtistStorage(count=1)
+    action = FollowArtistAction(storage, threshold=5, followed_path=tmp_path / "f.json")
+    ctx = _ctx(provider, artist_ids=("art1", "art2"))
+    await action.run(ctx)
+
+    await action.undo(ctx)
+
+    assert provider.calls == []
+    assert storage.undone == [
+        ("user-1", "art1", "trk-a"),
+        ("user-1", "art2", "trk-a"),
+    ]
+
+
+# ── Follow artist: the artist-track record (#283) ────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_undone_follow_takes_the_track_back_off_the_artist_record(
+    tmp_path: Path, shared_sheet
+) -> None:
+    """The press that crossed the threshold is undone: the artist's count
+    on the sheet reads what it read before, so liking a track that was
+    already counted does not follow the artist again."""
     provider = Provider()
     action = FollowArtistAction(
-        ArtistStorage(count=1), threshold=5, followed_path=tmp_path / "f.json"
+        shared_sheet(), threshold=2, followed_path=tmp_path / "f.json"
+    )
+    await action.run(_ctx(provider, track_id="trk-a"))
+    crossing = _ctx(provider, track_id="trk-b")
+    await action.run(crossing)
+    assert provider.following == {"art1"}
+
+    await action.undo(crossing)
+
+    assert provider.following == set()
+    # Another instance reads the sheet afresh: trk-a alone is counted.
+    assert await shared_sheet().record_artist_track("user-1", "art1", "trk-a") == 1
+    await action.run(_ctx(provider, track_id="trk-a"))
+    assert provider.following == set()
+    assert [c for c in provider.calls if c[0] == "follow"] == [("follow", "art1")]
+
+
+@pytest.mark.asyncio
+async def test_undo_of_a_like_that_counted_nothing_keeps_the_record(
+    tmp_path: Path, shared_sheet
+) -> None:
+    """The re-like found trk-a already counted; undoing it must not take
+    off the count the first like made."""
+    provider = Provider()
+    action = FollowArtistAction(
+        shared_sheet(), threshold=5, followed_path=tmp_path / "f.json"
+    )
+    await action.run(_ctx(provider, track_id="trk-a"))
+    relike = _ctx(provider, track_id="trk-a")
+    await action.run(relike)
+
+    await action.undo(relike)
+
+    assert await shared_sheet().record_artist_track("user-1", "art1", "trk-b") == 2
+
+
+@pytest.mark.asyncio
+async def test_undo_takes_a_newly_counted_track_off_below_the_threshold(
+    tmp_path: Path, shared_sheet
+) -> None:
+    """No follow this press, but the count still moved: left counted, the
+    undone like would bring the next follow one real track early."""
+    provider = Provider()
+    action = FollowArtistAction(
+        shared_sheet(), threshold=5, followed_path=tmp_path / "f.json"
+    )
+    ctx = _ctx(provider, track_id="trk-a")
+    await action.run(ctx)
+
+    await action.undo(ctx)
+
+    assert await shared_sheet().record_artist_track("user-1", "art1", "trk-b") == 1
+
+
+@pytest.mark.asyncio
+async def test_undo_skips_the_record_of_an_artist_whose_record_failed(
+    tmp_path: Path,
+) -> None:
+    provider = Provider()
+    storage = ArtistStorage(count=1, record_raises=RuntimeError("sheet 503"))
+    action = FollowArtistAction(storage, threshold=5, followed_path=tmp_path / "f.json")
+    ctx = _ctx(provider)
+    await action.run(ctx)
+
+    await action.undo(ctx)
+
+    assert storage.undone == []
+
+
+@pytest.mark.asyncio
+async def test_follow_undo_on_a_storage_without_record_undo_still_unfollows(
+    tmp_path: Path,
+) -> None:
+    """A storage from before #283 cannot take the track off: the unfollow
+    still happens, and the undo says the record stayed."""
+    provider = Provider()
+    action = FollowArtistAction(
+        LegacyArtistStorage(count=5), threshold=5, followed_path=tmp_path / "f.json"
     )
     ctx = _ctx(provider)
     await action.run(ctx)
 
-    with caplog.at_level(logging.INFO):
+    with pytest.raises(
+        NotImplementedError,
+        match="LegacyArtistStorage cannot reverse an artist-track record; art1",
+    ):
         await action.undo(ctx)
 
-    assert provider.calls == []
-    assert "artist-track record" in caplog.text
+    assert provider.following == set()
+
+
+@pytest.mark.asyncio
+async def test_failed_record_undo_raises_and_the_unfollow_is_still_done(
+    tmp_path: Path,
+) -> None:
+    provider = Provider()
+    storage = ArtistStorage(count=5, undo_raises=RuntimeError("sheet 503"))
+    action = FollowArtistAction(storage, threshold=5, followed_path=tmp_path / "f.json")
+    ctx = _ctx(provider, artist_ids=("art1", "art2"))
+    await action.run(ctx)
+
+    with pytest.raises(
+        RuntimeError,
+        match=r"art1: artist-track record not restored \(sheet 503\); "
+        r"art2: artist-track record not restored",
+    ):
+        await action.undo(ctx)
+
+    assert provider.following == set()
+    assert len(storage.undone) == 2
+
+
+@pytest.mark.asyncio
+async def test_failed_record_undo_still_names_a_follow_it_could_not_reverse(
+    tmp_path: Path,
+) -> None:
+    """Two legs, two reports: a failed record undo must not hide that the
+    provider left the artist followed."""
+    provider = FollowOnlyProvider()
+    storage = ArtistStorage(count=5, undo_raises=RuntimeError("sheet 503"))
+    action = FollowArtistAction(storage, threshold=5, followed_path=tmp_path / "f.json")
+    ctx = _ctx(provider)
+    await action.run(ctx)
+
+    with pytest.raises(
+        RuntimeError,
+        match=r"art1: artist-track record not restored \(sheet 503\); "
+        r"FollowOnlyProvider cannot unfollow; art1 left followed",
+    ):
+        await action.undo(ctx)
 
 
 # ── like_cooldown (#270) ───────────────────────────────────────────────

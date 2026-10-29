@@ -75,3 +75,26 @@ class Storage(ABC):
         does NOT increment the count. Used by `FollowArtistAction` (#26)
         to decide when to auto-follow an artist crossing a like-threshold.
         """
+
+    async def undo_record_artist_track(
+        self, user_id: str, artist_id: str, track_id: str
+    ) -> int:
+        """Reverse the most recent `record_artist_track` this instance made
+        for (user, artist, track); return the artist's distinct-track count
+        now stored.
+
+        Called by `FollowArtistAction.undo` (#283), within seconds of that
+        record and at most once per record. A record that added the track
+        takes it back off, so the artist's count reads what it read before
+        the press and the next like of the track counts it again. A record
+        that found the track already there added nothing, and its undo
+        changes nothing. Each record is reversible once: with none left to
+        reverse for the triple, raise `LookupError` and change nothing.
+
+        Not abstract, like `undo_increment`: the default raises
+        `NotImplementedError`, which `FollowArtistAction` reports as "not
+        undoable" and leaves the record as it is.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} cannot reverse an artist-track record"
+        )

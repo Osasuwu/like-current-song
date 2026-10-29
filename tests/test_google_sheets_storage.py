@@ -20,6 +20,7 @@ import pytest
 from like_spotify.core.errors import TransientError
 from like_spotify.core.types import CurrentTrack
 from like_spotify.extensions.google_sheets_storage import GoogleSheetsStorage
+from tests.test_storage_contract import SheetsSim as TwoTabSheetsSim
 
 
 @dataclass
@@ -593,3 +594,129 @@ async def test_failed_undo_write_is_not_retried_on_an_older_press(
     with pytest.raises(LookupError):
         await storage.undo_increment("user-1", _track("trk-a"))
     assert sim.rows[1][2] == 2
+
+
+# ── Undo of an artist-track record (#283) ────────────────────────────────
+
+
+class ArtistTabSim(TwoTabSheetsSim):
+    """The contract suite's two-tab simulator, with every call recorded."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls: list[tuple[str, str, dict]] = []
+
+    def handle_get(self, url: str, **kw) -> FakeResponse:
+        self.calls.append(("GET", url, kw))
+        return super().handle_get(url, **kw)
+
+    def handle_post(self, url: str, **kw) -> FakeResponse:
+        self.calls.append(("POST", url, kw))
+        return super().handle_post(url, **kw)
+
+    def handle_put(self, url: str, **kw) -> FakeResponse:
+        self.calls.append(("PUT", url, kw))
+        return super().handle_put(url, **kw)
+
+    @property
+    def artist_rows(self) -> list[list]:
+        return self.sheets["ArtistTracks"]
+
+
+def _sheets_storage() -> GoogleSheetsStorage:
+    return GoogleSheetsStorage(spreadsheet_id="sheet-1", token_provider=lambda: "tok")
+
+
+@pytest.fixture
+def artist_sim_and_storage(monkeypatch):
+    sim = ArtistTabSim()
+    for verb in ("get", "post", "put"):
+        monkeypatch.setattr(
+            f"like_spotify.extensions.google_sheets_storage.requests.{verb}",
+            getattr(sim, f"handle_{verb}"),
+        )
+    return sim, _sheets_storage()
+
+
+@pytest.mark.asyncio
+async def test_artist_undo_clears_the_row_its_record_appended(
+    artist_sim_and_storage,
+) -> None:
+    """The track comes off the tab itself, so a fresh instance (another
+    device, a restart) counts the artist as it was before the press."""
+    sim, storage = artist_sim_and_storage
+    await storage.record_artist_track("user-1", "art1", "trk-a")
+    await storage.record_artist_track("user-1", "art1", "trk-b")
+    sim.calls.clear()
+
+    assert await storage.undo_record_artist_track("user-1", "art1", "trk-b") == 1
+
+    writes = _writes(sim)
+    assert len(writes) == 1
+    method, url, _ = writes[0]
+    assert method == "POST"
+    assert url.endswith("/values/ArtistTracks!A3:D3:clear")
+    assert sim.artist_rows[2] == []
+    assert sim.artist_rows[1][:3] == ["user-1", "art1", "trk-a"]
+    assert await _sheets_storage().record_artist_track("user-1", "art1", "trk-a") == 1
+
+
+@pytest.mark.asyncio
+async def test_artist_undo_keeps_a_row_another_device_appended_since(
+    artist_sim_and_storage,
+) -> None:
+    """The phone recorded another track by the artist after this press: the
+    undo re-reads the tab, takes off only its own row, and counts the
+    phone's."""
+    sim, storage = artist_sim_and_storage
+    await storage.record_artist_track("user-1", "art1", "trk-a")
+    await storage.record_artist_track("user-1", "art1", "trk-b")
+    sim.artist_rows.append(["user-1", "art1", "trk-phone", "now"])
+
+    assert await storage.undo_record_artist_track("user-1", "art1", "trk-b") == 2
+
+    assert sim.artist_rows[2] == []
+    assert sim.artist_rows[3][:3] == ["user-1", "art1", "trk-phone"]
+    assert await storage.record_artist_track("user-1", "art1", "trk-c") == 3
+
+
+@pytest.mark.asyncio
+async def test_artist_undo_of_a_row_already_gone_succeeds_without_a_write(
+    artist_sim_and_storage,
+) -> None:
+    """Another device cleared the row first: there is nothing left to take
+    off, and the count is read from the tab as it is."""
+    sim, storage = artist_sim_and_storage
+    await storage.record_artist_track("user-1", "art1", "trk-a")
+    await storage.record_artist_track("user-1", "art1", "trk-b")
+    sim.artist_rows[2] = []
+    sim.calls.clear()
+
+    assert await storage.undo_record_artist_track("user-1", "art1", "trk-b") == 1
+
+    assert _writes(sim) == []
+
+
+@pytest.mark.asyncio
+async def test_failed_artist_undo_is_not_retried(
+    artist_sim_and_storage, monkeypatch
+) -> None:
+    """The reverse is spent once tried, as on the Likes tab: a second undo
+    raises instead of clearing the row the first one could not."""
+    sim, storage = artist_sim_and_storage
+    await storage.record_artist_track("user-1", "art1", "trk-a")
+    real_post = sim.handle_post
+
+    def clear_5xx(url: str, **kw) -> FakeResponse:
+        if url.endswith(":clear"):
+            return FakeResponse(status_code=503, text="busy")
+        return real_post(url, **kw)
+
+    monkeypatch.setattr(
+        "like_spotify.extensions.google_sheets_storage.requests.post", clear_5xx
+    )
+    with pytest.raises(TransientError, match="sheets clear 5xx"):
+        await storage.undo_record_artist_track("user-1", "art1", "trk-a")
+    with pytest.raises(LookupError, match="no record of trk-a"):
+        await storage.undo_record_artist_track("user-1", "art1", "trk-a")
+    assert sim.artist_rows[1][:3] == ["user-1", "art1", "trk-a"]

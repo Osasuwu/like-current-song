@@ -15,6 +15,8 @@ the abstraction promises:
     - undo_increment reverses the latest increment and only that one: an
       undone first increment leaves no trace (the next press backfills
       again), and a second undo reaches no older increment (#270)
+    - undo_record_artist_track takes a track back off the artist's record
+      only when the record being undone added it, once (#283)
 
 A regression that breaks the contract surfaces here *before* the
 impl-specific HTTP-shape tests catch it. Google Sheets is currently the
@@ -283,3 +285,63 @@ async def test_undo_increment_touches_only_its_own_key(storage: Storage) -> None
 
     assert await storage.get_count("user-1", _track("trk-a")) == 1
     assert await storage.get_count("user-1", _track("trk-b")) == 0
+
+
+@pytest.mark.asyncio
+async def test_undo_record_artist_track_takes_a_new_track_back_off(
+    storage: Storage,
+) -> None:
+    """The artist's count reads what it read before the press, and the
+    track counts again when it is liked again (#283)."""
+    await storage.record_artist_track("u1", "art1", "trk-a")
+    assert await storage.record_artist_track("u1", "art1", "trk-b") == 2
+
+    assert await storage.undo_record_artist_track("u1", "art1", "trk-b") == 1
+    assert await storage.record_artist_track("u1", "art1", "trk-a") == 1
+    assert await storage.record_artist_track("u1", "art1", "trk-b") == 2
+
+
+@pytest.mark.asyncio
+async def test_undo_record_artist_track_keeps_a_track_already_counted(
+    storage: Storage,
+) -> None:
+    """A record that found the track already counted added nothing, so its
+    undo takes nothing off (#283)."""
+    await storage.record_artist_track("u1", "art1", "trk-a")
+    await storage.record_artist_track("u1", "art1", "trk-b")
+    await storage.record_artist_track("u1", "art1", "trk-a")
+
+    assert await storage.undo_record_artist_track("u1", "art1", "trk-a") == 2
+    assert await storage.record_artist_track("u1", "art1", "trk-c") == 3
+
+
+@pytest.mark.asyncio
+async def test_undo_record_artist_track_never_reaches_an_older_record(
+    storage: Storage,
+) -> None:
+    """Each record is reversible once: a second undo raises and leaves the
+    count alone, as does an undo of a triple never recorded."""
+    await storage.record_artist_track("u1", "art1", "trk-a")
+    await storage.record_artist_track("u1", "art1", "trk-b")
+    await storage.undo_record_artist_track("u1", "art1", "trk-b")
+
+    with pytest.raises(LookupError, match="no record of trk-b"):
+        await storage.undo_record_artist_track("u1", "art1", "trk-b")
+    with pytest.raises(LookupError, match="no record of never"):
+        await storage.undo_record_artist_track("u1", "art1", "never")
+    assert await storage.record_artist_track("u1", "art1", "trk-a") == 1
+
+
+@pytest.mark.asyncio
+async def test_undo_record_artist_track_touches_only_its_own_artist(
+    storage: Storage,
+) -> None:
+    """The same track by another artist stays counted, even when its row
+    sits below the one being undone (#283)."""
+    await storage.record_artist_track("u1", "art2", "trk-a")
+    await storage.record_artist_track("u1", "art1", "trk-a")
+
+    assert await storage.undo_record_artist_track("u1", "art2", "trk-a") == 0
+
+    assert await storage.record_artist_track("u1", "art1", "trk-b") == 2
+    assert await storage.record_artist_track("u1", "art2", "trk-b") == 1
