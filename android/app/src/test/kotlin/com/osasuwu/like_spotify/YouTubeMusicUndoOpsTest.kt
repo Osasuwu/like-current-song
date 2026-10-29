@@ -153,6 +153,10 @@ class YouTubeMusicUndoOpsTest {
     private fun trackCount(prefs: FakeSharedPreferences) =
         LocalCounters.count(prefs, LocalCounters.Kind.TRACK, YouTubeMusicExtraActions.countKey("vid"))
 
+    /** This device's like count of the artist, the one the Stats screen shows (#281, #289). */
+    private fun artistLikes(prefs: FakeSharedPreferences) =
+        LocalCounters.count(prefs, LocalCounters.Kind.ARTIST, YouTubeMusicExtraActions.countKey("UCartist"))
+
     private fun artistTracks(prefs: FakeSharedPreferences) =
         LocalCounters.parseArtistTracks(prefs.getString(AppConstants.KEY_ARTIST_LIKED_TRACKS, null))[
             YouTubeMusicExtraActions.countKey("UCartist"),
@@ -166,9 +170,12 @@ class YouTubeMusicUndoOpsTest {
             "PLarchive" to mutableListOf("vid", "vid"),
             "PLbest" to mutableListOf(),
         ))
+        // Two likes of the artist from before this press.
+        repeat(2) { LocalCounters.increment(prefs, LocalCounters.Kind.ARTIST, YouTubeMusicExtraActions.countKey("UCartist")) }
         val entry = press(prefs, account)
         // The press did everything it could.
         assertEquals("like", account.ratings["vid"])
+        assertEquals(3, artistLikes(prefs))
         assertEquals(listOf(1, 0, 1), listOf("PLlike", "PLarchive", "PLbest").map { account.copies(it, "vid") })
         assertEquals(setOf("UCartist"), account.subscriptions)
 
@@ -182,6 +189,7 @@ class YouTubeMusicUndoOpsTest {
         assertEquals(emptySet<String>(), LocalCounters.promotedTracks(prefs))
         assertEquals(emptySet<String>(), LocalCounters.followedArtists(prefs))
         assertEquals(emptySet<String>(), artistTracks(prefs))
+        assertEquals(2, artistLikes(prefs))
         assertEquals(null, LocalCounters.lastLikedAt(prefs, song))
     }
 

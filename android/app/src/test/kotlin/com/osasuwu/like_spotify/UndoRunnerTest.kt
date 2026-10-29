@@ -132,6 +132,14 @@ class UndoRunnerTest {
 
         fun localCount(trackId: String) = LocalCounters.count(prefs, LocalCounters.Kind.TRACK, trackId)
 
+        override fun decrementArtistLikeCount(artistId: String) {
+            calls += "artist like decrement $artistId"
+            if ("artist like decrement $artistId" in failing) throw IllegalStateException("prefs write failed")
+            LocalCounters.decrement(prefs, LocalCounters.Kind.ARTIST, artistId)
+        }
+
+        fun artistLikes() = LocalCounters.counts(prefs, LocalCounters.Kind.ARTIST)
+
         fun snapshot() = library.toSet() to playlists.mapValues { it.value.sorted() }
     }
 
@@ -562,5 +570,57 @@ class UndoRunnerTest {
 
         assertEquals(listOf("like playlist", "native save"), result.failures.map { it.leg })
         assertEquals(mapOf("trk-a" to 1), account.sheets["sheet-1"])
+    }
+
+    // ---- artist like count (#281, #289) ---------------------------------------
+
+    /**
+     * This device's artist like counts before a press of trk-a by a1 and a2:
+     * a1 liked 3 times, a2 never, a3 (not on the track) 5 times. Then what the
+     * like did: one more for each of the track's artists.
+     */
+    private fun artistsCountedByThePress(): Account {
+        val account = Account()
+        repeat(3) { LocalCounters.increment(account.prefs, LocalCounters.Kind.ARTIST, "a1") }
+        repeat(5) { LocalCounters.increment(account.prefs, LocalCounters.Kind.ARTIST, "a3") }
+        LocalCounters.increment(account.prefs, LocalCounters.Kind.ARTIST, "a1")
+        LocalCounters.increment(account.prefs, LocalCounters.Kind.ARTIST, "a2")
+        return account
+    }
+
+    @Test
+    fun `an undone like takes each of the track's artists back to its like count before the press`() {
+        val account = artistsCountedByThePress()
+
+        val result = UndoRunner.run(
+            entry(UndoLeg.ArtistLikeCount("a1"), UndoLeg.ArtistLikeCount("a2")),
+            account,
+        )
+
+        assertEquals(emptyList<UndoRunner.Failure>(), result.failures)
+        assertEquals(mapOf("a1" to 3, "a3" to 5), account.artistLikes())
+    }
+
+    @Test
+    fun `an artist like count that cannot be lowered is named, and the rest of the undo still happens`() {
+        val account = artistsCountedByThePress()
+        LocalCounters.increment(account.prefs, LocalCounters.Kind.TRACK, "trk-a")
+        account.failing += "artist like decrement a1"
+
+        val result = UndoRunner.run(
+            entry(
+                UndoLeg.TrackCount(sheet = null),
+                UndoLeg.ArtistLikeCount("a1"),
+                UndoLeg.ArtistLikeCount("a2"),
+            ),
+            account,
+        )
+
+        assertEquals(
+            listOf(UndoRunner.Failure("artist like counter", "IllegalStateException: prefs write failed")),
+            result.failures,
+        )
+        assertEquals(mapOf("a1" to 4, "a3" to 5), account.artistLikes())
+        assertEquals(0, account.localCount("trk-a"))
     }
 }

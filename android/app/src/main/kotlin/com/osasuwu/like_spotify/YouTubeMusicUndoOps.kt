@@ -108,6 +108,10 @@ internal class YouTubeMusicUndoOps(
         LocalCounters.decrement(prefs, LocalCounters.Kind.TRACK, YouTubeMusicExtraActions.countKey(trackId))
     }
 
+    override fun decrementArtistLikeCount(artistId: String) {
+        LocalCounters.decrement(prefs, LocalCounters.Kind.ARTIST, YouTubeMusicExtraActions.countKey(artistId))
+    }
+
     private fun api(call: () -> Unit): ApiResult = try {
         call()
         ApiResult(success = true, statusCode = 200)

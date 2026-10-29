@@ -97,6 +97,14 @@ you sign in from its Settings window.
   the rest still go back, the error tone plays, and the Logs screen names the
   step. An undo still waiting for its like is lost if the app's process dies
   before it runs.
+- **Android: the undo also takes back the artist like count (#281, #289).**
+  Undoing a Spotify or YouTube Music like lowers the like count of each artist
+  the like counted, the per-artist count the Stats screen shows, so it reads
+  what it read before the press. It never goes below zero. A like that did not
+  raise it leaves it alone: on YouTube Music the count rises only with
+  follow-artist on, on Spotify it rises with every like. When it cannot be
+  lowered the rest of the undo still goes back, the error tone plays, and the
+  Logs screen names the "artist like counter".
 - **Desktop: extensions are discovered from their `manifest.json` (#144).** A
   new folder under `like_spotify/extensions/` with a valid manifest is loaded
   at startup by the Windows host and the CLI stub, with no edit to the host

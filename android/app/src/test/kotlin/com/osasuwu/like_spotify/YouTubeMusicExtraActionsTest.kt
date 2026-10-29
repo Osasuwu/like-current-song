@@ -263,8 +263,35 @@ class YouTubeMusicExtraActionsTest {
         val prefs = followRuleOn(threshold = 3)
         val api = FakeDataApi()
 
-        assertEquals(listOf<UndoLeg>(UndoLeg.ArtistTrack("UCartist")), journaled(prefs, api, "vid-a"))
-        assertEquals(emptyList<UndoLeg>(), journaled(prefs, api, "vid-a"))
+        assertEquals(
+            listOf(UndoLeg.ArtistLikeCount("UCartist"), UndoLeg.ArtistTrack("UCartist")),
+            journaled(prefs, api, "vid-a"),
+        )
+        // The repeat raised the like count all the same, so it hands that back.
+        assertEquals(listOf<UndoLeg>(UndoLeg.ArtistLikeCount("UCartist")), journaled(prefs, api, "vid-a"))
+        assertEquals(mapOf("ytmusic:UCartist" to 2), LocalCounters.counts(prefs, LocalCounters.Kind.ARTIST))
+    }
+
+    @Test
+    fun `with follow-artist off the like leaves the artist like count alone and hands the undo none`() {
+        val prefs = bestRuleOn(threshold = 1)
+
+        val legs = journaled(prefs, FakeDataApi())
+
+        assertEquals(emptyMap<String, Int>(), LocalCounters.counts(prefs, LocalCounters.Kind.ARTIST))
+        assertEquals(emptyList<UndoLeg>(), legs.filterIsInstance<UndoLeg.ArtistLikeCount>())
+    }
+
+    @Test
+    fun `a match that is not the artist's own channel raises no artist like count and hands the undo none`() {
+        val prefs = followRuleOn(threshold = 1)
+        val legs = mutableListOf<UndoLeg>()
+
+        YouTubeMusicExtraActions(prefs, FakeDataApi()::call, { _, _, _, _ -> }) { legs += it }
+            .run(YouTubeDataApi.Match("vid", null), sharedLikeCount = null)
+
+        assertEquals(emptyMap<String, Int>(), LocalCounters.counts(prefs, LocalCounters.Kind.ARTIST))
+        assertEquals(emptyList<UndoLeg>(), legs)
     }
 
     @Test
@@ -272,7 +299,11 @@ class YouTubeMusicExtraActionsTest {
         val legs = journaled(followRuleOn(threshold = 1), FakeDataApi(), "vid-a")
 
         assertEquals(
-            listOf(UndoLeg.ArtistTrack("UCartist"), UndoLeg.ArtistFollow("UCartist", alreadyFollowed = false)),
+            listOf(
+                UndoLeg.ArtistLikeCount("UCartist"),
+                UndoLeg.ArtistTrack("UCartist"),
+                UndoLeg.ArtistFollow("UCartist", alreadyFollowed = false),
+            ),
             legs,
         )
     }
@@ -284,7 +315,11 @@ class YouTubeMusicExtraActionsTest {
         val legs = journaled(followRuleOn(threshold = 1), api, "vid-a")
 
         assertEquals(
-            listOf(UndoLeg.ArtistTrack("UCartist"), UndoLeg.ArtistFollow("UCartist", alreadyFollowed = true)),
+            listOf(
+                UndoLeg.ArtistLikeCount("UCartist"),
+                UndoLeg.ArtistTrack("UCartist"),
+                UndoLeg.ArtistFollow("UCartist", alreadyFollowed = true),
+            ),
             legs,
         )
     }
@@ -295,7 +330,7 @@ class YouTubeMusicExtraActionsTest {
 
         val legs = journaled(followRuleOn(threshold = 1), api, "vid-a")
 
-        assertEquals(listOf<UndoLeg>(UndoLeg.ArtistTrack("UCartist")), legs)
+        assertEquals(listOf(UndoLeg.ArtistLikeCount("UCartist"), UndoLeg.ArtistTrack("UCartist")), legs)
     }
 
     @Test

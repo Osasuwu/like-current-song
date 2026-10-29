@@ -373,6 +373,9 @@ class SpotifyLikeWorker(
         override fun decrementLocalCount(trackId: String) {
             LocalCounters.decrement(prefs, LocalCounters.Kind.TRACK, trackId)
         }
+
+        override fun decrementArtistLikeCount(artistId: String) =
+            ArtistLikeCounting.undo(prefs, artistId)
     }
 
     /**
@@ -630,11 +633,12 @@ class SpotifyLikeWorker(
         // collaboration is as much a like for the guest as for the headliner,
         // which is how the Dart and desktop halves have always counted it.
         track.artistIds.forEach { artistId ->
-            // The like tally backs the stats screen, so it moves either way.
+            // The like tally backs the stats screen, so it moves either way;
+            // every like raises it, so every undo lowers it back (#281).
+            ArtistLikeCounting.count(prefs, artistId, ::journal)
+            if (!ruleConfig.followArtistEnabled) return@forEach
             // The follow decision counts distinct tracks: the shared sheet's
             // when there is one, else this device's -- never likes (#243).
-            LocalCounters.increment(prefs, LocalCounters.Kind.ARTIST, artistId)
-            if (!ruleConfig.followArtistEnabled) return@forEach
             // A track this press added to the artist's tally is handed to
             // the undo; one the tally already held is not (#273).
             val artistCount = LocalCounters.artistFollowCount(

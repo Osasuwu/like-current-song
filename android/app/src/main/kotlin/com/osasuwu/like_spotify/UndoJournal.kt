@@ -56,6 +56,13 @@ sealed class UndoLeg {
     data class ArtistTrack(val artistId: String) : UndoLeg()
 
     /**
+     * The like added one to this device's like count of [artistId], the
+     * per-artist count the Stats screen shows (#281, #289). Recorded right
+     * after the count went up, so a like that did not raise it has no leg.
+     */
+    data class ArtistLikeCount(val artistId: String) : UndoLeg()
+
+    /**
      * The like appended the (user, [artistId], track) row to the counter
      * sheet [sheet]'s artist tab (#273). Recorded only for a row this like
      * wrote: a track the sheet already counted for the artist wrote nothing.
@@ -331,6 +338,7 @@ object UndoJournal {
             .put("playlistId", leg.playlistId)
             .putOpt("itemId", leg.itemId)
         is UndoLeg.ArtistTrack -> JSONObject().put(F_KIND, K_ARTIST_TRACK).put("artistId", leg.artistId)
+        is UndoLeg.ArtistLikeCount -> JSONObject().put(F_KIND, K_ARTIST_LIKE_COUNT).put("artistId", leg.artistId)
         is UndoLeg.ArtistTrackRow -> JSONObject()
             .put(F_KIND, K_ARTIST_TRACK_ROW)
             .put("artistId", leg.artistId)
@@ -366,6 +374,7 @@ object UndoJournal {
         K_ARCHIVE_REMOVE -> UndoLeg.ArchiveRemove(json.getString("playlistId"), json.getInt("copies"))
         K_BEST_PROMOTE -> UndoLeg.BestPromote(json.getString("playlistId"), json.optString("itemId").ifBlank { null })
         K_ARTIST_TRACK -> UndoLeg.ArtistTrack(json.getString("artistId"))
+        K_ARTIST_LIKE_COUNT -> UndoLeg.ArtistLikeCount(json.getString("artistId"))
         K_ARTIST_TRACK_ROW -> UndoLeg.ArtistTrackRow(
             json.getString("artistId"),
             LikeCounter.Target(json.getString("spreadsheetId"), json.getString("userId")),
@@ -401,6 +410,7 @@ object UndoJournal {
     private const val K_ARCHIVE_REMOVE = "archive_remove"
     private const val K_BEST_PROMOTE = "best_promote"
     private const val K_ARTIST_TRACK = "artist_track"
+    private const val K_ARTIST_LIKE_COUNT = "artist_like_count"
     private const val K_ARTIST_TRACK_ROW = "artist_track_row"
     private const val K_ARTIST_FOLLOW = "artist_follow"
     private const val K_COOLDOWN_STAMP = "cooldown_stamp"
