@@ -470,7 +470,14 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 							prefs(),
 							pressId,
 							System.currentTimeMillis(),
-							startUndo = { SpotifyLikeWorker.enqueueUndo(applicationContext, it) },
+							startUndo = {
+								TriggerLike.undo(
+									prefs(),
+									it,
+									undoOnSpotify = { id -> SpotifyLikeWorker.enqueueUndo(applicationContext, id) },
+									undoOnYouTubeMusic = { id -> YouTubeMusicJobs.undo(applicationContext, id) },
+								)
+							},
 							tooLate = { FeedbackPlayer.play(applicationContext, FeedbackKind.ERROR) },
 						)
 						result.success(tap.name)

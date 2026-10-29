@@ -41,6 +41,16 @@ class UndoJournalTest {
     }
 
     @Test
+    fun `an undo accepted after the tone is seen by the like still running, and a like with none is not`() {
+        val id = likedAt(50_000L, UndoLeg.NativeSave(alreadySaved = false))
+        assertFalse(UndoJournal.undoAccepted(prefs, id))
+
+        UndoJournal.onPress(prefs, 52_000L)
+
+        assertTrue(UndoJournal.undoAccepted(prefs, id))
+    }
+
+    @Test
     fun `the window is 10 s from the like's tone, inclusive`() {
         val id = likedAt(likedAt = 53_000L, UndoLeg.NativeSave(alreadySaved = false), pressedAt = 50_000L)
 
@@ -91,8 +101,37 @@ class UndoJournalTest {
     }
 
     @Test
+    fun `a playlist leg comes back with the playlist item the press added`() {
+        val legs = arrayOf(
+            UndoLeg.LikePlaylistAdd(playlistId = "pl-like", itemId = "item-like"),
+            UndoLeg.BestPromote(playlistId = "pl-best", itemId = "item-best"),
+        )
+        val id = likedAt(50_000L, *legs)
+
+        assertEquals(legs.toList(), UndoJournal.entry(prefs, id)!!.legs)
+    }
+
+    @Test
     fun `a cooldown stamp comes back with the stamp it replaced, or with none`() {
         val legs = arrayOf(UndoLeg.CooldownStamp(previous = 1_234L), UndoLeg.CooldownStamp(previous = null))
+        val id = likedAt(50_000L, *legs)
+
+        assertEquals(legs.toList(), UndoJournal.entry(prefs, id)!!.legs)
+    }
+
+    @Test
+    fun `a YouTube Music like's session rating and cooldown key come back as recorded`() {
+        // YouTube Music rates through its media session, and keys its
+        // cooldown by artist and title rather than by the video (#274).
+        val legs = arrayOf(
+            UndoLeg.NativeSave(alreadySaved = false, sessionSong = "ytmusic:artist\u001Ftitle"),
+            UndoLeg.NativeSave(alreadySaved = false),
+            // Through the Data API: the video rated, and a dislike it replaced.
+            UndoLeg.NativeSave(alreadySaved = false, videoId = "vid-a"),
+            UndoLeg.NativeSave(alreadySaved = false, videoId = "vid-b", disliked = true),
+            UndoLeg.CooldownStamp(previous = 1_234L, key = "ytmusic:artist\u001Ftitle"),
+            UndoLeg.CooldownStamp(previous = null),
+        )
         val id = likedAt(50_000L, *legs)
 
         assertEquals(legs.toList(), UndoJournal.entry(prefs, id)!!.legs)

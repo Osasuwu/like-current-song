@@ -13,11 +13,29 @@ import org.json.JSONObject
  * counters (#272), best promotion and auto-follow (#273), YouTube Music (#274).
  */
 sealed class UndoLeg {
-    /** The track went into the Spotify library; [alreadySaved] means it was there before the press. */
-    data class NativeSave(val alreadySaved: Boolean) : UndoLeg()
+    /**
+     * The track was rated a like on its service; [alreadySaved] means it was
+     * before the press. [sessionSong] names the song when the rating went
+     * through the player's media session (YouTube Music, #274), which is
+     * where it has to be taken back; null means through the service's API.
+     * [videoId] names the video a YouTube Data API rating went to, the only
+     * one its undo may rate (#274), and [disliked] that the user had
+     * disliked it before the press, so the undo puts the dislike back.
+     */
+    data class NativeSave(
+        val alreadySaved: Boolean,
+        val sessionSong: String? = null,
+        val videoId: String? = null,
+        val disliked: Boolean = false,
+    ) : UndoLeg()
 
-    /** The track was appended to the like playlist [playlistId]. */
-    data class LikePlaylistAdd(val playlistId: String) : UndoLeg()
+    /**
+     * The track was appended to the like playlist [playlistId]. [itemId]
+     * names the playlist item the add made, where the service has one
+     * (YouTube Music, #274), so the undo takes out that item and no other;
+     * null on Spotify, which removes a track only by URI.
+     */
+    data class LikePlaylistAdd(val playlistId: String, val itemId: String? = null) : UndoLeg()
 
     /** Every one of [copies] copies of the track was removed from the archive playlist [playlistId]. */
     data class ArchiveRemove(val playlistId: String, val copies: Int) : UndoLeg()
@@ -25,9 +43,10 @@ sealed class UndoLeg {
     /**
      * The like promoted the track into the best playlist [playlistId] (#273).
      * Recorded only for a promotion the like made: a press that found the
-     * track in best already changed nothing there.
+     * track in best already changed nothing there. [itemId] as for
+     * [LikePlaylistAdd].
      */
-    data class BestPromote(val playlistId: String) : UndoLeg()
+    data class BestPromote(val playlistId: String, val itemId: String? = null) : UndoLeg()
 
     /**
      * The like added the track to this device's distinct tracks of [artistId],
@@ -53,7 +72,7 @@ sealed class UndoLeg {
      * The like stamped the track's last-liked time, which the like cooldown
      * reads; [previous] is the stamp it replaced, null when there was none.
      */
-    data class CooldownStamp(val previous: Long?) : UndoLeg()
+    data class CooldownStamp(val previous: Long?, val key: String? = null) : UndoLeg()
 
     /**
      * The like added one to the track's counter (#272): on the Google Sheet
@@ -118,6 +137,8 @@ object UndoJournal {
         val trackId: String?,
         val trackUri: String?,
         val legs: List<UndoLeg>,
+        /** The service the like went to; entries from before #274 are Spotify's. */
+        val provider: MusicProvider = MusicProvider.SPOTIFY,
     )
 
     /**
@@ -192,13 +213,14 @@ object UndoJournal {
 
     /** Opens a journal entry for a like the worker is about to run; returns its id. */
     @Synchronized
-    fun beginLike(prefs: SharedPreferences, now: Long): String {
+    fun beginLike(prefs: SharedPreferences, now: Long, provider: MusicProvider = MusicProvider.SPOTIFY): String {
         val id = java.util.UUID.randomUUID().toString()
         val entries = load(prefs)
         entries += JSONObject()
             .put(F_ID, id)
             .put(F_PRESSED_AT, now)
             .put(F_STATE, State.LIKING.name)
+            .put(F_PROVIDER, provider.id)
             .put(F_LEGS, JSONArray())
         save(prefs, entries.takeLast(MAX_ENTRIES))
         return id
@@ -238,6 +260,15 @@ object UndoJournal {
         return finish
     }
 
+    /**
+     * Whether an undo of [id] has been accepted, by a repeat or an Undo tap
+     * after the like's tone, and not yet run. A like still running reads
+     * this to skip work its undo would only revert.
+     */
+    @Synchronized
+    fun undoAccepted(prefs: SharedPreferences, id: String): Boolean =
+        load(prefs).firstOrNull { it.getString(F_ID) == id }?.getString(F_STATE) == State.UNDOING.name
+
     /** Closes the undo of [id]; the next press likes again. */
     @Synchronized
     fun finishUndo(prefs: SharedPreferences, id: String) {
@@ -254,6 +285,7 @@ object UndoJournal {
             trackId = json.optString(F_TRACK_ID).ifBlank { null },
             trackUri = json.optString(F_TRACK_URI).ifBlank { null },
             legs = (0 until legs.length()).mapNotNull { decode(legs.getJSONObject(it)) },
+            provider = MusicProvider.fromId(json.optString(F_PROVIDER).ifBlank { null }),
         )
     }
 
@@ -280,13 +312,24 @@ object UndoJournal {
     }
 
     private fun encode(leg: UndoLeg): JSONObject = when (leg) {
-        is UndoLeg.NativeSave -> JSONObject().put(F_KIND, K_NATIVE_SAVE).put("alreadySaved", leg.alreadySaved)
-        is UndoLeg.LikePlaylistAdd -> JSONObject().put(F_KIND, K_LIKE_PLAYLIST_ADD).put("playlistId", leg.playlistId)
+        is UndoLeg.NativeSave -> JSONObject()
+            .put(F_KIND, K_NATIVE_SAVE)
+            .put("alreadySaved", leg.alreadySaved)
+            .putOpt("sessionSong", leg.sessionSong)
+            .putOpt("videoId", leg.videoId)
+            .apply { if (leg.disliked) put("disliked", true) }
+        is UndoLeg.LikePlaylistAdd -> JSONObject()
+            .put(F_KIND, K_LIKE_PLAYLIST_ADD)
+            .put("playlistId", leg.playlistId)
+            .putOpt("itemId", leg.itemId)
         is UndoLeg.ArchiveRemove -> JSONObject()
             .put(F_KIND, K_ARCHIVE_REMOVE)
             .put("playlistId", leg.playlistId)
             .put("copies", leg.copies)
-        is UndoLeg.BestPromote -> JSONObject().put(F_KIND, K_BEST_PROMOTE).put("playlistId", leg.playlistId)
+        is UndoLeg.BestPromote -> JSONObject()
+            .put(F_KIND, K_BEST_PROMOTE)
+            .put("playlistId", leg.playlistId)
+            .putOpt("itemId", leg.itemId)
         is UndoLeg.ArtistTrack -> JSONObject().put(F_KIND, K_ARTIST_TRACK).put("artistId", leg.artistId)
         is UndoLeg.ArtistTrackRow -> JSONObject()
             .put(F_KIND, K_ARTIST_TRACK_ROW)
@@ -298,7 +341,10 @@ object UndoJournal {
             .put("artistId", leg.artistId)
             .put("alreadyFollowed", leg.alreadyFollowed)
         // A null previous stamp is stored as an absent field.
-        is UndoLeg.CooldownStamp -> JSONObject().put(F_KIND, K_COOLDOWN_STAMP).put("previous", leg.previous)
+        is UndoLeg.CooldownStamp -> JSONObject()
+            .put(F_KIND, K_COOLDOWN_STAMP)
+            .put("previous", leg.previous)
+            .putOpt("key", leg.key)
         is UndoLeg.TrackCount -> JSONObject().put(F_KIND, K_TRACK_COUNT).apply {
             val sheet = leg.sheet
             if (sheet == null) {
@@ -310,17 +356,25 @@ object UndoJournal {
     }
 
     private fun decode(json: JSONObject): UndoLeg? = when (json.optString(F_KIND)) {
-        K_NATIVE_SAVE -> UndoLeg.NativeSave(json.getBoolean("alreadySaved"))
-        K_LIKE_PLAYLIST_ADD -> UndoLeg.LikePlaylistAdd(json.getString("playlistId"))
+        K_NATIVE_SAVE -> UndoLeg.NativeSave(
+            json.getBoolean("alreadySaved"),
+            sessionSong = json.optString("sessionSong").ifBlank { null },
+            videoId = json.optString("videoId").ifBlank { null },
+            disliked = json.optBoolean("disliked"),
+        )
+        K_LIKE_PLAYLIST_ADD -> UndoLeg.LikePlaylistAdd(json.getString("playlistId"), json.optString("itemId").ifBlank { null })
         K_ARCHIVE_REMOVE -> UndoLeg.ArchiveRemove(json.getString("playlistId"), json.getInt("copies"))
-        K_BEST_PROMOTE -> UndoLeg.BestPromote(json.getString("playlistId"))
+        K_BEST_PROMOTE -> UndoLeg.BestPromote(json.getString("playlistId"), json.optString("itemId").ifBlank { null })
         K_ARTIST_TRACK -> UndoLeg.ArtistTrack(json.getString("artistId"))
         K_ARTIST_TRACK_ROW -> UndoLeg.ArtistTrackRow(
             json.getString("artistId"),
             LikeCounter.Target(json.getString("spreadsheetId"), json.getString("userId")),
         )
         K_ARTIST_FOLLOW -> UndoLeg.ArtistFollow(json.getString("artistId"), json.getBoolean("alreadyFollowed"))
-        K_COOLDOWN_STAMP -> UndoLeg.CooldownStamp(if (json.has("previous")) json.getLong("previous") else null)
+        K_COOLDOWN_STAMP -> UndoLeg.CooldownStamp(
+            if (json.has("previous")) json.getLong("previous") else null,
+            json.optString("key").ifBlank { null },
+        )
         K_TRACK_COUNT -> when (json.optString("store")) {
             STORE_LOCAL -> UndoLeg.TrackCount(sheet = null)
             STORE_SHEET -> UndoLeg.TrackCount(
@@ -340,6 +394,7 @@ object UndoJournal {
     private const val F_TRACK_ID = "trackId"
     private const val F_TRACK_URI = "trackUri"
     private const val F_LEGS = "legs"
+    private const val F_PROVIDER = "provider"
     private const val F_KIND = "kind"
     private const val K_NATIVE_SAVE = "native_save"
     private const val K_LIKE_PLAYLIST_ADD = "like_playlist_add"

@@ -3,20 +3,20 @@ package com.osasuwu.like_spotify
 import android.content.SharedPreferences
 
 /**
- * Where a trigger's like goes (#268). It runs natively whether or not the app
- * is open: delegating to Dart while Flutter was attached left those likes out
- * of the undo journal, so a repeat could not undo them. The app shows the
- * result through the log events and the undo-window event instead.
+ * Where a trigger's like goes (#268), and where its undo goes. It runs
+ * natively whether or not the app is open: delegating to Dart while Flutter
+ * was attached left those likes out of the undo journal, so a repeat could not
+ * undo them. The app shows the result through the log events and the
+ * undo-window event instead.
  *
- * Only the Spotify job journals what it does, so only its likes can be undone
- * by repeating the trigger (#267); YouTube Music is #274.
+ * Both services journal what they do, so a repeat undoes a like on either
+ * (#267 Spotify, #274 YouTube Music).
  */
 object TriggerLike {
 
     /**
-     * Likes on [provider]: Spotify gets a journal entry opened at [now] and
-     * hands its id to [likeOnSpotify] (the worker); YouTube Music goes to
-     * [likeOnYouTubeMusic].
+     * Likes on [provider]: a journal entry opened at [now] for that service
+     * hands its id to [likeOnSpotify] (the worker) or [likeOnYouTubeMusic].
      */
     fun run(
         prefs: SharedPreferences,
@@ -24,11 +24,32 @@ object TriggerLike {
         now: Long,
         afterUndo: Boolean,
         likeOnSpotify: (pressId: String, afterUndo: Boolean) -> Unit,
-        likeOnYouTubeMusic: () -> Unit,
+        likeOnYouTubeMusic: (pressId: String) -> Unit,
     ) {
         when (provider) {
             MusicProvider.SPOTIFY -> likeOnSpotify(UndoJournal.beginLike(prefs, now), afterUndo)
-            MusicProvider.YTMUSIC -> likeOnYouTubeMusic()
+            // No afterUndo: the trigger's YouTube Music likes and undos share
+            // one queue, so a like after an undo already runs after it. (The
+            // app's "Like current track now" button runs elsewhere, but it
+            // journals nothing, so it has nothing to undo.)
+            MusicProvider.YTMUSIC -> likeOnYouTubeMusic(UndoJournal.beginLike(prefs, now, MusicProvider.YTMUSIC))
+        }
+    }
+
+    /**
+     * Undoes the like journalled under [pressId] on the service that made it.
+     * An entry no longer in the journal goes to Spotify, whose undo logs it
+     * and plays the error tone.
+     */
+    fun undo(
+        prefs: SharedPreferences,
+        pressId: String,
+        undoOnSpotify: (pressId: String) -> Unit,
+        undoOnYouTubeMusic: (pressId: String) -> Unit,
+    ) {
+        when (UndoJournal.entry(prefs, pressId)?.provider) {
+            MusicProvider.YTMUSIC -> undoOnYouTubeMusic(pressId)
+            else -> undoOnSpotify(pressId)
         }
     }
 }

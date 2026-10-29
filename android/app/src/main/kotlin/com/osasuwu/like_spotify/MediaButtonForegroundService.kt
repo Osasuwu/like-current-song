@@ -17,15 +17,12 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.os.PowerManager
 import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 import android.support.v4.media.session.MediaSessionCompat
 import androidx.core.app.NotificationCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
 
 class MediaButtonForegroundService : Service() {
     private lateinit var mediaSession: MediaSessionCompat
@@ -41,9 +38,6 @@ class MediaButtonForegroundService : Service() {
 
     /** API 26+ only; null below, where the veto has no history and passes. */
     private var playbackCallback: Any? = null
-
-    /** Runs YouTube Music likes (binder polling + HTTP) off the main thread. */
-    private val likeExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
     /**
      * Keeps the notification's words true while the service runs: notification
@@ -206,7 +200,6 @@ class MediaButtonForegroundService : Service() {
 
     override fun onDestroy() {
         destroyed = true
-        likeExecutor.shutdown()
         mainHandler.removeCallbacks(undoWindowCheck)
         prefs().unregisterOnSharedPreferenceChangeListener(journalListener)
         runCatching { unregisterReceiver(screenReceiver) }
@@ -256,7 +249,7 @@ class MediaButtonForegroundService : Service() {
             when (press) {
                 is UndoJournal.Press.Undo -> {
                     log("Trigger repeated within ${UndoJournal.WINDOW_MS / 1000} s of a like: undoing it", actionType = "undo")
-                    SpotifyLikeWorker.enqueueUndo(this, press.pressId)
+                    undo(press.pressId)
                 }
                 UndoJournal.Press.QueueUndo ->
                     log("Trigger repeated while the like is still running: it undoes itself when done", actionType = "undo")
@@ -277,7 +270,7 @@ class MediaButtonForegroundService : Service() {
             prefs(),
             pressId,
             System.currentTimeMillis(),
-            startUndo = { SpotifyLikeWorker.enqueueUndo(this, it) },
+            startUndo = ::undo,
             // A visible button that did nothing must not be silent.
             tooLate = { FeedbackPlayer.play(this, FeedbackKind.ERROR) },
         )
@@ -347,48 +340,17 @@ class MediaButtonForegroundService : Service() {
                 log("Liking on Spotify through WorkManager")
                 SpotifyLikeWorker.enqueue(this, routing.provider, pressId, after)
             },
-            likeOnYouTubeMusic = { likeYouTubeMusicInBackground() },
+            likeOnYouTubeMusic = { pressId -> YouTubeMusicJobs.like(this, pressId) },
         )
     }
 
-    /**
-     * The session like needs a live MediaController, which a WorkManager job
-     * can't carry, so it runs on [likeExecutor] under a partial wake lock (the
-     * screen is usually off when the trigger fires).
-     */
-    private fun likeYouTubeMusicInBackground() {
-        val appContext = applicationContext
-        val power = getSystemService(Context.POWER_SERVICE) as PowerManager
-        val wakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "LikeSpotify:ytmusic-like")
-        wakeLock.setReferenceCounted(false)
-        wakeLock.acquire(YTM_LIKE_WAKE_LOCK_MS)
-        val submitted = runCatching {
-            likeExecutor.execute {
-                try {
-                    val liker = YouTubeMusicLiker(appContext)
-                    val liked = liker.like()
-                    FeedbackPlayer.play(appContext, liked.positive)
-                    // After the tone: counting may take a search and an RPC,
-                    // and it never changes whether the like succeeded.
-                    val outcome = runCatching { liker.count(liked) }.getOrDefault(liked)
-                    log(
-                        outcome.logLine(),
-                        actionType = "like_track",
-                        result = if (outcome.positive) "success" else "failure",
-                    )
-                    // The opt-in extras come last: they cost API quota, they
-                    // can be slow, and they only ever log.
-                    runCatching { liker.extraActions(outcome) }
-                } catch (e: Exception) {
-                    FeedbackPlayer.play(appContext, false)
-                    log("YouTube Music like failed: ${e.message}", actionType = "like_track", result = "failure")
-                } finally {
-                    if (wakeLock.isHeld) wakeLock.release()
-                }
-            }
-        }
-        if (submitted.isFailure && wakeLock.isHeld) wakeLock.release()
-    }
+    /** Undoes the like [pressId] on the service that made it (#274). */
+    private fun undo(pressId: String) = TriggerLike.undo(
+        prefs(),
+        pressId,
+        undoOnSpotify = { SpotifyLikeWorker.enqueueUndo(this, it) },
+        undoOnYouTubeMusic = { YouTubeMusicJobs.undo(this, it) },
+    )
 
     /**
      * Feeds [veto] the active-player list: seeded now, then on every change.
@@ -658,9 +620,6 @@ class MediaButtonForegroundService : Service() {
         private const val GRANT_ACCESS_REQUEST_CODE = 6
         private const val UNDO_REQUEST_CODE = 7
         private const val RESTART_DELAY_MS = 1000L
-
-        /** Session confirm (~2 s) + worst-case refresh/search/rate/extra-action round trips. */
-        private const val YTM_LIKE_WAKE_LOCK_MS = 60_000L
 
         /**
          * Tells a running service that notification access was granted or

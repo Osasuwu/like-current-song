@@ -60,9 +60,8 @@ you sign in from its Settings window.
   when a step failed, and the Logs screen names the step. A repeat while the
   like is still running waits for it and then undoes it, the pattern after an
   undo likes again, and a repeat vetoed because another app started playing
-  does nothing. Not yet
-  covered: likes made with the app open and YouTube Music. Copies put back in
-  the archive go to its end.
+  does nothing. Not yet covered: likes made with the app's "Like current track
+  now" button. Copies put back in the archive go to its end.
 - **Android: the undo also takes back the like counter (#272).** Undoing a
   background Spotify like now lowers the track's like count by the one the like
   added, on the counter the like went to: the shared Google Sheet, or this
@@ -82,6 +81,22 @@ you sign in from its Settings window.
   back, the error tone plays, and the Logs screen names the step. The cleared
   sheet row can stay behind as an empty row, and a desktop that is already running
   keeps its own count of the artist's tracks until it restarts.
+- **Android: undo now covers YouTube Music (#274).** A YouTube Music like made
+  by the trigger can be undone the same ways as a Spotify one: repeating the
+  trigger within 10 seconds, the notification's Undo button, or the main
+  screen's "Undo last like" button. A rating the like set in the YouTube Music
+  app is taken back there, and only while the song is still playing; otherwise
+  that step fails and the Logs screen names it. A rating set through the
+  YouTube Data API goes back to what the video had before, a dislike included.
+  A dislike the like replaced in the YouTube Music app is not put back. The
+  undo takes off the like playlist only the copy the like added, puts the song
+  back in the archive playlist, lowers the like counter, and forgets the like
+  cooldown. A song you had already liked keeps its like. A best promotion or an
+  auto-follow is taken back only if this like made it. A repeat while the like
+  is still running waits for it and then undoes it once. When one step fails
+  the rest still go back, the error tone plays, and the Logs screen names the
+  step. An undo still waiting for its like is lost if the app's process dies
+  before it runs.
 - **Desktop: extensions are discovered from their `manifest.json` (#144).** A
   new folder under `like_spotify/extensions/` with a valid manifest is loaded
   at startup by the Windows host and the CLI stub, with no edit to the host
