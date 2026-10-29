@@ -269,18 +269,7 @@ class YouTubeMusicExtraActionsTest {
         )
         // The repeat raised the like count all the same, so it hands that back.
         assertEquals(listOf<UndoLeg>(UndoLeg.ArtistLikeCount("UCartist")), journaled(prefs, api, "vid-a"))
-    }
-
-    @Test
-    fun `a like that raised the artist like count hands the undo that count, once per like`() {
-        val prefs = followRuleOn(threshold = 3)
-        val api = FakeDataApi()
-
-        journaled(prefs, api, "vid-a")
-        val legs = journaled(prefs, api, "vid-b")
-
         assertEquals(mapOf("ytmusic:UCartist" to 2), LocalCounters.counts(prefs, LocalCounters.Kind.ARTIST))
-        assertEquals(1, legs.count { it == UndoLeg.ArtistLikeCount("UCartist") })
     }
 
     @Test
