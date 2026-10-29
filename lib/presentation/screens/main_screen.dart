@@ -57,6 +57,16 @@ class MainScreen extends ConsumerWidget {
                       )
                     : const Text('Like current track now'),
               ),
+              // Only while the last like can still be undone (#268): the
+              // same undo as repeating the trigger within the window.
+              if (state.undoWindow != null) ...<Widget>[
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: controller.undoLastLike,
+                  icon: const Icon(Icons.undo),
+                  label: const Text('Undo last like'),
+                ),
+              ],
               if (state.pendingLikesCount > 0) ...<Widget>[
                 const SizedBox(height: 8),
                 Text(

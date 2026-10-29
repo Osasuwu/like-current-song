@@ -273,20 +273,21 @@ class MediaButtonForegroundService : Service() {
      * for the like the action was offered for, only inside its window.
      */
     private fun onUndoTapped(pressId: String?) {
-        val accepted = pressId != null && UndoJournal.requestUndo(prefs(), pressId, System.currentTimeMillis())
-        val tappedState = pressId?.let { UndoJournal.entry(prefs(), it)?.state }
-        when (UndoActionSync.tap(accepted, tappedState)) {
-            UndoActionSync.Tap.UNDO -> {
+        val tap = UndoActionSync.tap(
+            prefs(),
+            pressId,
+            System.currentTimeMillis(),
+            startUndo = { SpotifyLikeWorker.enqueueUndo(this, it) },
+            // A visible button that did nothing must not be silent.
+            tooLate = { FeedbackPlayer.play(this, FeedbackKind.ERROR) },
+        )
+        when (tap) {
+            UndoActionSync.Tap.UNDO ->
                 log("Undo tapped in the notification: undoing the last like", actionType = "undo")
-                SpotifyLikeWorker.enqueueUndo(this, pressId!!)
-            }
             UndoActionSync.Tap.ALREADY_UNDOING ->
                 log("Undo tapped while the undo is already under way", actionType = "undo")
-            UndoActionSync.Tap.TOO_LATE -> {
+            UndoActionSync.Tap.TOO_LATE ->
                 log("Undo tapped, but that like can no longer be undone: nothing undone", actionType = "undo")
-                // A visible button that did nothing must not be silent.
-                FeedbackPlayer.play(this, FeedbackKind.ERROR)
-            }
         }
         // Stale or not, the action must not stay up.
         syncUndoAction()
@@ -323,22 +324,22 @@ class MediaButtonForegroundService : Service() {
         }
     }
 
+    /**
+     * A trigger's like. It runs natively whether or not the app is open
+     * (#268): delegating to Dart while Flutter was attached left those likes
+     * out of the undo journal, so a repeat could not undo them. The app shows
+     * the result through the log events and the undo-window event instead.
+     */
     private fun like(afterUndo: Boolean) {
-        if (MainActivity.isFlutterAttached) {
-            log("Delegating to Flutter (full workflow)")
-            val intent = Intent(AppConstants.ACTION_TRIGGER_LIKE)
-            LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
-        } else {
-            likeInBackground(afterUndo)
-        }
+        likeInBackground(afterUndo)
     }
 
     /**
-     * Likes without Flutter: Spotify via WorkManager, YouTube Music in-process.
+     * Likes natively: Spotify via WorkManager, YouTube Music in-process.
      *
-     * The service is resolved here rather than in Dart because this is the
-     * path the trigger normally takes — the engine is usually detached when
-     * the pattern fires. [MusicProvider.resolve] is the same rule Dart runs.
+     * The service is resolved here rather than in Dart because the trigger
+     * always likes on this path, app open or not. [MusicProvider.resolve] is
+     * the same rule Dart runs.
      *
      * Only the Spotify job journals what it does, so only its likes can be
      * undone by repeating the trigger (#267); YouTube Music is #274.
@@ -350,7 +351,7 @@ class MediaButtonForegroundService : Service() {
         }
         when (routing.provider) {
             MusicProvider.SPOTIFY -> {
-                log("Flutter not attached — using WorkManager fallback")
+                log("Liking on Spotify through WorkManager")
                 val pressId = UndoJournal.beginLike(prefs(), System.currentTimeMillis())
                 SpotifyLikeWorker.enqueue(this, routing.provider, pressId, afterUndo)
             }

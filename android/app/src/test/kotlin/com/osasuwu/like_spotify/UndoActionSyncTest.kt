@@ -85,4 +85,75 @@ class UndoActionSyncTest {
         assertEquals(Tap.TOO_LATE, UndoActionSync.tap(accepted = false, tappedState = UndoJournal.State.DONE))
         assertEquals(Tap.TOO_LATE, UndoActionSync.tap(accepted = false, tappedState = null))
     }
+
+    // The tap both Undo surfaces run (#268): the notification action and the
+    // in-app button. It is driven against the real journal, so what it starts
+    // is what a repeat press inside the window would start.
+
+    private val prefs = FakeSharedPreferences()
+    private val started = mutableListOf<String>()
+    private var tooLateCalls = 0
+
+    /** A like with one leg that the worker finished at [likedAt]; its window closes 10 s later. */
+    private fun likedAt(likedAt: Long): String {
+        val id = UndoJournal.beginLike(prefs, likedAt)
+        UndoJournal.setTrack(prefs, id, "trk-a", "spotify:track:trk-a")
+        UndoJournal.recordLeg(prefs, id, UndoLeg.NativeSave(alreadySaved = false))
+        assertEquals(UndoJournal.Finish.NONE, UndoJournal.finishLike(prefs, id, likedAt))
+        return id
+    }
+
+    private fun tapAt(pressId: String?, now: Long): Tap =
+        UndoActionSync.tap(prefs, pressId, now, startUndo = { started += it }, tooLate = { tooLateCalls++ })
+
+    @Test
+    fun `a tap inside the window marks the like undoing and starts the undo of that like`() {
+        val id = likedAt(50_000L)
+
+        assertEquals(Tap.UNDO, tapAt(id, now = 55_000L))
+        assertEquals(listOf(id), started)
+        assertEquals(0, tooLateCalls)
+        assertEquals(UndoJournal.State.UNDOING, UndoJournal.entry(prefs, id)?.state)
+    }
+
+    @Test
+    fun `a second tap while that undo is under way starts nothing and plays nothing`() {
+        val id = likedAt(50_000L)
+        tapAt(id, now = 55_000L)
+
+        assertEquals(Tap.ALREADY_UNDOING, tapAt(id, now = 56_000L))
+        assertEquals(listOf(id), started)
+        assertEquals(0, tooLateCalls)
+    }
+
+    @Test
+    fun `a tap after the window closed undoes nothing and is told so`() {
+        val id = likedAt(50_000L)
+
+        // The window closes at 60 000, inclusive.
+        assertEquals(Tap.TOO_LATE, tapAt(id, now = 60_001L))
+        assertEquals(emptyList<String>(), started)
+        assertEquals(1, tooLateCalls)
+        assertEquals(UndoJournal.State.LIKED, UndoJournal.entry(prefs, id)?.state)
+    }
+
+    @Test
+    fun `a tap that names no like undoes nothing and is told so`() {
+        val id = likedAt(50_000L)
+
+        assertEquals(Tap.TOO_LATE, tapAt(null, now = 55_000L))
+        assertEquals(emptyList<String>(), started)
+        assertEquals(1, tooLateCalls)
+        assertEquals(UndoJournal.State.LIKED, UndoJournal.entry(prefs, id)?.state)
+    }
+
+    @Test
+    fun `the window crosses the platform channel as its press id and close time, and no window as null`() {
+        // The keys are the contract with Dart's UndoWindow.fromChannel (#268).
+        assertEquals(
+            mapOf("pressId" to "press-1", "closesAt" to 63_000L),
+            UndoActionSync.channelMap(window),
+        )
+        assertEquals(null, UndoActionSync.channelMap(null))
+    }
 }
