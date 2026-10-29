@@ -37,6 +37,32 @@ class ServiceNotificationTextTest {
     }
 
     @Test
+    fun `Undo joins while its window is open, after Stop and grant access, which keep their order`() {
+        // #269: the action is added, not slotted in, so Stop and the grant
+        // keep the places they had before it existed.
+        assertEquals(
+            listOf(NotificationAction.STOP, NotificationAction.GRANT_ACCESS, NotificationAction.UNDO),
+            ServiceNotificationText.actions(listenerEnabled = false, undoOpen = true),
+        )
+        assertEquals(
+            listOf(NotificationAction.STOP, NotificationAction.UNDO),
+            ServiceNotificationText.actions(listenerEnabled = true, undoOpen = true),
+        )
+    }
+
+    @Test
+    fun `with no undo window the actions are what they were before Undo existed`() {
+        assertEquals(
+            listOf(NotificationAction.STOP, NotificationAction.GRANT_ACCESS),
+            ServiceNotificationText.actions(listenerEnabled = false, undoOpen = false),
+        )
+        assertEquals(
+            listOf(NotificationAction.STOP),
+            ServiceNotificationText.actions(listenerEnabled = true, undoOpen = false),
+        )
+    }
+
+    @Test
     fun `the grant is what distinguishes inactive from unable to listen`() {
         assertEquals(
             "Like Current Song is inactive",

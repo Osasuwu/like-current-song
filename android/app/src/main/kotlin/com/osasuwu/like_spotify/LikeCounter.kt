@@ -147,6 +147,19 @@ object LikeCounter {
         return (trackId in tracks) to tracks.size
     }
 
+    /**
+     * What an undo writes for (user id, track id) in a `values.get` body
+     * (#272): the pair's row and its count one lower. Null when there is
+     * nothing to lower -- no row, or a count that reads 0 or less (an
+     * unreadable cell reads 0, see [findRow]) -- so an undo never creates a
+     * row and never writes a count below 0.
+     */
+    fun decrementPlan(body: String?, userId: String, trackId: String): Pair<Int, Int>? {
+        val (row, current) = findRow(body, userId, trackId) ?: return null
+        if (current <= 0) return null
+        return row to current - 1
+    }
+
     /** A timestamp in the same shape the desktop writes: `%Y-%m-%dT%H:%M:%SZ`. */
     fun nowIso(): String {
         val format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
@@ -199,8 +212,7 @@ object LikeCounter {
                 // The count is already on the sheet at this point, so a failed
                 // timestamp write is reported as the success it mostly is.
                 val stampCell = encode("$SHEET!${CounterSheetSchema.UPDATED_AT_COLUMN}$row")
-                update(token, "$base/$stampCell", now)
-                CountOutcome.counted(next)
+                afterCountWritten(next) { update(token, "$base/$stampCell", now) }
             } else {
                 val next = if (wasAlreadyLiked) 2 else 1
                 val row = listOf(
@@ -216,6 +228,68 @@ object LikeCounter {
                 }
                 CountOutcome.counted(next)
             }
+        } catch (e: Exception) {
+            CountOutcome.failed(unreachable(e))
+        }
+    }
+
+    /**
+     * The answer once [next] is on the sheet: counted, whatever [writeStamp]
+     * (the row's `updated_at`) does. A stamp write that throws must not turn
+     * a count the sheet took into a failure: [increment] would then send the
+     * worker to count the like again on this device and journal that counter,
+     * so an undo leaves the sheet one high, and [decrement] would report an
+     * undo that did lower the count as failed (#272).
+     */
+    internal fun afterCountWritten(next: Int, writeStamp: () -> Unit): CountOutcome {
+        try {
+            writeStamp()
+        } catch (e: Exception) {
+            // Best effort: the count is what the sheet is for.
+        }
+        return CountOutcome.counted(next)
+    }
+
+    /**
+     * Takes back one like of [trackId] (#272): the undo of [increment], as a
+     * [CountOutcome] -- the count now on the sheet, or why the sheet did not
+     * take the change. Blocking. Never below 0: a missing row or a count of 0
+     * is left as it is and answered as counted ([decrementPlan]), and a row an
+     * undone like created stays at 0 rather than being deleted.
+     *
+     * **Cross-device race, accepted.** This is read-modify-write: it reads the
+     * count, then writes count − 1. A like or an undo another device writes to
+     * the same row between the read and the write is lost -- the later write
+     * wins. [increment] has the same window. The Sheets values API offers no
+     * compare-and-set, and the decision this follows (operator journal,
+     * 2026-10-28, "undo gesture: repeat-trigger within 10 s") accepts the race
+     * rather than locking across devices: two devices pressing on the same
+     * track inside one round trip is rare, and the cost is one count off by
+     * one. Do not add a lock here without revisiting that decision.
+     */
+    fun decrement(prefs: SharedPreferences, target: Target, trackId: String): CountOutcome {
+        val token = try {
+            GoogleTokens.fresh(prefs, GoogleTokens.COUNTER)
+        } catch (failure: GoogleTokens.RefreshFailure) {
+            return CountOutcome.failed(tokenRefusedMessage(failure), failure.httpCode)
+        } catch (e: Exception) {
+            return CountOutcome.failed(unreachable(e))
+        }
+        return try {
+            val read = get(token, "$API_BASE/${target.spreadsheetId}/values/${encode(SHEET)}")
+            val body = read.body
+                ?: return CountOutcome.failed("the counter sheet could not be read", read.status)
+            val (row, next) = decrementPlan(body, target.userId, trackId)
+                ?: return CountOutcome.counted(0)
+            val base = "$API_BASE/${target.spreadsheetId}/values"
+            val countCell = encode("$SHEET!${CounterSheetSchema.COUNT_COLUMN}$row")
+            val written = update(token, "$base/$countCell", next)
+            if (written !in 200..299) {
+                return CountOutcome.failed("the counter sheet refused the lowered count", written)
+            }
+            // As in increment: the count is on the sheet, so the timestamp is best effort.
+            val stampCell = encode("$SHEET!${CounterSheetSchema.UPDATED_AT_COLUMN}$row")
+            afterCountWritten(next) { update(token, "$base/$stampCell", nowIso()) }
         } catch (e: Exception) {
             CountOutcome.failed(unreachable(e))
         }

@@ -139,6 +139,21 @@ object LocalCounters {
         return updated.getValue(id)
     }
 
+    /**
+     * The count for [id], one lower, stored and returned (#272): the undo of
+     * an [increment]. Never below zero, and a count that reaches zero leaves
+     * the map, so an undone first like reads exactly as before the press.
+     */
+    @Synchronized
+    fun decrement(prefs: SharedPreferences, kind: Kind, id: String): Int {
+        val counts = parseCounts(prefs.getString(kind.prefsKey, null))
+        val current = counts[id] ?: return 0
+        val next = current - 1
+        val updated = if (next > 0) counts + (id to next) else counts - id
+        prefs.edit().putString(kind.prefsKey, encode(updated)).apply()
+        return next.coerceAtLeast(0)
+    }
+
     // ---- Last liked ----------------------------------------------
 
     /** When [id] was last liked, or null when it never was. */
