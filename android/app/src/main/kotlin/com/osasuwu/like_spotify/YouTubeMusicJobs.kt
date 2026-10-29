@@ -14,6 +14,11 @@ import java.util.concurrent.Executors
  * wake lock (the screen is usually off when the trigger fires). One thread
  * means an undo always runs after the like it reverts, the way Spotify's undo
  * job is chained after its like job (#274).
+ *
+ * The queue lives in memory only. If the process dies mid-like, the journal
+ * entry stays LIKING and goes stale after the undo window, so the next press
+ * likes again; but a repeat already queued as an undo is dropped, with no
+ * tone and no log line.
  */
 internal object YouTubeMusicJobs {
 
