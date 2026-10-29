@@ -73,6 +73,14 @@ class UndoRunnerTest {
             return null
         }
 
+        /** Video ratings set through the YouTube Data API (#274): videoId -> like, dislike or none. */
+        val ratings = mutableMapOf<String, String>()
+
+        override fun restoreRating(videoId: String, disliked: Boolean): ApiResult {
+            val rating = if (disliked) "dislike" else "none"
+            return call("rate $videoId $rating").also { if (it.success) ratings[videoId] = rating }
+        }
+
         override fun countInPlaylist(playlistId: String, trackId: String): Int {
             calls += "count $playlistId"
             if ("count $playlistId" in failing) throw IllegalStateException("count failed")
@@ -84,6 +92,8 @@ class UndoRunnerTest {
 
         override fun add(playlistId: String, trackUri: String): ApiResult =
             call("add $playlistId").also { if (it.success) playlists.getValue(playlistId) += trackUri }
+
+        override fun removeItem(itemId: String): ApiResult = call("remove item $itemId")
 
         /** The cooldown's last-liked stamps on the phone, by track id. */
         val stamps = mutableMapOf<String, Long>()
@@ -188,6 +198,30 @@ class UndoRunnerTest {
     }
 
     @Test
+    fun `a playlist leg that names the item the press added takes out that item alone`() {
+        val account = Account(playlists = mutableMapOf("pl-like" to mutableListOf(uri, uri), "pl-best" to mutableListOf(uri)))
+
+        val result = UndoRunner.run(
+            entry(UndoLeg.LikePlaylistAdd("pl-like", itemId = "item-like"), UndoLeg.BestPromote("pl-best", itemId = "item-best")),
+            account,
+        )
+
+        assertEquals(emptyList<UndoRunner.Failure>(), result.failures)
+        assertEquals(listOf("remove item item-best", "forget promoted", "remove item item-like"), account.calls)
+    }
+
+    @Test
+    fun `a promoted item that will not come out is named and keeps its promoted mark`() {
+        val account = Account(playlists = mutableMapOf("pl-best" to mutableListOf(uri)))
+        account.failing += "remove item item-best"
+
+        val result = UndoRunner.run(entry(UndoLeg.BestPromote("pl-best", itemId = "item-best")), account)
+
+        assertEquals(listOf("best playlist"), result.failures.map { it.leg })
+        assertEquals(listOf("remove item item-best"), account.calls)
+    }
+
+    @Test
     fun `legs are reverted newest first`() {
         val account = Account(playlists = mutableMapOf("pl-like" to mutableListOf(uri), "pl-arch" to mutableListOf()))
         account.library += uri
@@ -262,6 +296,25 @@ class UndoRunnerTest {
             listOf(UndoRunner.Failure("native save", "the song is no longer playing in YouTube Music")),
             result.failures,
         )
+    }
+
+    @Test
+    fun `a rating made through the YouTube Data API is put back on the video the leg names`() {
+        val account = Account()
+        account.ratings += mapOf("vid-rated" to "like", "vid-disliked" to "like")
+
+        // The journal's track is the search's video; each leg names the one it rated.
+        val result = UndoRunner.run(
+            entry(
+                UndoLeg.NativeSave(alreadySaved = false, videoId = "vid-rated"),
+                UndoLeg.NativeSave(alreadySaved = false, videoId = "vid-disliked", disliked = true),
+            ),
+            account,
+        )
+
+        assertEquals(emptyList<UndoRunner.Failure>(), result.failures)
+        assertEquals(mapOf("vid-rated" to "none", "vid-disliked" to "dislike"), account.ratings)
+        assertEquals(listOf("rate vid-disliked dislike", "rate vid-rated none"), account.calls)
     }
 
     @Test

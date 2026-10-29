@@ -34,39 +34,25 @@ internal object YouTubeMusicJobs {
 
     private fun runLike(app: Context, pressId: String) {
         val liker = YouTubeMusicLiker(app, pressId)
-        // The like's own line is written before any undo line about it, even
-        // when a repeat during the like undoes it before it is counted.
-        var pendingLikeLine: (() -> Unit)? = null
-        val report = report(app) {
-            pendingLikeLine?.invoke()
-            pendingLikeLine = null
-        }
-        try {
-            val liked = liker.like()
-            FeedbackPlayer.play(app, liked.positive)
-            pendingLikeLine = { logLike(app, liked) }
-            // The window opens at the tone. A repeat that came in during the
-            // like is answered here, and an undone like earns no counters.
-            if (liker.closePress(System.currentTimeMillis(), report)) {
-                pendingLikeLine?.invoke()
-                return
+        YouTubeMusicLikeSequence.run(object : YouTubeMusicLikeSequence.Steps<YouTubeMusicLiker.Outcome> {
+            override fun like() = liker.like()
+
+            override fun tone(liked: YouTubeMusicLiker.Outcome) = FeedbackPlayer.play(app, liked.positive)
+
+            override fun openWindow(beforeUndoLine: () -> Unit) =
+                liker.closePress(System.currentTimeMillis(), report(app, beforeUndoLine))
+
+            override fun count(liked: YouTubeMusicLiker.Outcome) = liker.count(liked)
+
+            override fun extras(outcome: YouTubeMusicLiker.Outcome) = liker.extraActions(outcome)
+
+            override fun logLike(outcome: YouTubeMusicLiker.Outcome) = this@YouTubeMusicJobs.logLike(app, outcome)
+
+            override fun failed(error: Exception) {
+                FeedbackPlayer.play(app, false)
+                log(app, "YouTube Music like failed: ${error.message}", "like_track", "failure")
             }
-            pendingLikeLine = null
-            // After the tone: counting may take a search and an RPC, and it
-            // never changes whether the like succeeded.
-            val outcome = runCatching { liker.count(liked) }.getOrDefault(liked)
-            logLike(app, outcome)
-            // The opt-in extras come last: they cost API quota, they can be
-            // slow, and they only ever log.
-            runCatching { liker.extraActions(outcome) }
-        } catch (e: Exception) {
-            FeedbackPlayer.play(app, false)
-            log(app, "YouTube Music like failed: ${e.message}", "like_track", "failure")
-        } finally {
-            // A like that threw still closes its entry: a repeat queued during
-            // it is answered, and the next press likes again.
-            runCatching { liker.closePress(System.currentTimeMillis(), report) }
-        }
+        })
     }
 
     private fun logLike(app: Context, outcome: YouTubeMusicLiker.Outcome) =

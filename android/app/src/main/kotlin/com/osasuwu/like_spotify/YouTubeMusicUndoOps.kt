@@ -32,9 +32,21 @@ internal class YouTubeMusicUndoOps(
     /** The playlist helpers the like used; the undo logs through the runner, not here. */
     private val playlists = YouTubeMusicExtraActions(prefs, apiCall, { _, _, _, _ -> })
 
-    override fun unsave(trackUri: String): ApiResult =
-        api { apiCall("POST", "${YouTubeDataApi.API_BASE}/videos/rate?id=${encode(trackUri)}&rating=none", null) }
+    override fun restoreRating(videoId: String, disliked: Boolean): ApiResult = api {
+        val rating = if (disliked) "dislike" else "none"
+        apiCall("POST", "${YouTubeDataApi.API_BASE}/videos/rate?id=${encode(videoId)}&rating=$rating", null)
+    }
 
+    // Every YouTube Music rating leg names its session song or its video, so
+    // the journal's track is never rated: it is the search's match, which
+    // need not be the video the like rated.
+    override fun unsave(trackUri: String): ApiResult =
+        ApiResult(success = false, statusCode = 0, errorBody = "a YouTube Music rating recorded without its video")
+
+    // Only the session can take a session rating back: it rated whatever
+    // video the player had, and the Data API knows only the search's match,
+    // which can be another upload of the song -- one the user may have liked
+    // themselves. So a session that has moved on fails the leg (#274).
     override fun unrateInSession(song: String): String? = unrate(song)
 
     override fun countInPlaylist(playlistId: String, trackId: String): Int =
@@ -48,6 +60,16 @@ internal class YouTubeMusicUndoOps(
 
     override fun add(playlistId: String, trackUri: String): ApiResult =
         api { playlists.insertPlaylistItem(playlistId, trackUri) }
+
+    // The one item the press added. Gone already (the user took it out
+    // since): nothing left to take back.
+    override fun removeItem(itemId: String): ApiResult = api {
+        try {
+            playlists.deletePlaylistItem(itemId)
+        } catch (failure: ApiFailure) {
+            if (failure.httpCode != 404) throw failure
+        }
+    }
 
     override fun forgetPromoted(trackId: String) =
         LocalCounters.forgetPromoted(prefs, YouTubeMusicExtraActions.countKey(trackId))

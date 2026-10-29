@@ -70,10 +70,11 @@ object BestPromotion {
 
     /**
      * What an undo of the press must revert after a run that ended in
-     * [outcome] against the best playlist [playlistId] (#273): the promotion,
+     * [outcome] against the best playlist [playlistId] (#273), whose add made
+     * the playlist item [itemId] where the service names one: the promotion,
      * when this run made one, else nothing -- a track found in best already,
      * or never added, is left the way the press found it.
      */
-    fun undoLeg(outcome: Outcome, playlistId: String?): UndoLeg? =
-        if (outcome == Outcome.ADDED && playlistId != null) UndoLeg.BestPromote(playlistId) else null
+    fun undoLeg(outcome: Outcome, playlistId: String?, itemId: String? = null): UndoLeg? =
+        if (outcome == Outcome.ADDED && playlistId != null) UndoLeg.BestPromote(playlistId, itemId) else null
 }

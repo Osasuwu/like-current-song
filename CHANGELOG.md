@@ -60,9 +60,8 @@ you sign in from its Settings window.
   when a step failed, and the Logs screen names the step. A repeat while the
   like is still running waits for it and then undoes it, the pattern after an
   undo likes again, and a repeat vetoed because another app started playing
-  does nothing. Not yet covered: a YouTube Music like made with the app's
-  "Like current track now" button. Copies put back in the archive go to its
-  end.
+  does nothing. Not yet covered: likes made with the app's "Like current track
+  now" button. Copies put back in the archive go to its end.
 - **Android: the undo also takes back the like counter (#272).** Undoing a
   background Spotify like now lowers the track's like count by the one the like
   added, on the counter the like went to: the shared Google Sheet, or this
@@ -85,11 +84,14 @@ you sign in from its Settings window.
 - **Android: undo now covers YouTube Music (#274).** A YouTube Music like made
   by the trigger can be undone the same ways as a Spotify one: repeating the
   trigger within 10 seconds, the notification's Undo button, or the main
-  screen's "Undo last like" button. The undo takes the like rating back (in the
-  YouTube Music app when the song is still playing, otherwise through the
-  YouTube Data API), takes the song off the like playlist, puts it back in the
-  archive playlist, lowers the like counter, and forgets the like cooldown.
-  A song you had already liked keeps its like. A best promotion or an
+  screen's "Undo last like" button. A rating the like set in the YouTube Music
+  app is taken back there, and only while the song is still playing; otherwise
+  that step fails and the Logs screen names it. A rating set through the
+  YouTube Data API goes back to what the video had before, a dislike included.
+  A dislike the like replaced in the YouTube Music app is not put back. The
+  undo takes off the like playlist only the copy the like added, puts the song
+  back in the archive playlist, lowers the like counter, and forgets the like
+  cooldown. A song you had already liked keeps its like. A best promotion or an
   auto-follow is taken back only if this like made it. A repeat while the like
   is still running waits for it and then undoes it once. When one step fails
   the rest still go back, the error tone plays, and the Logs screen names the

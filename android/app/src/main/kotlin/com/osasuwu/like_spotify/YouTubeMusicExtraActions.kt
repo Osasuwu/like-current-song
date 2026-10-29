@@ -90,7 +90,7 @@ class YouTubeMusicExtraActions(
                     runCatching {
                         val subscribed = followChannel(channelId)
                         LocalCounters.markArtistFollowed(prefs, followedKey)
-                        // A subscription the user already had stays; only the mark goes.
+                        // A subscription the user already had stays, and so does its mark.
                         journal(UndoLeg.ArtistFollow(channelId, alreadyFollowed = !subscribed))
                     }.onFailure { report("Follow artist failed", FOLLOW_ACTION, it) }
                 }
@@ -134,18 +134,22 @@ class YouTubeMusicExtraActions(
      * the song exactly the way the best-playlist rule does, so there is one
      * implementation of "put this song in that playlist of mine" rather than
      * two that can drift. Throws [ApiFailure] when the API refuses. Returns
-     * the playlist's id, which the undo needs, or null when the playlist
-     * could neither be found nor created.
+     * the playlist and the item the add made, which the undo needs, or null
+     * when the playlist could neither be found nor created.
      */
-    fun addToPlaylist(name: String, videoId: String, actionType: String, what: String?): String? {
+    fun addToPlaylist(name: String, videoId: String, actionType: String, what: String?): PlaylistAdd? {
         val playlistId = ensurePlaylist(name, actionType) ?: return null
-        insertPlaylistItem(playlistId, videoId)
+        val itemId = insertPlaylistItem(playlistId, videoId)
         if (what != null) log("$what: $name", actionType, "success", null)
-        return playlistId
+        return PlaylistAdd(playlistId, itemId)
     }
 
-    /** Puts one copy of [videoId] in [playlistId]. Throws [ApiFailure] when the API refuses. */
-    fun insertPlaylistItem(playlistId: String, videoId: String) {
+    /**
+     * Puts one copy of [videoId] in [playlistId]; returns the id of the
+     * playlist item it made, or null when the answer names none. Throws
+     * [ApiFailure] when the API refuses.
+     */
+    fun insertPlaylistItem(playlistId: String, videoId: String): String? {
         val body = JSONObject().put(
             "snippet",
             JSONObject()
@@ -155,7 +159,7 @@ class YouTubeMusicExtraActions(
                     JSONObject().put("kind", "youtube#video").put("videoId", videoId),
                 ),
         ).toString()
-        apiCall("POST", "${YouTubeDataApi.API_BASE}/playlistItems?part=snippet", body)
+        return YouTubeDataApi.parseResourceId(apiCall("POST", "${YouTubeDataApi.API_BASE}/playlistItems?part=snippet", body))
     }
 
     /** Takes one playlistItem out. Throws [ApiFailure] when the API refuses. */
@@ -170,17 +174,17 @@ class YouTubeMusicExtraActions(
      * filtered to the video, 1 quota unit, and only runs when the rule is due.
      */
     private fun promoteToBest(name: String, videoId: String, count: Int) {
-        var bestId: String? = null
+        var best: PlaylistAdd? = null
         val outcome = BestPromotion.run(
             prefs,
             count,
             rules.bestThreshold,
             countKey(videoId),
             isInPlaylist = { findPlaylist(name)?.let { playlistItemIds(it, videoId).isNotEmpty() } ?: false },
-            add = { addToPlaylist(name, videoId, BEST_ACTION, "Added to best playlist").also { bestId = it } != null },
+            add = { addToPlaylist(name, videoId, BEST_ACTION, "Added to best playlist").also { best = it } != null },
         )
         // Only the press that promoted the song hands the undo a best leg.
-        BestPromotion.undoLeg(outcome, bestId)?.let(journal)
+        BestPromotion.undoLeg(outcome, best?.playlistId, best?.itemId)?.let(journal)
         when (outcome) {
             BestPromotion.Outcome.ALREADY_IN_PLAYLIST ->
                 log("Already in best playlist: $name", BEST_ACTION, "info", null)
@@ -343,6 +347,13 @@ class YouTubeMusicExtraActions(
     }
 
     private fun encode(value: String): String = URLEncoder.encode(value, Charsets.UTF_8.name())
+
+    /**
+     * What an add put in a playlist: the playlist, and the playlist item
+     * it made, which the undo takes out alone (#274). [itemId] is null
+     * when the API's answer named no item.
+     */
+    data class PlaylistAdd(val playlistId: String, val itemId: String?)
 
     companion object {
         private const val PAGE_SIZE = 50

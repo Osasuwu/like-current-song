@@ -25,6 +25,14 @@ internal object UndoRunner {
          */
         fun unrateInSession(song: String): String? = "no media session rating on this service"
 
+        /**
+         * Puts the YouTube Data API rating of [videoId] back to what it was
+         * before the press (#274): a dislike when [disliked], else none.
+         * Only YouTube Music rates a video by id.
+         */
+        fun restoreRating(videoId: String, disliked: Boolean): ApiResult =
+            ApiResult(success = false, statusCode = 0, errorBody = "no video rating on this service")
+
         /** How many copies of [trackId] the playlist [playlistId] holds now. */
         fun countInPlaylist(playlistId: String, trackId: String): Int
 
@@ -33,6 +41,13 @@ internal object UndoRunner {
 
         /** Appends one copy of [trackUri] to [playlistId]. */
         fun add(playlistId: String, trackUri: String): ApiResult
+
+        /**
+         * Takes the one playlist item [itemId] out (#274). Only YouTube
+         * Music names the item an add made.
+         */
+        fun removeItem(itemId: String): ApiResult =
+            ApiResult(success = false, statusCode = 0, errorBody = "no playlist item ids on this service")
 
         /** Drops [trackId] from the tracks this app remembers promoting into best (#273). */
         fun forgetPromoted(trackId: String)
@@ -105,17 +120,22 @@ internal object UndoRunner {
     /** Reverts one leg; returns why it failed, or null. */
     private fun revert(leg: UndoLeg, trackId: String, trackUri: String, ops: Ops): String? = when (leg) {
         // Saved before the press: the like changed nothing in the library,
-        // and unsaving would take away a save the user made themselves.
+        // and unsaving would take away a save the user made themselves. A
+        // rating goes back where it was made, on the video it was made on.
         is UndoLeg.NativeSave -> when {
             leg.alreadySaved -> null
             leg.sessionSong != null -> ops.unrateInSession(leg.sessionSong)
+            leg.videoId != null -> reason(ops.restoreRating(leg.videoId, leg.disliked))
             else -> reason(ops.unsave(trackUri))
         }
 
-        // The like appended one copy. Spotify can only remove a track by URI,
-        // which takes every copy, so remove them all and put back the ones
-        // that were there before the press.
-        is UndoLeg.LikePlaylistAdd -> {
+        // The like appended one copy. Where the leg names the item it made,
+        // that item alone comes out, so copies the user had keep their place.
+        // Spotify can only remove a track by URI, which takes every copy, so
+        // remove them all and put back the ones that were there before.
+        is UndoLeg.LikePlaylistAdd -> if (leg.itemId != null) {
+            reason(ops.removeItem(leg.itemId))
+        } else {
             val copies = ops.countInPlaylist(leg.playlistId, trackId)
             if (copies == 0) {
                 null
@@ -132,7 +152,7 @@ internal object UndoRunner {
         // the copy is out: a failed removal leaves a track that is still in
         // best still marked as promoted.
         is UndoLeg.BestPromote ->
-            revert(UndoLeg.LikePlaylistAdd(leg.playlistId), trackId, trackUri, ops)
+            revert(UndoLeg.LikePlaylistAdd(leg.playlistId, leg.itemId), trackId, trackUri, ops)
                 ?: run { ops.forgetPromoted(trackId); null }
 
         // On the phone only; a throw is its one way to fail.

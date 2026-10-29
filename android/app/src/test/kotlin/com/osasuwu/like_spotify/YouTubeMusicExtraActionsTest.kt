@@ -16,6 +16,8 @@ class YouTubeMusicExtraActionsTest {
     private class FakeDataApi(
         val members: MutableSet<String> = mutableSetOf(),
         var refuseAdds: Int = 0,
+        /** The id `playlistItems.insert` answers with; null answers no id. */
+        val insertedItemId: String? = null,
         /** The archive's videos, one entry per copy: YouTube allows duplicates. */
         archive: List<String> = emptyList(),
         /** How many deletes go through before the rest are refused; null is all. */
@@ -55,7 +57,7 @@ class YouTubeMusicExtraActionsTest {
                         throw ApiFailure("HTTP 503", 503)
                     }
                     members += Regex("\"videoId\":\"([^\"]+)\"").find(body.orEmpty())!!.groupValues[1]
-                    "{}"
+                    insertedItemId?.let { """{"kind":"youtube#playlistItem","id":"$it"}""" } ?: "{}"
                 }
                 "DELETE /playlistItems" -> {
                     if (deletesAllowed != null && deletes >= deletesAllowed) throw ApiFailure("HTTP 500", 500)
@@ -235,6 +237,13 @@ class YouTubeMusicExtraActionsTest {
     }
 
     @Test
+    fun `a promotion hands the undo the playlist item it added`() {
+        val legs = journaled(bestRuleOn(threshold = 3), FakeDataApi(insertedItemId = "item-best"), sharedLikeCount = 3)
+
+        assertEquals(listOf<UndoLeg>(UndoLeg.BestPromote("PLbest", itemId = "item-best")), legs)
+    }
+
+    @Test
     fun `a promotion counted on the sheet hands the undo no local count`() {
         val legs = journaled(bestRuleOn(threshold = 3), FakeDataApi(), sharedLikeCount = 3)
 
@@ -290,10 +299,14 @@ class YouTubeMusicExtraActionsTest {
     }
 
     @Test
-    fun `an add names the playlist it went to, for the undo of the like's playlist leg`() {
-        val actions = YouTubeMusicExtraActions(FakeSharedPreferences(), FakeDataApi()::call, { _, _, _, _ -> })
+    fun `an add names the playlist and the item it added, for the undo of the like's playlist leg`() {
+        val api = FakeDataApi(insertedItemId = "item-1")
+        val actions = YouTubeMusicExtraActions(FakeSharedPreferences(), api::call, { _, _, _, _ -> })
 
-        assertEquals("PLbest", actions.addToPlaylist("Best", "vid", "like_playlist_add", what = null))
+        assertEquals(
+            YouTubeMusicExtraActions.PlaylistAdd("PLbest", itemId = "item-1"),
+            actions.addToPlaylist("Best", "vid", "like_playlist_add", what = null),
+        )
     }
 
     // ---- countKey -------------------------------------------------

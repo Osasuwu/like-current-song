@@ -91,6 +91,17 @@ class UndoJournalTest {
     }
 
     @Test
+    fun `a playlist leg comes back with the playlist item the press added`() {
+        val legs = arrayOf(
+            UndoLeg.LikePlaylistAdd(playlistId = "pl-like", itemId = "item-like"),
+            UndoLeg.BestPromote(playlistId = "pl-best", itemId = "item-best"),
+        )
+        val id = likedAt(50_000L, *legs)
+
+        assertEquals(legs.toList(), UndoJournal.entry(prefs, id)!!.legs)
+    }
+
+    @Test
     fun `a cooldown stamp comes back with the stamp it replaced, or with none`() {
         val legs = arrayOf(UndoLeg.CooldownStamp(previous = 1_234L), UndoLeg.CooldownStamp(previous = null))
         val id = likedAt(50_000L, *legs)
@@ -105,6 +116,9 @@ class UndoJournalTest {
         val legs = arrayOf(
             UndoLeg.NativeSave(alreadySaved = false, sessionSong = "ytmusic:artist\u001Ftitle"),
             UndoLeg.NativeSave(alreadySaved = false),
+            // Through the Data API: the video rated, and a dislike it replaced.
+            UndoLeg.NativeSave(alreadySaved = false, videoId = "vid-a"),
+            UndoLeg.NativeSave(alreadySaved = false, videoId = "vid-b", disliked = true),
             UndoLeg.CooldownStamp(previous = 1_234L, key = "ytmusic:artist\u001Ftitle"),
             UndoLeg.CooldownStamp(previous = null),
         )

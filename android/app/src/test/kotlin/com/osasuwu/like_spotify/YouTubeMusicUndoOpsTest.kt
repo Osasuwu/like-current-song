@@ -39,6 +39,15 @@ class YouTubeMusicUndoOpsTest {
         fun copies(playlistId: String, videoId: String): Int =
             items.values.count { it == playlistId to videoId }
 
+        /** The ids of [playlistId]'s items holding [videoId], oldest first. */
+        fun itemIds(playlistId: String, videoId: String): List<String> =
+            items.filterValues { it == playlistId to videoId }.keys.toList()
+
+        /** The user takes the item [itemId] out of its playlist themselves. */
+        fun removeItem(itemId: String) {
+            items.remove(itemId)
+        }
+
         fun call(method: String, url: String, body: String?): String {
             val path = url.removePrefix(YouTubeDataApi.API_BASE).substringBefore('?')
             fun param(name: String) = url.substringAfter("$name=", "").substringBefore('&')
@@ -57,8 +66,9 @@ class YouTubeMusicUndoOpsTest {
                 "POST /playlistItems" -> {
                     val playlistId = Regex("\"playlistId\":\"([^\"]+)\"").find(body!!)!!.groupValues[1]
                     val videoId = Regex("\"videoId\":\"([^\"]+)\"").find(body)!!.groupValues[1]
-                    items["$playlistId-${nextItem++}"] = playlistId to videoId
-                    "{}"
+                    val itemId = "$playlistId-${nextItem++}"
+                    items[itemId] = playlistId to videoId
+                    """{"kind":"youtube#playlistItem","id":"$itemId"}"""
                 }
                 "DELETE /playlistItems" -> {
                     val itemId = param("id")
@@ -66,6 +76,10 @@ class YouTubeMusicUndoOpsTest {
                     if (playlistId in refuseDeletesIn) throw ApiFailure("YouTube Data API unavailable", 500)
                     items.remove(itemId)
                     ""
+                }
+                "GET /videos/getRating" -> {
+                    val videoId = param("id")
+                    """{"items":[{"videoId":"$videoId","rating":"${ratings[videoId] ?: "none"}"}]}"""
                 }
                 "POST /videos/rate" -> {
                     ratings[param("id")] = param("rating")
@@ -105,21 +119,28 @@ class YouTubeMusicUndoOpsTest {
     }
 
     /**
-     * One press, journalled as the background liker does: the Data API
-     * rating (or none, when the video was rated already), the like
-     * playlist's add, the cooldown stamp, then the extra actions. Returns
-     * the journal entry.
+     * One press, through the legs the background liker runs: the Data API
+     * rating (the session had no thumb rating) and the like playlist's add,
+     * then the cooldown stamp and the extra actions. Returns the journal
+     * entry.
      */
     private fun press(prefs: FakeSharedPreferences, account: FakeAccount): UndoJournal.Entry {
         val id = UndoJournal.beginLike(prefs, now = 1_000L, provider = MusicProvider.YTMUSIC)
         UndoJournal.setTrack(prefs, id, "vid", "vid")
         val journal: (UndoLeg) -> Unit = { UndoJournal.recordLeg(prefs, id, it) }
         val actions = YouTubeMusicExtraActions(prefs, account::call, { _, _, _, _ -> }, journal = journal)
+        val legs = YouTubeMusicLikeLegs(
+            journal = journal,
+            apiCall = { method, url -> account.call(method, url, null) },
+            resolve = { YouTubeDataApi.Match("vid", "UCartist") },
+            signedIn = { true },
+            log = { _, _ -> },
+            addToPlaylist = { name, videoId -> actions.addToPlaylist(name, videoId, "like_playlist_add", null) },
+        )
+        val nowPlaying = YouTubeMusicLiker.NowPlaying("Song", "Artist")
 
-        val alreadyRated = account.ratings["vid"] == "like"
-        account.call("POST", "${YouTubeDataApi.API_BASE}/videos/rate?id=vid&rating=like", null)
-        journal(UndoLeg.NativeSave(alreadySaved = alreadyRated))
-        journal(UndoLeg.LikePlaylistAdd(actions.addToPlaylist("Likes", "vid", "like_playlist_add", null)!!))
+        assertEquals(YouTubeMusicLiker.Kind.LIKED, legs.native(YouTubeMusicLikeLegs.Session.UNSUPPORTED, nowPlaying).kind)
+        assertEquals(YouTubeMusicLiker.PlaylistLeg(true), legs.playlist(nowPlaying, "Likes"))
         journal(UndoLeg.CooldownStamp(LocalCounters.lastLikedAt(prefs, song), key = song))
         LocalCounters.recordLikedAt(prefs, song, 1_000L)
         actions.run(YouTubeDataApi.Match("vid", "UCartist"), sharedLikeCount = null)
@@ -187,6 +208,47 @@ class YouTubeMusicUndoOpsTest {
     }
 
     @Test
+    fun `an undo takes out only the like playlist item the press added, so the user's own copy keeps its place`() {
+        val prefs = FakeSharedPreferences()
+        val account = FakeAccount(playlists = mapOf("PLlike" to mutableListOf("vid")))
+        val own = account.itemIds("PLlike", "vid").single()
+        val entry = press(prefs, account)
+        assertEquals(2, account.copies("PLlike", "vid"))
+
+        val result = undo(prefs, account, entry)
+
+        assertEquals(emptyList<UndoRunner.Failure>(), result.failures)
+        assertEquals(listOf(own), account.itemIds("PLlike", "vid"))
+    }
+
+    @Test
+    fun `a like playlist item the user has since taken out counts as undone, and their own copy stays`() {
+        val prefs = FakeSharedPreferences()
+        val account = FakeAccount(playlists = mapOf("PLlike" to mutableListOf("vid")))
+        val own = account.itemIds("PLlike", "vid").single()
+        val entry = press(prefs, account)
+        account.removeItem(account.itemIds("PLlike", "vid").last())
+
+        val result = undo(prefs, account, entry)
+
+        assertEquals(emptyList<UndoRunner.Failure>(), result.failures)
+        assertEquals(listOf(own), account.itemIds("PLlike", "vid"))
+    }
+
+    @Test
+    fun `undoing a Data API like of a song the user had disliked puts the dislike back`() {
+        val prefs = FakeSharedPreferences()
+        val account = FakeAccount(ratings = mutableMapOf("vid" to "dislike"))
+        val entry = press(prefs, account)
+        assertEquals("like", account.ratings["vid"])
+
+        val result = undo(prefs, account, entry)
+
+        assertEquals(emptyList<UndoRunner.Failure>(), result.failures)
+        assertEquals("dislike", account.ratings["vid"])
+    }
+
+    @Test
     fun `an undo leaves the best copy and the subscription the press did not make`() {
         val prefs = everyRuleOn()
         val account = FakeAccount(
@@ -220,6 +282,44 @@ class YouTubeMusicUndoOpsTest {
 
         assertEquals(emptyList<UndoRunner.Failure>(), result.failures)
         assertEquals(emptySet<String>(), LocalCounters.followedArtists(prefs))
+    }
+
+    @Test
+    fun `a session rating the session cannot take back fails its leg and rates no other video`() {
+        val prefs = FakeSharedPreferences()
+        // The session rated the video the player had; the search for the
+        // song (count, extras) matched another one, which the user liked.
+        val skipped = YouTubeMusicLiker.cooldownKey("Skipped Song", "Artist")
+        YouTubeMusicLiker.remember(skipped, YouTubeDataApi.Match("vid-searched", "UCartist"))
+        val account = FakeAccount(ratings = mutableMapOf("vid-searched" to "like"))
+        val id = UndoJournal.beginLike(prefs, now = 1_000L, provider = MusicProvider.YTMUSIC)
+        UndoJournal.setTrack(prefs, id, "vid-searched", "vid-searched")
+        UndoJournal.recordLeg(prefs, id, UndoLeg.NativeSave(alreadySaved = false, sessionSong = skipped))
+
+        val result = UndoRunner.run(
+            UndoJournal.entry(prefs, id)!!,
+            YouTubeMusicUndoOps(prefs, account::call, unrate = { "YouTube Music has moved on to another song" }),
+        )
+
+        assertEquals(
+            listOf(UndoRunner.Failure("native save", "YouTube Music has moved on to another song")),
+            result.failures,
+        )
+        assertEquals("like", account.ratings["vid-searched"])
+    }
+
+    @Test
+    fun `a Data API rating leg that names no video fails rather than unrate the journal's track`() {
+        val prefs = FakeSharedPreferences()
+        val account = FakeAccount(ratings = mutableMapOf("vid" to "like"))
+        val id = UndoJournal.beginLike(prefs, now = 1_000L, provider = MusicProvider.YTMUSIC)
+        UndoJournal.setTrack(prefs, id, "vid", "vid")
+        UndoJournal.recordLeg(prefs, id, UndoLeg.NativeSave(alreadySaved = false))
+
+        val result = undo(prefs, account, UndoJournal.entry(prefs, id)!!)
+
+        assertEquals(listOf("native save"), result.failures.map { it.leg })
+        assertEquals("like", account.ratings["vid"])
     }
 
     @Test

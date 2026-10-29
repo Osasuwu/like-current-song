@@ -28,8 +28,10 @@ object TriggerLike {
     ) {
         when (provider) {
             MusicProvider.SPOTIFY -> likeOnSpotify(UndoJournal.beginLike(prefs, now), afterUndo)
-            // No afterUndo: YouTube Music likes and undos share one queue, so
-            // a like after an undo already runs after it.
+            // No afterUndo: the trigger's YouTube Music likes and undos share
+            // one queue, so a like after an undo already runs after it. (The
+            // app's "Like current track now" button runs elsewhere, but it
+            // journals nothing, so it has nothing to undo.)
             MusicProvider.YTMUSIC -> likeOnYouTubeMusic(UndoJournal.beginLike(prefs, now, MusicProvider.YTMUSIC))
         }
     }
