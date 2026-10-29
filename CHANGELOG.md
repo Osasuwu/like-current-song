@@ -13,6 +13,15 @@ you sign in from its Settings window.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-29
+
+Undo, on the phone and on the desktop: within 10 seconds of a like, repeat the
+trigger, press Undo in the app or the notification, or use the desktop undo
+hotkey or tray item, and the like is taken back along with what it set off
+(like playlist, best promotion, archive, auto-follow, counters). On Android this
+works for Spotify and YouTube Music alike. The phone and the desktop now play
+the same feedback tones.
+
 ### Added
 
 - **Desktop: an undo hotkey and an "Undo last like" tray item (#270).**
@@ -1121,7 +1130,8 @@ First tagged release.
   via `trigger.feedback_volume` in `~/.like_spotify/config.json`.
 - Matching Android feedback-volume setting in the Trigger configuration screen.
 
-[Unreleased]: https://github.com/Osasuwu/like-current-song/compare/v1.3.1...HEAD
+[Unreleased]: https://github.com/Osasuwu/like-current-song/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/Osasuwu/like-current-song/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/Osasuwu/like-current-song/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/Osasuwu/like-current-song/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/Osasuwu/like-current-song/compare/v1.1.0...v1.2.0
