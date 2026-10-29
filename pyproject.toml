@@ -29,6 +29,8 @@ dependencies = [
     "keyboard>=0.13",
     "pystray>=0.19",
     "Pillow>=10.0",
+    # Parses each extension manifest's `requirements` at startup (#144).
+    "packaging>=23.0",
 ]
 
 [project.optional-dependencies]
