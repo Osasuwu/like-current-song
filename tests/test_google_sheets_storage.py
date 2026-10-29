@@ -469,22 +469,38 @@ async def test_undo_keeps_a_press_another_device_made_since(sim_and_storage) -> 
 
 
 @pytest.mark.asyncio
-async def test_undo_of_an_update_never_writes_a_count_below_one(
+async def test_undo_of_a_like_on_a_row_left_at_zero_puts_it_back_to_zero(
     sim_and_storage,
 ) -> None:
-    """Another device knocked the count down to 1 since this like: taking
-    one more off would write 0, so the undo refuses (#278 S5)."""
+    """The phone's undo (#272) leaves a row it created at 0. A desktop like
+    of that track takes it to 1, and its undo takes it back to 0 (#278 S6)."""
+    sim, storage = sim_and_storage
+    sim.rows.append(["user-1", "trk-a", 0, "FALSE", "2026-10-29T00:00:00Z"])
+
+    assert await storage.increment("user-1", _track("trk-a")) == 1
+    assert await storage.undo_increment("user-1", _track("trk-a")) == 0
+
+    assert sim.rows[1][:3] == ["user-1", "trk-a", 0]
+    assert await storage.get_count("user-1", _track("trk-a")) == 0
+
+
+@pytest.mark.asyncio
+async def test_undo_of_an_update_never_writes_a_count_below_zero(
+    sim_and_storage,
+) -> None:
+    """Another device took the count down to 0 since this like: there is
+    nothing left to take off, so the undo refuses (#278 S6)."""
     sim, storage = sim_and_storage
     await storage.increment("user-1", _track("trk-a"))
     await storage.increment("user-1", _track("trk-a"))
-    sim.rows[1][2] = 1
+    sim.rows[1][2] = 0
     sim.calls.clear()
 
     with pytest.raises(RuntimeError, match="changed since"):
         await storage.undo_increment("user-1", _track("trk-a"))
 
     assert _writes(sim) == []
-    assert sim.rows[1][2] == 1
+    assert sim.rows[1][2] == 0
 
 
 @pytest.mark.asyncio

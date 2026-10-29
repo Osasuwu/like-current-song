@@ -369,7 +369,10 @@ class GoogleSheetsStorage(Storage):
             count = self._count_cache.get(key, 0)
 
             if seeded == _UPDATED:
-                if count < 2:
+                # The floor is 0, as on the phone: its undo (#272) leaves a
+                # row it created at 0, and a like of that row here is 0 -> 1
+                # (#278 S6).
+                if count < 1:
                     raise RuntimeError(
                         f"the counter for {track_id} changed since the like "
                         f"(it reads {count}); left as it is"

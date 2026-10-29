@@ -531,7 +531,7 @@ removes the track from *Best* only if this press added it.
 `like_cooldown` puts back the stamp the press replaced, so the track can
 be liked again at once. `google_sheets_storage` takes one off the count
 the sheet reads now, so a press another device made since is kept, but it
-never writes a count below 1. A row the press created is blanked only while
+never writes a count below 0 (the phone's undo leaves a row at 0 too). A row the press created is blanked only while
 its count is still the one the press wrote and it is still the last row of
 the tab: a blank row inside the table could make the next append shift rows
 that other devices have cached by number. Otherwise it changes nothing and

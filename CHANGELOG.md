@@ -20,8 +20,10 @@ you sign in from its Settings window.
   press back: the like is removed (Spotify or YouTube Music), the track comes
   off the like playlist and the best playlist if the press put it there, goes
   back in the archive playlist if the press took it out, artists the press
-  followed are unfollowed, the Google Sheets counter goes back to what it was,
-  and the like cooldown forgets the press. A track you had already liked, or
+  followed are unfollowed, the Google Sheets counter loses the one the press
+  added, and the like cooldown forgets the press. The counter is left as it is,
+  and the undo says so, when another device has changed it since or when the
+  press added the track's row and a newer row is now below it. A track you had already liked, or
   an artist you already followed, stays. Undo reverses only that press and
   only once; outside the window the tray item is greyed out and the hotkey
   changes nothing and says there is nothing to undo. The undo tone plays when it worked; the error tone and a
