@@ -6,11 +6,36 @@ import '../../domain/entities/music_provider.dart';
 import '../state/app_providers.dart';
 import '../widgets/app_drawer.dart';
 
-class MainScreen extends ConsumerWidget {
+class MainScreen extends ConsumerStatefulWidget {
   const MainScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MainScreen> createState() => _MainScreenState();
+}
+
+class _MainScreenState extends ConsumerState<MainScreen> {
+  /// Asks the journal for the undo window again on resume (#268). The timer
+  /// that hides the Undo button stalls while the phone sleeps, so without
+  /// this the button would outlive a window that closed meanwhile.
+  late final AppLifecycleListener _lifecycle;
+
+  @override
+  void initState() {
+    super.initState();
+    _lifecycle = AppLifecycleListener(
+      onResume: () =>
+          ref.read(appControllerProvider.notifier).refreshUndoWindow(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _lifecycle.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final state = ref.watch(appControllerProvider);
     final controller = ref.read(appControllerProvider.notifier);
 
@@ -57,6 +82,16 @@ class MainScreen extends ConsumerWidget {
                       )
                     : const Text('Like current track now'),
               ),
+              // Only while the last like can still be undone (#268): the
+              // same undo as repeating the trigger within the window.
+              if (state.undoWindow != null) ...<Widget>[
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: controller.undoLastLike,
+                  icon: const Icon(Icons.undo),
+                  label: const Text('Undo last like'),
+                ),
+              ],
               if (state.pendingLikesCount > 0) ...<Widget>[
                 const SizedBox(height: 8),
                 Text(

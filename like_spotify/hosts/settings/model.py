@@ -39,13 +39,31 @@ from like_spotify.extensions.promote_to_best import (
 )
 from like_spotify.extensions.tray_hotkey_trigger import DEFAULT_HOTKEY, same_hotkey
 
-from .. import _common
+from .. import _common, _extensions
 
 PROVIDER_LABELS: dict[str, str] = {
     "spotify": "Spotify",
     "ytmusic": "YouTube Music (beta, Windows)",
 }
 STORAGE_BACKENDS: tuple[str, ...] = ("none", "sheets")
+
+
+def _known_provider(name: str) -> bool:
+    """A shipped provider, or one an installed manifest declares (#144)."""
+    return name in _common.PROVIDER_BUILDERS or (
+        _extensions.find(("music_provider",), name) is not None
+    )
+
+
+def _known_backend(name: str) -> bool:
+    """A shipped backend, or one an installed manifest declares (#144).
+
+    The window lists only the shipped ones; a discovered backend a config
+    already selects must still read back, validate and survive a Save.
+    """
+    return name in STORAGE_BACKENDS or (
+        _extensions.find(("storage",), name) is not None
+    )
 
 # Where a like lands (#173) — a core like setting, not an extra action:
 # it changes what one press *does*, which is why it isn't tucked into the
@@ -152,7 +170,7 @@ def _infer_storage_backend(cfg: dict) -> str:
     leaves the counter off) and saves.
     """
     backend = _section(cfg, "storage").get("backend", "")
-    return backend if backend in STORAGE_BACKENDS else "none"
+    return backend if _known_backend(backend) else "none"
 
 
 def _infer_like_destination(cfg: dict) -> str:
@@ -278,7 +296,7 @@ def validate(s: Settings) -> Validation:
     def err(field: str, msg: str) -> None:
         errors.append(Issue(field, msg))
 
-    if s.provider not in _common.PROVIDER_BUILDERS:
+    if not _known_provider(s.provider):
         err("provider", f"Unknown music service '{s.provider}'.")
     if s.provider == "spotify" and not s.spotify_client_id.strip():
         err(
@@ -294,7 +312,7 @@ def validate(s: Settings) -> Validation:
         # destination the host quietly falls back out of.
         err("like_playlist", "Add the name of the playlist likes should go to.")
 
-    if s.storage_backend not in STORAGE_BACKENDS:
+    if not _known_backend(s.storage_backend):
         err("storage_backend", f"Unknown storage backend '{s.storage_backend}'.")
     elif s.storage_backend == "sheets" and not s.sheets_spreadsheet_id.strip():
         # A warning, not an error: the window can now make the spreadsheet,

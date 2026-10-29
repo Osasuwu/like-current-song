@@ -21,11 +21,6 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 	private var localReceiver: BroadcastReceiver? = null
 
 	companion object {
-		@Volatile
-		@JvmStatic
-		var isFlutterAttached: Boolean = false
-			private set
-
 		/** Session confirm (~2 s) + worst-case token, search, rate and extra-action calls. */
 		private const val YTM_LIKE_WAKE_LOCK_MS = 60_000L
 
@@ -458,6 +453,30 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 					)
 				}
 
+				// The in-app Undo button (#268). The window the button is shown
+				// for: the same one the notification's action offers.
+				"getUndoWindow" -> {
+					result.success(UndoActionSync.channelMap(UndoJournal.openWindow(prefs(), System.currentTimeMillis())))
+				}
+
+				// A tap on it: the same undo, tone and vibration as the gesture
+				// and the notification's action. Answers the tap's outcome by name.
+				"undoLike" -> {
+					val pressId = call.argument<String>("pressId")?.takeIf { it.isNotBlank() }
+					if (pressId == null) {
+						result.error(INVALID_ARGS, "undoLike needs a non-blank pressId", null)
+					} else {
+						val tap = UndoActionSync.tap(
+							prefs(),
+							pressId,
+							System.currentTimeMillis(),
+							startUndo = { SpotifyLikeWorker.enqueueUndo(applicationContext, it) },
+							tooLate = { FeedbackPlayer.play(applicationContext, FeedbackKind.ERROR) },
+						)
+						result.success(tap.name)
+					}
+				}
+
 				else -> result.notImplemented()
 			}
 		}
@@ -468,7 +487,7 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 
 	override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
 		eventSink = events
-		isFlutterAttached = true
+		FlutterAttachment.attached = true
 		localReceiver = object : BroadcastReceiver() {
 			override fun onReceive(context: Context, intent: Intent) {
 				when (intent.action) {
@@ -493,10 +512,6 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 						val value = intent.getBooleanExtra(AppConstants.EXTRA_ACTIVE, false)
 						eventSink?.success(mapOf("type" to "state", "value" to value))
 					}
-
-					AppConstants.ACTION_TRIGGER_LIKE -> {
-						eventSink?.success(mapOf("type" to "trigger_like"))
-					}
 				}
 			}
 		}
@@ -505,9 +520,20 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 			addAction(AppConstants.ACTION_MEDIA_EVENT)
 			addAction(AppConstants.ACTION_LOG_EVENT)
 			addAction(AppConstants.ACTION_SERVICE_STATE)
-			addAction(AppConstants.ACTION_TRIGGER_LIKE)
 		}
 		LocalBroadcastManager.getInstance(this).registerReceiver(localReceiver!!, filter)
+		prefs().registerOnSharedPreferenceChangeListener(undoJournalListener)
+	}
+
+	/**
+	 * Tells Dart the undo window after every journal write in this process
+	 * (#268); [UndoActionSync.journalEvent] builds the event. Dart hides the
+	 * button itself once the window's time is up, since that writes nothing.
+	 * Held in a field: [android.content.SharedPreferences] keeps its listeners
+	 * weakly. Called on the main thread, where the event sink must be used.
+	 */
+	private val undoJournalListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+		UndoActionSync.journalEvent(prefs(), key, System.currentTimeMillis())?.let { eventSink?.success(it) }
 	}
 
 	override fun onCancel(arguments: Any?) {
@@ -519,12 +545,11 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 	 *
 	 * [onCancel] fires when *Dart* cancels the subscription. Swiping the task
 	 * out of recents tears the engine down without Dart ever getting there, so
-	 * `onCancel` never runs and [isFlutterAttached] — a process-wide flag —
-	 * stays true for the life of the process. [MediaButtonForegroundService]
-	 * then keeps delegating every matched trigger to an engine that is gone
-	 * instead of falling back to [SpotifyLikeWorker], and the like is silently
-	 * lost. That is the one case the fallback exists for, so the flag has to
-	 * be cleared from the activity lifecycle as well.
+	 * `onCancel` never runs and [FlutterAttachment.attached] — a process-wide flag —
+	 * stays true for the life of the process. [BackgroundLog] then keeps
+	 * dropping every background log line as if a live Logs screen showed it,
+	 * so nothing the worker does reaches the buffer Dart drains at startup.
+	 * The flag has to be cleared from the activity lifecycle as well.
 	 *
 	 * Clearing it on a destroy that is only an activity recreate is harmless:
 	 * the engine goes with the activity either way, and the next [onListen]
@@ -536,7 +561,8 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 	}
 
 	private fun detachFromFlutter() {
-		isFlutterAttached = false
+		FlutterAttachment.attached = false
+		prefs().unregisterOnSharedPreferenceChangeListener(undoJournalListener)
 		localReceiver?.let {
 			LocalBroadcastManager.getInstance(this).unregisterReceiver(it)
 		}

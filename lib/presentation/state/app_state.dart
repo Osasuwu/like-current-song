@@ -5,6 +5,7 @@ import '../../domain/entities/music_routing.dart';
 import '../../domain/entities/rule_config.dart';
 import '../../domain/entities/spotify_auth_state.dart';
 import '../../domain/entities/trigger_config.dart';
+import '../../domain/entities/undo_window.dart';
 
 class AppState {
   final bool serviceEnabled;
@@ -33,6 +34,10 @@ class AppState {
   final LikeResult? lastLikeResult;
   final bool liking;
   final int pendingLikesCount;
+
+  /// The last like while it can still be undone; null hides the main
+  /// screen's Undo button (#268).
+  final UndoWindow? undoWindow;
 
   /// Whether a headset press can actually reach the trigger. Notification
   /// access is not an extra: the media button belongs to the player, so
@@ -75,6 +80,7 @@ class AppState {
     this.lastLikeResult,
     this.liking = false,
     this.pendingLikesCount = 0,
+    this.undoWindow,
   });
 
   factory AppState.initial(TriggerConfig config) {
@@ -113,6 +119,8 @@ class AppState {
     bool clearLikeResult = false,
     bool? liking,
     int? pendingLikesCount,
+    UndoWindow? undoWindow,
+    bool clearUndoWindow = false,
   }) {
     return AppState(
       serviceEnabled: serviceEnabled ?? this.serviceEnabled,
@@ -133,6 +141,7 @@ class AppState {
       lastLikeResult: clearLikeResult ? null : (lastLikeResult ?? this.lastLikeResult),
       liking: liking ?? this.liking,
       pendingLikesCount: pendingLikesCount ?? this.pendingLikesCount,
+      undoWindow: clearUndoWindow ? null : (undoWindow ?? this.undoWindow),
     );
   }
 }

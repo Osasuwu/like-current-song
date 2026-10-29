@@ -5,8 +5,9 @@ is one extension keyed by `domain`, with `__init__.py` exporting one of
 TRIGGER / PRE_LIKE_ACTION / MUSIC_PROVIDER / POST_LIKE_ACTION / STORAGE,
 plus a `manifest.json` describing metadata + pip requirements.
 
-The manifest is metadata for humans and tooling today; nothing reads it
-at runtime. A host picks an extension up by importing it and registering
-its factory in `like_spotify/hosts/_common.py` -- automatic discovery,
-and honouring `requirements` at first enable, is #144.
+Hosts read each manifest at startup (`like_spotify/hosts/_extensions.py`,
+#144), so a new subdir with a valid manifest is loaded without editing
+`like_spotify/hosts/_common.py`. Unmet `requirements` are reported, not
+installed. The shipped extensions keep hand-written builders there as the
+fallback for construction a manifest can't declare.
 """

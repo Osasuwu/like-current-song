@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -13,6 +15,7 @@ import 'package:like_spotify_mobile_app/domain/entities/pending_like.dart';
 import 'package:like_spotify_mobile_app/domain/entities/rule_config.dart';
 import 'package:like_spotify_mobile_app/domain/entities/spotify_auth_state.dart';
 import 'package:like_spotify_mobile_app/domain/entities/trigger_config.dart';
+import 'package:like_spotify_mobile_app/domain/entities/undo_window.dart';
 import 'package:like_spotify_mobile_app/domain/repositories/device_sign_in_repository.dart';
 import 'package:like_spotify_mobile_app/presentation/state/app_controller.dart';
 import 'package:like_spotify_mobile_app/presentation/state/app_providers.dart';
@@ -101,6 +104,16 @@ class AppControllerHarness {
   /// like. Set it before [build].
   List<AppLog> backgroundLogs = <AppLog>[];
 
+  /// The undo window the native journal reports at start-up; none by
+  /// default, which is what an app opened with no recent like looks like.
+  /// Set it before [build].
+  UndoWindow? undoWindow;
+
+  /// What the native side sends on its event channel; nothing unless a test
+  /// adds to it.
+  final StreamController<Map<String, dynamic>> nativeEvents =
+      StreamController<Map<String, dynamic>>.broadcast();
+
   /// What `loadMusicProvider` answers right now: an in-memory stand-in for
   /// SharedPreferences, so a saved choice is visible to the next read — which
   /// is how [ActiveMusicServiceRepository] picks the service to talk to.
@@ -162,8 +175,8 @@ class AppControllerHarness {
     ).thenAnswer((_) async {});
     when(() => platform.drainBackgroundLogs())
         .thenAnswer((_) async => backgroundLogs);
-    when(() => platform.events())
-        .thenAnswer((_) => const Stream<Map<String, dynamic>>.empty());
+    when(() => platform.events()).thenAnswer((_) => nativeEvents.stream);
+    when(() => platform.undoWindow()).thenAnswer((_) async => undoWindow);
 
     for (final repository in <MockMusicServiceRepository>[spotify, ytmusic]) {
       when(() => repository.getAuthState())

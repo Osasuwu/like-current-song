@@ -3,6 +3,7 @@ import '../entities/music_provider.dart';
 import '../entities/music_routing.dart';
 import '../entities/rule_config.dart';
 import '../entities/trigger_config.dart';
+import '../entities/undo_window.dart';
 
 abstract class PlatformServiceRepository {
   Future<void> startForegroundListener();
@@ -49,6 +50,16 @@ abstract class PlatformServiceRepository {
   /// moment — call it exactly once per app start and persist every entry, or
   /// those background likes are gone for good.
   Future<List<AppLog>> drainBackgroundLogs();
+
+  /// The last like's undo window as the native journal sees it now, null
+  /// when nothing can be undone (#268). Later changes arrive as
+  /// `undo_window` events on [events].
+  Future<UndoWindow?> undoWindow();
+
+  /// Undoes the like [pressId] names, exactly as the trigger gesture would:
+  /// the native side reverts it and plays the undo tone, or the error tone
+  /// when it is too late.
+  Future<UndoTapResult> undoLike(String pressId);
 
   /// The artists this device has already auto-followed, by id.
   ///

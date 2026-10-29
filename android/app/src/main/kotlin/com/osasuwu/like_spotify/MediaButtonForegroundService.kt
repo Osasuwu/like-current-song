@@ -273,20 +273,21 @@ class MediaButtonForegroundService : Service() {
      * for the like the action was offered for, only inside its window.
      */
     private fun onUndoTapped(pressId: String?) {
-        val accepted = pressId != null && UndoJournal.requestUndo(prefs(), pressId, System.currentTimeMillis())
-        val tappedState = pressId?.let { UndoJournal.entry(prefs(), it)?.state }
-        when (UndoActionSync.tap(accepted, tappedState)) {
-            UndoActionSync.Tap.UNDO -> {
+        val tap = UndoActionSync.tap(
+            prefs(),
+            pressId,
+            System.currentTimeMillis(),
+            startUndo = { SpotifyLikeWorker.enqueueUndo(this, it) },
+            // A visible button that did nothing must not be silent.
+            tooLate = { FeedbackPlayer.play(this, FeedbackKind.ERROR) },
+        )
+        when (tap) {
+            UndoActionSync.Tap.UNDO ->
                 log("Undo tapped in the notification: undoing the last like", actionType = "undo")
-                SpotifyLikeWorker.enqueueUndo(this, pressId!!)
-            }
             UndoActionSync.Tap.ALREADY_UNDOING ->
                 log("Undo tapped while the undo is already under way", actionType = "undo")
-            UndoActionSync.Tap.TOO_LATE -> {
+            UndoActionSync.Tap.TOO_LATE ->
                 log("Undo tapped, but that like can no longer be undone: nothing undone", actionType = "undo")
-                // A visible button that did nothing must not be silent.
-                FeedbackPlayer.play(this, FeedbackKind.ERROR)
-            }
         }
         // Stale or not, the action must not stay up.
         syncUndoAction()
@@ -323,39 +324,31 @@ class MediaButtonForegroundService : Service() {
         }
     }
 
-    private fun like(afterUndo: Boolean) {
-        if (MainActivity.isFlutterAttached) {
-            log("Delegating to Flutter (full workflow)")
-            val intent = Intent(AppConstants.ACTION_TRIGGER_LIKE)
-            LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
-        } else {
-            likeInBackground(afterUndo)
-        }
-    }
-
     /**
-     * Likes without Flutter: Spotify via WorkManager, YouTube Music in-process.
+     * A trigger's like, natively whether or not the app is open; [TriggerLike]
+     * decides where it goes (#268): Spotify via WorkManager, YouTube Music
+     * in-process.
      *
-     * The service is resolved here rather than in Dart because this is the
-     * path the trigger normally takes — the engine is usually detached when
-     * the pattern fires. [MusicProvider.resolve] is the same rule Dart runs.
-     *
-     * Only the Spotify job journals what it does, so only its likes can be
-     * undone by repeating the trigger (#267); YouTube Music is #274.
+     * The service is resolved here rather than in Dart because the trigger
+     * always likes on this path, app open or not. [MusicProvider.resolve] is
+     * the same rule Dart runs.
      */
-    private fun likeInBackground(afterUndo: Boolean) {
+    private fun like(afterUndo: Boolean) {
         val routing = MusicProvider.resolve(this)
         if (routing.automatic) {
             log(routing.logLine(), actionType = "music_routing")
         }
-        when (routing.provider) {
-            MusicProvider.SPOTIFY -> {
-                log("Flutter not attached — using WorkManager fallback")
-                val pressId = UndoJournal.beginLike(prefs(), System.currentTimeMillis())
-                SpotifyLikeWorker.enqueue(this, routing.provider, pressId, afterUndo)
-            }
-            MusicProvider.YTMUSIC -> likeYouTubeMusicInBackground()
-        }
+        TriggerLike.run(
+            prefs(),
+            routing.provider,
+            System.currentTimeMillis(),
+            afterUndo,
+            likeOnSpotify = { pressId, after ->
+                log("Liking on Spotify through WorkManager")
+                SpotifyLikeWorker.enqueue(this, routing.provider, pressId, after)
+            },
+            likeOnYouTubeMusic = { likeYouTubeMusicInBackground() },
+        )
     }
 
     /**
