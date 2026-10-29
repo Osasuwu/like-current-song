@@ -120,6 +120,26 @@ object LikeCounter {
     }
 
     /**
+     * The sheet row of (user id, artist id, track id) in a `values.get` body
+     * of [ARTIST_SHEET], for an undo to clear (#273); null when it has none.
+     * Skips the header and short rows as [artistTrackTally] does. A triple
+     * written twice resolves to the bottom-most row: the append being undone
+     * is the newest one.
+     */
+    fun artistTrackRow(body: String?, userId: String, artistId: String, trackId: String): Int? {
+        val values = runCatching { JSONObject(body.orEmpty()).optJSONArray("values") }.getOrNull()
+            ?: return null
+        for (offset in values.length() - 1 downTo 1) {
+            val row = values.optJSONArray(offset) ?: continue
+            if (row.length() < 3) continue
+            if (row.optString(0) == userId && row.optString(1) == artistId && row.optString(2) == trackId) {
+                return offset + 1
+            }
+        }
+        return null
+    }
+
+    /**
      * Whether (user id, artist id, track id) already has a row in a
      * `values.get` body of [ARTIST_SHEET], and how many distinct tracks of
      * that artist the user has there.
@@ -311,6 +331,9 @@ object LikeCounter {
         target: Target,
         artistId: String,
         trackId: String,
+        // Runs once this like's row is on the sheet, so an undo (#273) clears
+        // only a row the like wrote.
+        onAppended: () -> Unit = {},
     ): CountOutcome {
         val token = try {
             GoogleTokens.fresh(prefs, GoogleTokens.COUNTER)
@@ -337,9 +360,39 @@ object LikeCounter {
             if (status !in 200..299) {
                 return CountOutcome.failed("the counter sheet refused a new $ARTIST_SHEET row", status)
             }
+            onAppended()
             CountOutcome.counted(count + 1)
         } catch (e: Exception) {
             CountOutcome.failed(unreachable(e))
+        }
+    }
+
+    /**
+     * Clears the (user, [artistId], [trackId]) row an undone like appended to
+     * [ARTIST_SHEET] (#273), so the artist's distinct-track count goes back
+     * by one. Returns why it could not, for the Logs screen, or null. A row
+     * that is already gone is nothing to undo. Blocking.
+     *
+     * The row is cleared, not deleted: a delete needs the tab's numeric id,
+     * and every reader of the tab skips a row with fewer than three cells.
+     */
+    fun clearArtistTrack(prefs: SharedPreferences, target: Target, artistId: String, trackId: String): String? {
+        val token = try {
+            GoogleTokens.fresh(prefs, GoogleTokens.COUNTER)
+        } catch (failure: GoogleTokens.RefreshFailure) {
+            return tokenRefusedMessage(failure)
+        } catch (e: Exception) {
+            return unreachable(e)
+        }
+        return try {
+            val read = get(token, "$API_BASE/${target.spreadsheetId}/values/${encode(ARTIST_SHEET)}")
+            val body = read.body
+                ?: return "the counter sheet's $ARTIST_SHEET tab could not be read (HTTP ${read.status})"
+            val row = artistTrackRow(body, target.userId, artistId, trackId) ?: return null
+            val status = clear(token, target.spreadsheetId, "$ARTIST_SHEET!A$row:D$row")
+            if (status in 200..299) null else "the counter sheet refused to clear $ARTIST_SHEET row $row (HTTP $status)"
+        } catch (e: Exception) {
+            unreachable(e)
         }
     }
 
@@ -435,6 +488,15 @@ object LikeCounter {
                 ?.optString("updatedRange")
         }.getOrNull()
         return status to rowFromA1Range(updated)
+    }
+
+    /** Clears the cells of [range]; answers the status the sheet gave it. */
+    private fun clear(token: String, spreadsheetId: String, range: String): Int {
+        val connection = open(token, "$API_BASE/$spreadsheetId/values/${encode(range)}:clear", "POST")
+        connection.doOutput = true
+        connection.setRequestProperty("Content-Type", "application/json")
+        OutputStreamWriter(connection.outputStream).use { it.write("{}") }
+        return connection.responseCode
     }
 
     private fun open(token: String, url: String, method: String): HttpURLConnection {
