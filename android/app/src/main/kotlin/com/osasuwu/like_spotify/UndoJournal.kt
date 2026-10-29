@@ -23,6 +23,33 @@ sealed class UndoLeg {
     data class ArchiveRemove(val playlistId: String, val copies: Int) : UndoLeg()
 
     /**
+     * The like promoted the track into the best playlist [playlistId] (#273).
+     * Recorded only for a promotion the like made: a press that found the
+     * track in best already changed nothing there.
+     */
+    data class BestPromote(val playlistId: String) : UndoLeg()
+
+    /**
+     * The like added the track to this device's distinct tracks of [artistId],
+     * the count follow-artist falls back on (#273). Recorded only when the
+     * track was new there.
+     */
+    data class ArtistTrack(val artistId: String) : UndoLeg()
+
+    /**
+     * The like appended the (user, [artistId], track) row to the counter
+     * sheet [sheet]'s artist tab (#273). Recorded only for a row this like
+     * wrote: a track the sheet already counted for the artist wrote nothing.
+     */
+    data class ArtistTrackRow(val artistId: String, val sheet: LikeCounter.Target) : UndoLeg()
+
+    /**
+     * The like auto-followed [artistId] (#273); [alreadyFollowed] means the
+     * user followed the artist before the press, and the undo leaves it so.
+     */
+    data class ArtistFollow(val artistId: String, val alreadyFollowed: Boolean) : UndoLeg()
+
+    /**
      * The like stamped the track's last-liked time, which the like cooldown
      * reads; [previous] is the stamp it replaced, null when there was none.
      */
@@ -259,6 +286,17 @@ object UndoJournal {
             .put(F_KIND, K_ARCHIVE_REMOVE)
             .put("playlistId", leg.playlistId)
             .put("copies", leg.copies)
+        is UndoLeg.BestPromote -> JSONObject().put(F_KIND, K_BEST_PROMOTE).put("playlistId", leg.playlistId)
+        is UndoLeg.ArtistTrack -> JSONObject().put(F_KIND, K_ARTIST_TRACK).put("artistId", leg.artistId)
+        is UndoLeg.ArtistTrackRow -> JSONObject()
+            .put(F_KIND, K_ARTIST_TRACK_ROW)
+            .put("artistId", leg.artistId)
+            .put("spreadsheetId", leg.sheet.spreadsheetId)
+            .put("userId", leg.sheet.userId)
+        is UndoLeg.ArtistFollow -> JSONObject()
+            .put(F_KIND, K_ARTIST_FOLLOW)
+            .put("artistId", leg.artistId)
+            .put("alreadyFollowed", leg.alreadyFollowed)
         // A null previous stamp is stored as an absent field.
         is UndoLeg.CooldownStamp -> JSONObject().put(F_KIND, K_COOLDOWN_STAMP).put("previous", leg.previous)
         is UndoLeg.TrackCount -> JSONObject().put(F_KIND, K_TRACK_COUNT).apply {
@@ -275,6 +313,13 @@ object UndoJournal {
         K_NATIVE_SAVE -> UndoLeg.NativeSave(json.getBoolean("alreadySaved"))
         K_LIKE_PLAYLIST_ADD -> UndoLeg.LikePlaylistAdd(json.getString("playlistId"))
         K_ARCHIVE_REMOVE -> UndoLeg.ArchiveRemove(json.getString("playlistId"), json.getInt("copies"))
+        K_BEST_PROMOTE -> UndoLeg.BestPromote(json.getString("playlistId"))
+        K_ARTIST_TRACK -> UndoLeg.ArtistTrack(json.getString("artistId"))
+        K_ARTIST_TRACK_ROW -> UndoLeg.ArtistTrackRow(
+            json.getString("artistId"),
+            LikeCounter.Target(json.getString("spreadsheetId"), json.getString("userId")),
+        )
+        K_ARTIST_FOLLOW -> UndoLeg.ArtistFollow(json.getString("artistId"), json.getBoolean("alreadyFollowed"))
         K_COOLDOWN_STAMP -> UndoLeg.CooldownStamp(if (json.has("previous")) json.getLong("previous") else null)
         K_TRACK_COUNT -> when (json.optString("store")) {
             STORE_LOCAL -> UndoLeg.TrackCount(sheet = null)
@@ -299,6 +344,10 @@ object UndoJournal {
     private const val K_NATIVE_SAVE = "native_save"
     private const val K_LIKE_PLAYLIST_ADD = "like_playlist_add"
     private const val K_ARCHIVE_REMOVE = "archive_remove"
+    private const val K_BEST_PROMOTE = "best_promote"
+    private const val K_ARTIST_TRACK = "artist_track"
+    private const val K_ARTIST_TRACK_ROW = "artist_track_row"
+    private const val K_ARTIST_FOLLOW = "artist_follow"
     private const val K_COOLDOWN_STAMP = "cooldown_stamp"
     private const val K_TRACK_COUNT = "track_count"
     private const val STORE_SHEET = "sheet"

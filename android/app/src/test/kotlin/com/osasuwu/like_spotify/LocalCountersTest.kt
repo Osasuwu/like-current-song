@@ -316,6 +316,46 @@ class LocalCountersTest {
         assertEquals(2, LocalCounters.artistFollowCount(prefs, "artist-1", "trk-b") { null })
     }
 
+    @Test
+    fun `only a track new to the artist is reported as added`() {
+        // The undo journal (#273) records the leg from this, so a track the
+        // artist already had is never taken away by an undo.
+        val prefs = FakeSharedPreferences()
+        val added = mutableListOf<String>()
+        LocalCounters.artistFollowCount(prefs, "artist-1", "trk-a", onAdded = { added += "trk-a" }) { null }
+        LocalCounters.artistFollowCount(prefs, "artist-1", "trk-a", onAdded = { added += "trk-a again" }) { null }
+        LocalCounters.artistFollowCount(prefs, "artist-1", "trk-b", onAdded = { added += "trk-b" }) { 7 }
+        assertEquals(listOf("trk-a", "trk-b"), added)
+    }
+
+    // ---- undo of the artist legs (#273) -------------------------------------------------
+
+    @Test
+    fun `an undone track leaves the artist's other tracks and other artists alone`() {
+        val prefs = FakeSharedPreferences()
+        LocalCounters.recordArtistTrack(prefs, "artist-1", "trk-a")
+        LocalCounters.recordArtistTrack(prefs, "artist-2", "trk-b")
+        LocalCounters.recordArtistTrack(prefs, "artist-1", "trk-b")
+
+        LocalCounters.forgetArtistTrack(prefs, "artist-1", "trk-b")
+
+        assertEquals(
+            mapOf("artist-1" to setOf("trk-a"), "artist-2" to setOf("trk-b")),
+            LocalCounters.parseArtistTracks(prefs.getString(AppConstants.KEY_ARTIST_LIKED_TRACKS, null)),
+        )
+    }
+
+    @Test
+    fun `an undone follow forgets only that artist`() {
+        val prefs = FakeSharedPreferences()
+        LocalCounters.markArtistFollowed(prefs, "artist-1")
+        LocalCounters.markArtistFollowed(prefs, "artist-2")
+
+        LocalCounters.forgetFollowed(prefs, "artist-1")
+
+        assertEquals(setOf("artist-2"), LocalCounters.followedArtists(prefs))
+    }
+
     // ---- restoreLikedAt (#267) -------------------------------------------------
 
     @Test

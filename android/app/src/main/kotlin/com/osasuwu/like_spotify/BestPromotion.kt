@@ -67,4 +67,13 @@ object BestPromotion {
         LocalCounters.markTrackPromoted(prefs, key)
         return outcome
     }
+
+    /**
+     * What an undo of the press must revert after a run that ended in
+     * [outcome] against the best playlist [playlistId] (#273): the promotion,
+     * when this run made one, else nothing -- a track found in best already,
+     * or never added, is left the way the press found it.
+     */
+    fun undoLeg(outcome: Outcome, playlistId: String?): UndoLeg? =
+        if (outcome == Outcome.ADDED && playlistId != null) UndoLeg.BestPromote(playlistId) else null
 }

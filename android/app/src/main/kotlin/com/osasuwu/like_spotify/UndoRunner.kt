@@ -27,6 +27,24 @@ internal object UndoRunner {
         /** Appends one copy of [trackUri] to [playlistId]. */
         fun add(playlistId: String, trackUri: String): ApiResult
 
+        /** Drops [trackId] from the tracks this app remembers promoting into best (#273). */
+        fun forgetPromoted(trackId: String)
+
+        /** Drops [trackId] from this device's distinct tracks of [artistId] (#273). */
+        fun forgetArtistTrack(artistId: String, trackId: String)
+
+        /**
+         * Clears the (user, [artistId], [trackId]) row from the counter sheet
+         * [sheet]'s artist tab (#273); returns why it could not, or null.
+         */
+        fun clearArtistTrackRow(sheet: LikeCounter.Target, artistId: String, trackId: String): String?
+
+        /** Unfollows [artistId] on Spotify. */
+        fun unfollow(artistId: String): ApiResult
+
+        /** Drops [artistId] from the artists this app remembers auto-following (#273). */
+        fun forgetFollowed(artistId: String)
+
         /** Sets the cooldown's last-liked stamp of [trackId] back to [previous], or clears it when null. */
         fun restoreLikedAt(trackId: String, previous: Long?)
 
@@ -69,6 +87,10 @@ internal object UndoRunner {
         is UndoLeg.NativeSave -> "native save"
         is UndoLeg.LikePlaylistAdd -> "like playlist"
         is UndoLeg.ArchiveRemove -> "archive playlist"
+        is UndoLeg.BestPromote -> "best playlist"
+        is UndoLeg.ArtistTrack -> "artist tally"
+        is UndoLeg.ArtistTrackRow -> "artist tally sheet row"
+        is UndoLeg.ArtistFollow -> "artist follow"
         is UndoLeg.CooldownStamp -> "cooldown stamp"
         is UndoLeg.TrackCount -> if (leg.sheet != null) "track counter (sheet)" else "track counter (this device)"
     }
@@ -93,6 +115,31 @@ internal object UndoRunner {
         }
 
         is UndoLeg.ArchiveRemove -> addCopies(ops, leg.playlistId, trackUri, leg.copies)
+
+        // The promotion appended one copy, exactly as the like playlist's add
+        // did, so it comes out the same way. The promoted mark goes only once
+        // the copy is out: a failed removal leaves a track that is still in
+        // best still marked as promoted.
+        is UndoLeg.BestPromote ->
+            revert(UndoLeg.LikePlaylistAdd(leg.playlistId), trackId, trackUri, ops)
+                ?: run { ops.forgetPromoted(trackId); null }
+
+        // On the phone only; a throw is its one way to fail.
+        is UndoLeg.ArtistTrack -> {
+            ops.forgetArtistTrack(leg.artistId, trackId)
+            null
+        }
+
+        is UndoLeg.ArtistTrackRow -> ops.clearArtistTrackRow(leg.sheet, leg.artistId, trackId)
+
+        // Followed before the press: the like followed no one, and the undo
+        // must not take away a follow the user made themselves. The followed
+        // mark goes only once the unfollow went through, as best's does.
+        is UndoLeg.ArtistFollow -> if (leg.alreadyFollowed) {
+            null
+        } else {
+            reason(ops.unfollow(leg.artistId)) ?: run { ops.forgetFollowed(leg.artistId); null }
+        }
 
         // On the phone only; a throw is its one way to fail.
         is UndoLeg.CooldownStamp -> {
