@@ -373,6 +373,10 @@ class SpotifyLikeWorker(
         override fun decrementLocalCount(trackId: String) {
             LocalCounters.decrement(prefs, LocalCounters.Kind.TRACK, trackId)
         }
+
+        override fun decrementArtistLikeCount(artistId: String) {
+            LocalCounters.decrement(prefs, LocalCounters.Kind.ARTIST, artistId)
+        }
     }
 
     /**
@@ -633,7 +637,9 @@ class SpotifyLikeWorker(
             // The like tally backs the stats screen, so it moves either way.
             // The follow decision counts distinct tracks: the shared sheet's
             // when there is one, else this device's -- never likes (#243).
+            // Every like raises it, so every undo lowers it back (#281).
             LocalCounters.increment(prefs, LocalCounters.Kind.ARTIST, artistId)
+            journal(UndoLeg.ArtistLikeCount(artistId))
             if (!ruleConfig.followArtistEnabled) return@forEach
             // A track this press added to the artist's tally is handed to
             // the undo; one the tally already held is not (#273).

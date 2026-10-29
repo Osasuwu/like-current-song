@@ -89,6 +89,8 @@ class UndoJournalTest {
     @Test
     fun `the best and artist legs come back to the undo as they were recorded`() {
         val legs = arrayOf(
+            UndoLeg.ArtistLikeCount(artistId = "a1"),
+            UndoLeg.ArtistLikeCount(artistId = "a2"),
             UndoLeg.BestPromote(playlistId = "pl-best"),
             UndoLeg.ArtistTrack(artistId = "a1"),
             UndoLeg.ArtistTrackRow(artistId = "a1", sheet = LikeCounter.Target("sheet-1", "me")),

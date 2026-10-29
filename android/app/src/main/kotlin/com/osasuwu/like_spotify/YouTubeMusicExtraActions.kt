@@ -78,6 +78,7 @@ class YouTubeMusicExtraActions(
                 // screen; the follow rule counts distinct videos (#243). The
                 // sheet keys the artist by the bare channel id, like the desktop.
                 incrementLocalCount(LocalCounters.Kind.ARTIST, channelId)
+                journal(UndoLeg.ArtistLikeCount(channelId))
                 val count = LocalCounters.artistFollowCount(
                     prefs,
                     followedKey,

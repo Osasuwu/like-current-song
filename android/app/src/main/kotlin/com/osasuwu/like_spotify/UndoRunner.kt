@@ -75,6 +75,9 @@ internal object UndoRunner {
 
         /** Lowers [trackId]'s count on this device's fallback counter by one, never below 0 (#272). */
         fun decrementLocalCount(trackId: String)
+
+        /** Lowers this device's like count of [artistId] by one, never below 0 (#281, #289). */
+        fun decrementArtistLikeCount(artistId: String)
     }
 
     /** The leg named [leg] could not be reverted, because of [reason]. */
@@ -111,6 +114,7 @@ internal object UndoRunner {
         is UndoLeg.ArchiveRemove -> "archive playlist"
         is UndoLeg.BestPromote -> "best playlist"
         is UndoLeg.ArtistTrack -> "artist tally"
+        is UndoLeg.ArtistLikeCount -> "artist like counter"
         is UndoLeg.ArtistTrackRow -> "artist tally sheet row"
         is UndoLeg.ArtistFollow -> "artist follow"
         is UndoLeg.CooldownStamp -> "cooldown stamp"
@@ -158,6 +162,12 @@ internal object UndoRunner {
         // On the phone only; a throw is its one way to fail.
         is UndoLeg.ArtistTrack -> {
             ops.forgetArtistTrack(leg.artistId, trackId)
+            null
+        }
+
+        // On the phone only, as the artist tally; a throw is its one way to fail.
+        is UndoLeg.ArtistLikeCount -> {
+            ops.decrementArtistLikeCount(leg.artistId)
             null
         }
 
