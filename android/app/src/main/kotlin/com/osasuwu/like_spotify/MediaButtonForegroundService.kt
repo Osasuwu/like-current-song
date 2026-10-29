@@ -325,38 +325,30 @@ class MediaButtonForegroundService : Service() {
     }
 
     /**
-     * A trigger's like. It runs natively whether or not the app is open
-     * (#268): delegating to Dart while Flutter was attached left those likes
-     * out of the undo journal, so a repeat could not undo them. The app shows
-     * the result through the log events and the undo-window event instead.
-     */
-    private fun like(afterUndo: Boolean) {
-        likeInBackground(afterUndo)
-    }
-
-    /**
-     * Likes natively: Spotify via WorkManager, YouTube Music in-process.
+     * A trigger's like, natively whether or not the app is open; [TriggerLike]
+     * decides where it goes (#268): Spotify via WorkManager, YouTube Music
+     * in-process.
      *
      * The service is resolved here rather than in Dart because the trigger
      * always likes on this path, app open or not. [MusicProvider.resolve] is
      * the same rule Dart runs.
-     *
-     * Only the Spotify job journals what it does, so only its likes can be
-     * undone by repeating the trigger (#267); YouTube Music is #274.
      */
-    private fun likeInBackground(afterUndo: Boolean) {
+    private fun like(afterUndo: Boolean) {
         val routing = MusicProvider.resolve(this)
         if (routing.automatic) {
             log(routing.logLine(), actionType = "music_routing")
         }
-        when (routing.provider) {
-            MusicProvider.SPOTIFY -> {
+        TriggerLike.run(
+            prefs(),
+            routing.provider,
+            System.currentTimeMillis(),
+            afterUndo,
+            likeOnSpotify = { pressId, after ->
                 log("Liking on Spotify through WorkManager")
-                val pressId = UndoJournal.beginLike(prefs(), System.currentTimeMillis())
-                SpotifyLikeWorker.enqueue(this, routing.provider, pressId, afterUndo)
-            }
-            MusicProvider.YTMUSIC -> likeYouTubeMusicInBackground()
-        }
+                SpotifyLikeWorker.enqueue(this, routing.provider, pressId, after)
+            },
+            likeOnYouTubeMusic = { likeYouTubeMusicInBackground() },
+        )
     }
 
     /**

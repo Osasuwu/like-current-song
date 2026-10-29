@@ -21,11 +21,6 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 	private var localReceiver: BroadcastReceiver? = null
 
 	companion object {
-		@Volatile
-		@JvmStatic
-		var isFlutterAttached: Boolean = false
-			private set
-
 		/** Session confirm (~2 s) + worst-case token, search, rate and extra-action calls. */
 		private const val YTM_LIKE_WAKE_LOCK_MS = 60_000L
 
@@ -492,7 +487,7 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 
 	override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
 		eventSink = events
-		isFlutterAttached = true
+		FlutterAttachment.attached = true
 		localReceiver = object : BroadcastReceiver() {
 			override fun onReceive(context: Context, intent: Intent) {
 				when (intent.action) {
@@ -531,17 +526,14 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 	}
 
 	/**
-	 * Tells Dart the undo window after every journal write in this process (#268):
-	 * a like finishing, an undo started from any surface. Dart hides the
+	 * Tells Dart the undo window after every journal write in this process
+	 * (#268); [UndoActionSync.journalEvent] builds the event. Dart hides the
 	 * button itself once the window's time is up, since that writes nothing.
 	 * Held in a field: [android.content.SharedPreferences] keeps its listeners
 	 * weakly. Called on the main thread, where the event sink must be used.
 	 */
 	private val undoJournalListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-		if (key == AppConstants.KEY_UNDO_JOURNAL) {
-			val window = UndoJournal.openWindow(prefs(), System.currentTimeMillis())
-			eventSink?.success(mapOf("type" to "undo_window", "value" to UndoActionSync.channelMap(window)))
-		}
+		UndoActionSync.journalEvent(prefs(), key, System.currentTimeMillis())?.let { eventSink?.success(it) }
 	}
 
 	override fun onCancel(arguments: Any?) {
@@ -553,7 +545,7 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 	 *
 	 * [onCancel] fires when *Dart* cancels the subscription. Swiping the task
 	 * out of recents tears the engine down without Dart ever getting there, so
-	 * `onCancel` never runs and [isFlutterAttached] — a process-wide flag —
+	 * `onCancel` never runs and [FlutterAttachment.attached] — a process-wide flag —
 	 * stays true for the life of the process. [BackgroundLog] then keeps
 	 * dropping every background log line as if a live Logs screen showed it,
 	 * so nothing the worker does reaches the buffer Dart drains at startup.
@@ -569,7 +561,7 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 	}
 
 	private fun detachFromFlutter() {
-		isFlutterAttached = false
+		FlutterAttachment.attached = false
 		prefs().unregisterOnSharedPreferenceChangeListener(undoJournalListener)
 		localReceiver?.let {
 			LocalBroadcastManager.getInstance(this).unregisterReceiver(it)

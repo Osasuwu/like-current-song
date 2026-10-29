@@ -86,4 +86,15 @@ object UndoActionSync {
      */
     fun channelMap(window: UndoJournal.Window?): Map<String, Any>? =
         window?.let { mapOf("pressId" to it.pressId, "closesAt" to it.closesAt) }
+
+    /**
+     * The event the activity sends Dart after a write to [key] (#268): the
+     * undo window at [now] after any journal write — a like finishing, an
+     * undo started from any surface — so the app's button follows it; null
+     * for every other setting.
+     */
+    fun journalEvent(prefs: SharedPreferences, key: String?, now: Long): Map<String, Any?>? {
+        if (key != AppConstants.KEY_UNDO_JOURNAL) return null
+        return mapOf("type" to "undo_window", "value" to channelMap(UndoJournal.openWindow(prefs, now)))
+    }
 }

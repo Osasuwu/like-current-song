@@ -156,4 +156,29 @@ class UndoActionSyncTest {
         )
         assertEquals(null, UndoActionSync.channelMap(null))
     }
+
+    @Test
+    fun `a journal write tells Dart the window, and no window once the like is undone`() {
+        val id = likedAt(50_000L)
+
+        // The event is the contract with AppController's `undo_window` handler (#268).
+        assertEquals(
+            mapOf("type" to "undo_window", "value" to mapOf("pressId" to id, "closesAt" to 60_000L)),
+            UndoActionSync.journalEvent(prefs, AppConstants.KEY_UNDO_JOURNAL, now = 52_000L),
+        )
+        assertEquals(true, UndoJournal.requestUndo(prefs, id, 53_000L))
+        assertEquals(
+            mapOf("type" to "undo_window", "value" to null),
+            UndoActionSync.journalEvent(prefs, AppConstants.KEY_UNDO_JOURNAL, now = 53_000L),
+        )
+    }
+
+    @Test
+    fun `a write to any other setting tells Dart nothing`() {
+        likedAt(50_000L)
+
+        assertEquals(null, UndoActionSync.journalEvent(prefs, AppConstants.KEY_MUSIC_ROUTING_MODE, now = 52_000L))
+        // A cleared file reports a null key.
+        assertEquals(null, UndoActionSync.journalEvent(prefs, null, now = 52_000L))
+    }
 }

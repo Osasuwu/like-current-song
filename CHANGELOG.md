@@ -25,7 +25,9 @@ you sign in from its Settings window.
   while its 10 seconds last. The button goes as soon as the like is undone in
   any way, and when the 10 seconds are up. A trigger like made with the app
   open no longer fills the result card on the main screen; the Logs screen
-  still shows it.
+  still shows it. With no network, a trigger made with the app open no longer
+  plays the failure tone at once: like one made in the background, it waits
+  for the network and then likes the track playing at that moment.
 - **Android: an Undo action in the listener notification (#269).** For the
   10 seconds a background Spotify like can be undone, the notification shows
   an Undo button after Stop (and Grant access, when it is there). Tapping it

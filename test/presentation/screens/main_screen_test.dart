@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:like_spotify_mobile_app/domain/entities/music_provider.dart';
@@ -44,7 +45,34 @@ void main() {
 
       expect(find.text('Undo last like'), findsOneWidget);
 
-      await tester.pump(const Duration(seconds: 11));
+      // Still there a second before the window closes.
+      await tester.pump(const Duration(seconds: 9));
+      expect(find.text('Undo last like'), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 2));
+      expect(find.text('Undo last like'), findsNothing);
+    });
+
+    testWidgets('asks again on resume, so it does not outlive a window that '
+        'closed while the phone slept', (tester) async {
+      lastLikeUndoableFor(const Duration(seconds: 10));
+      await tester.pumpWidget(harness.host(const MainScreen()));
+      await tester.pumpAndSettle();
+      expect(find.text('Undo last like'), findsOneWidget);
+
+      // Timers stall while the phone sleeps; the journal has no window now.
+      harness.undoWindow = null;
+      for (final step in <AppLifecycleState>[
+        AppLifecycleState.inactive,
+        AppLifecycleState.hidden,
+        AppLifecycleState.paused,
+        AppLifecycleState.hidden,
+        AppLifecycleState.inactive,
+        AppLifecycleState.resumed,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(step);
+      }
+      await tester.pumpAndSettle();
 
       expect(find.text('Undo last like'), findsNothing);
     });
