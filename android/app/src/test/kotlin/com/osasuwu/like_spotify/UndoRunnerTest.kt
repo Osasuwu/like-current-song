@@ -258,7 +258,7 @@ class UndoRunnerTest {
         assertEquals(listOf(other, uri), account.playlists.getValue("pl-best"))
     }
 
-    private val sheet = LikeCounter.Target("sheet-1", "me")
+    private val artistSheet = LikeCounter.Target("sheet-1", "me")
 
     /** The artist's distinct tracks as this device holds them. */
     private fun localTracks(account: Account) = LocalCounters.parseArtistTracks(
@@ -286,7 +286,7 @@ class UndoRunnerTest {
 
     private val followLegs = arrayOf(
         UndoLeg.ArtistTrack("a1"),
-        UndoLeg.ArtistTrackRow("a1", sheet),
+        UndoLeg.ArtistTrackRow("a1", artistSheet),
         UndoLeg.ArtistFollow("a1", alreadyFollowed = false),
     )
 
