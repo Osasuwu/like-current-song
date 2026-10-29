@@ -39,6 +39,13 @@ object LikeCounter {
     /** The tab follow-artist's (user, artist, track) triples live on. */
     const val ARTIST_SHEET = CounterSheetSchema.ARTIST_TRACKS_TAB
 
+    /**
+     * Opens the connection for one sheet call's URL. Every caller on a phone
+     * takes this one; the artist-tab calls accept another so a JVM test can
+     * answer them and see what was sent (#282).
+     */
+    internal val NETWORK: (String) -> HttpURLConnection = { url -> URL(url).openConnection() as HttpURLConnection }
+
     /** Where one like is counted. The access token is fetched per call. */
     data class Target(val spreadsheetId: String, val userId: String)
 
@@ -331,6 +338,7 @@ object LikeCounter {
         target: Target,
         artistId: String,
         trackId: String,
+        connect: (String) -> HttpURLConnection = NETWORK,
         // Runs once this like's row is on the sheet, so an undo (#273) clears
         // only a row the like wrote.
         onAppended: () -> Unit = {},
@@ -343,7 +351,7 @@ object LikeCounter {
             return CountOutcome.failed(unreachable(e))
         }
         return try {
-            val read = get(token, "$API_BASE/${target.spreadsheetId}/values/${encode(ARTIST_SHEET)}")
+            val read = get(token, "$API_BASE/${target.spreadsheetId}/values/${encode(ARTIST_SHEET)}", connect)
             val body = read.body ?: return CountOutcome.failed(
                 if (read.status == 400) {
                     "the counter sheet has no $ARTIST_SHEET tab. Add one with the header " +
@@ -356,7 +364,7 @@ object LikeCounter {
             val (seen, count) = artistTrackTally(body, target.userId, artistId, trackId)
             if (seen) return CountOutcome.counted(count)
             val row = listOf(target.userId, artistId, trackId, nowIso())
-            val (status, _) = append(token, target.spreadsheetId, ARTIST_SHEET, row)
+            val (status, _) = append(token, target.spreadsheetId, ARTIST_SHEET, row, connect)
             if (status !in 200..299) {
                 return CountOutcome.failed("the counter sheet refused a new $ARTIST_SHEET row", status)
             }
@@ -376,7 +384,13 @@ object LikeCounter {
      * The row is cleared, not deleted: a delete needs the tab's numeric id,
      * and every reader of the tab skips a row with fewer than three cells.
      */
-    fun clearArtistTrack(prefs: SharedPreferences, target: Target, artistId: String, trackId: String): String? {
+    fun clearArtistTrack(
+        prefs: SharedPreferences,
+        target: Target,
+        artistId: String,
+        trackId: String,
+        connect: (String) -> HttpURLConnection = NETWORK,
+    ): String? {
         val token = try {
             GoogleTokens.fresh(prefs, GoogleTokens.COUNTER)
         } catch (failure: GoogleTokens.RefreshFailure) {
@@ -385,11 +399,11 @@ object LikeCounter {
             return unreachable(e)
         }
         return try {
-            val read = get(token, "$API_BASE/${target.spreadsheetId}/values/${encode(ARTIST_SHEET)}")
+            val read = get(token, "$API_BASE/${target.spreadsheetId}/values/${encode(ARTIST_SHEET)}", connect)
             val body = read.body
                 ?: return "the counter sheet's $ARTIST_SHEET tab could not be read (HTTP ${read.status})"
             val row = artistTrackRow(body, target.userId, artistId, trackId) ?: return null
-            val status = clear(token, target.spreadsheetId, "$ARTIST_SHEET!A$row:D$row")
+            val status = clear(token, target.spreadsheetId, "$ARTIST_SHEET!A$row:D$row", connect)
             if (status in 200..299) null else "the counter sheet refused to clear $ARTIST_SHEET row $row (HTTP $status)"
         } catch (e: Exception) {
             unreachable(e)
@@ -438,8 +452,8 @@ object LikeCounter {
     /** One call's answer: the status, and the body when it was a success. */
     private class Answer(val status: Int, val body: String?)
 
-    private fun get(token: String, url: String): Answer {
-        val connection = open(token, url, "GET")
+    private fun get(token: String, url: String, connect: (String) -> HttpURLConnection = NETWORK): Answer {
+        val connection = open(token, url, "GET", connect)
         val status = connection.responseCode
         return Answer(status, if (status in 200..299) readBody(connection) else null)
     }
@@ -473,10 +487,11 @@ object LikeCounter {
         spreadsheetId: String,
         tab: String,
         row: List<Any>,
+        connect: (String) -> HttpURLConnection = NETWORK,
     ): Pair<Int, Int?> {
         val url = "$API_BASE/$spreadsheetId/values/${encode(tab)}:append" +
             "?valueInputOption=RAW&insertDataOption=INSERT_ROWS"
-        val connection = open(token, url, "POST")
+        val connection = open(token, url, "POST", connect)
         connection.doOutput = true
         connection.setRequestProperty("Content-Type", "application/json")
         OutputStreamWriter(connection.outputStream).use { it.write(writeBody(row)) }
@@ -491,16 +506,26 @@ object LikeCounter {
     }
 
     /** Clears the cells of [range]; answers the status the sheet gave it. */
-    private fun clear(token: String, spreadsheetId: String, range: String): Int {
-        val connection = open(token, "$API_BASE/$spreadsheetId/values/${encode(range)}:clear", "POST")
+    private fun clear(
+        token: String,
+        spreadsheetId: String,
+        range: String,
+        connect: (String) -> HttpURLConnection = NETWORK,
+    ): Int {
+        val connection = open(token, "$API_BASE/$spreadsheetId/values/${encode(range)}:clear", "POST", connect)
         connection.doOutput = true
         connection.setRequestProperty("Content-Type", "application/json")
         OutputStreamWriter(connection.outputStream).use { it.write("{}") }
         return connection.responseCode
     }
 
-    private fun open(token: String, url: String, method: String): HttpURLConnection {
-        val connection = URL(url).openConnection() as HttpURLConnection
+    private fun open(
+        token: String,
+        url: String,
+        method: String,
+        connect: (String) -> HttpURLConnection = NETWORK,
+    ): HttpURLConnection {
+        val connection = connect(url)
         connection.requestMethod = method
         connection.connectTimeout = HTTP_TIMEOUT_MS
         connection.readTimeout = HTTP_TIMEOUT_MS

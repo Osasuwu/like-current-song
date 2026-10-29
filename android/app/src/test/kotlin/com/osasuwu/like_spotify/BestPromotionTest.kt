@@ -110,4 +110,47 @@ class BestPromotionTest {
             legs,
         )
     }
+
+    // ---- runJournalled: the Spotify worker's best step (#282) ----
+
+    /** One worker best step: the playlist id is found while the run checks membership, as on a phone. */
+    private fun promoteJournalled(
+        count: Int,
+        inPlaylist: Boolean = false,
+        added: Boolean = true,
+        legs: MutableList<UndoLeg>,
+    ): BestPromotion.Outcome {
+        var bestId: String? = null
+        return BestPromotion.runJournalled(
+            prefs,
+            count,
+            3,
+            "trk-a",
+            isInPlaylist = { bestId = "pl-best"; inPlaylist },
+            add = { added },
+            playlistId = { bestId },
+            journal = { legs += it },
+        )
+    }
+
+    @Test
+    fun `the press that promotes the track hands the undo one best leg for the playlist it went into`() {
+        val legs = mutableListOf<UndoLeg>()
+
+        assertEquals(BestPromotion.Outcome.ADDED, promoteJournalled(count = 3, legs = legs))
+
+        assertEquals(listOf<UndoLeg>(UndoLeg.BestPromote("pl-best")), legs)
+    }
+
+    @Test
+    fun `a press that did not promote the track hands the undo no best leg`() {
+        val legs = mutableListOf<UndoLeg>()
+
+        assertEquals(BestPromotion.Outcome.NOT_DUE, promoteJournalled(count = 2, legs = legs))
+        assertEquals(BestPromotion.Outcome.ALREADY_IN_PLAYLIST, promoteJournalled(count = 3, inPlaylist = true, legs = legs))
+        prefs.values.clear()
+        assertEquals(BestPromotion.Outcome.NOT_ADDED, promoteJournalled(count = 3, added = false, legs = legs))
+
+        assertEquals(emptyList<UndoLeg>(), legs)
+    }
 }
