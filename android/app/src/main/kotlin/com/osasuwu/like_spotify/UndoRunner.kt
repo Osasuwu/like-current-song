@@ -18,6 +18,13 @@ internal object UndoRunner {
         /** Removes [trackUri] from the user's library. */
         fun unsave(trackUri: String): ApiResult
 
+        /**
+         * Takes back the like rating [song] got in the playing app's media
+         * session (#274); returns why it could not, or null. Only YouTube
+         * Music rates that way.
+         */
+        fun unrateInSession(song: String): String? = "no media session rating on this service"
+
         /** How many copies of [trackId] the playlist [playlistId] holds now. */
         fun countInPlaylist(playlistId: String, trackId: String): Int
 
@@ -99,7 +106,11 @@ internal object UndoRunner {
     private fun revert(leg: UndoLeg, trackId: String, trackUri: String, ops: Ops): String? = when (leg) {
         // Saved before the press: the like changed nothing in the library,
         // and unsaving would take away a save the user made themselves.
-        is UndoLeg.NativeSave -> if (leg.alreadySaved) null else reason(ops.unsave(trackUri))
+        is UndoLeg.NativeSave -> when {
+            leg.alreadySaved -> null
+            leg.sessionSong != null -> ops.unrateInSession(leg.sessionSong)
+            else -> reason(ops.unsave(trackUri))
+        }
 
         // The like appended one copy. Spotify can only remove a track by URI,
         // which takes every copy, so remove them all and put back the ones
@@ -141,9 +152,10 @@ internal object UndoRunner {
             reason(ops.unfollow(leg.artistId)) ?: run { ops.forgetFollowed(leg.artistId); null }
         }
 
-        // On the phone only; a throw is its one way to fail.
+        // On the phone only; a throw is its one way to fail. YouTube Music
+        // keys its cooldown by song, not by video, so its leg names the key.
         is UndoLeg.CooldownStamp -> {
-            ops.restoreLikedAt(trackId, leg.previous)
+            ops.restoreLikedAt(leg.key ?: trackId, leg.previous)
             null
         }
 

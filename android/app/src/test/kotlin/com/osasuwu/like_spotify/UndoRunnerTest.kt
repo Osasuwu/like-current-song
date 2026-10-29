@@ -63,6 +63,16 @@ class UndoRunnerTest {
         override fun unsave(trackUri: String): ApiResult =
             call("unsave").also { if (it.success) library -= trackUri }
 
+        /** The songs rated thumbs-up in the playing app's media session (#274). */
+        val sessionRated = mutableSetOf<String>()
+
+        override fun unrateInSession(song: String): String? {
+            calls += "unrate $song"
+            if ("unrate $song" in failing) return "the song is no longer playing in YouTube Music"
+            sessionRated -= song
+            return null
+        }
+
         override fun countInPlaylist(playlistId: String, trackId: String): Int {
             calls += "count $playlistId"
             if ("count $playlistId" in failing) throw IllegalStateException("count failed")
@@ -226,6 +236,54 @@ class UndoRunnerTest {
 
         assertEquals(emptyList<UndoRunner.Failure>(), result.failures)
         assertEquals(mapOf("trk-a" to 1_000L, "trk-b" to 3_000L), account.stamps)
+    }
+
+    @Test
+    fun `a rating made in the media session is taken back there, not through the library`() {
+        val account = Account()
+        account.sessionRated += "song-a"
+        account.library += uri
+
+        val result = UndoRunner.run(entry(UndoLeg.NativeSave(alreadySaved = false, sessionSong = "song-a")), account)
+
+        assertEquals(emptyList<UndoRunner.Failure>(), result.failures)
+        assertEquals(emptySet<String>(), account.sessionRated)
+        assertEquals(listOf("unrate song-a"), account.calls)
+    }
+
+    @Test
+    fun `a session rating that cannot be taken back is named as the native save`() {
+        val account = Account()
+        account.failing += "unrate song-a"
+
+        val result = UndoRunner.run(entry(UndoLeg.NativeSave(alreadySaved = false, sessionSong = "song-a")), account)
+
+        assertEquals(
+            listOf(UndoRunner.Failure("native save", "the song is no longer playing in YouTube Music")),
+            result.failures,
+        )
+    }
+
+    @Test
+    fun `a session rating the user made before the press is left alone`() {
+        val account = Account()
+        account.sessionRated += "song-a"
+
+        UndoRunner.run(entry(UndoLeg.NativeSave(alreadySaved = true, sessionSong = "song-a")), account)
+
+        assertEquals(setOf("song-a"), account.sessionRated)
+        assertEquals(emptyList<String>(), account.calls)
+    }
+
+    @Test
+    fun `a cooldown stamp recorded under its own key is restored under that key, not the track's`() {
+        val account = Account()
+        account.stamps["trk-a"] = 9_000L
+        account.stamps["song-a"] = 8_000L
+
+        UndoRunner.run(entry(UndoLeg.CooldownStamp(previous = 1_000L, key = "song-a")), account)
+
+        assertEquals(mapOf("trk-a" to 9_000L, "song-a" to 1_000L), account.stamps)
     }
 
     // ---- best playlist and auto-follow (#273) -------------------------------------------------

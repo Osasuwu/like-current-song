@@ -9,23 +9,41 @@ class YouTubeMusicExtraActionsTest {
     // ---- best playlist (#245) -------------------------------------------------
 
     /**
-     * A Data API that knows one playlist, "Best", and what is in it. Writes
-     * land in [members], so a second like sees the first one's add.
+     * A Data API that knows two playlists, "Best" and "Archive", and what is
+     * in them. Writes land in [members] and [archived], so a second like sees
+     * the first one's add.
      */
     private class FakeDataApi(
         val members: MutableSet<String> = mutableSetOf(),
         var refuseAdds: Int = 0,
+        /** The archive's videos, one entry per copy: YouTube allows duplicates. */
+        archive: List<String> = emptyList(),
+        /** How many deletes go through before the rest are refused; null is all. */
+        val deletesAllowed: Int? = null,
+        /** What `subscriptions.insert` throws; null subscribes. */
+        var subscribeRefusal: ApiFailure? = null,
     ) {
         val calls = mutableListOf<String>()
+        private val archiveItems = archive.withIndex().associate { (i, v) -> "arch-$i" to v }.toMutableMap()
+        private var deletes = 0
+
+        fun archived(): List<String> = archiveItems.values.toList()
 
         fun call(method: String, url: String, body: String?): String {
             val path = url.removePrefix(YouTubeDataApi.API_BASE).substringBefore('?')
             calls += "$method $path"
             return when ("$method $path") {
-                "GET /playlists" -> """{"items":[{"id":"PLbest","snippet":{"title":"Best"}}]}"""
+                "GET /playlists" ->
+                    """{"items":[{"id":"PLbest","snippet":{"title":"Best"}},""" +
+                        """{"id":"PLarchive","snippet":{"title":"Archive"}}]}"""
                 "GET /playlistItems" -> {
                     val videoId = url.substringAfter("videoId=").substringBefore('&')
-                    if (videoId in members) {
+                    if (url.contains("playlistId=PLarchive")) {
+                        val items = archiveItems.filterValues { it == videoId }.keys.joinToString(",") {
+                            """{"id":"$it","contentDetails":{"videoId":"$videoId"}}"""
+                        }
+                        """{"items":[$items]}"""
+                    } else if (videoId in members) {
                         """{"items":[{"id":"item-1","contentDetails":{"videoId":"$videoId"}}]}"""
                     } else {
                         """{"items":[]}"""
@@ -39,7 +57,13 @@ class YouTubeMusicExtraActionsTest {
                     members += Regex("\"videoId\":\"([^\"]+)\"").find(body.orEmpty())!!.groupValues[1]
                     "{}"
                 }
-                "POST /subscriptions" -> "{}"
+                "DELETE /playlistItems" -> {
+                    if (deletesAllowed != null && deletes >= deletesAllowed) throw ApiFailure("HTTP 500", 500)
+                    deletes++
+                    archiveItems.remove(url.substringAfter("id="))
+                    ""
+                }
+                "POST /subscriptions" -> subscribeRefusal?.let { throw it } ?: "{}"
                 else -> error("unexpected call: $method $url")
             }
         }
@@ -161,6 +185,115 @@ class YouTubeMusicExtraActionsTest {
         likeVideo(prefs, api, "vid-a") { channel, video -> asked += "$channel/$video"; 3 }
         assertEquals(listOf("UCartist/vid-a"), asked)
         assertEquals(1, api.count("POST /subscriptions"))
+    }
+
+    // ---- what the undo gets (#274) -------------------------------------------------
+
+    private fun archiveRuleOn() = FakeSharedPreferences().apply {
+        values[AppConstants.KEY_RULE_ARCHIVE_REMOVE_ENABLED] = true
+        values[AppConstants.KEY_RULE_ARCHIVE_PLAYLIST_NAME] = "Archive"
+    }
+
+    /** The legs one like hands the undo journal. */
+    private fun journaled(
+        prefs: FakeSharedPreferences,
+        api: FakeDataApi,
+        videoId: String = "vid",
+        sharedLikeCount: Int? = null,
+    ): List<UndoLeg> {
+        val legs = mutableListOf<UndoLeg>()
+        YouTubeMusicExtraActions(prefs, api::call, { _, _, _, _ -> }) { legs += it }
+            .run(YouTubeDataApi.Match(videoId, "UCartist"), sharedLikeCount)
+        return legs
+    }
+
+    @Test
+    fun `an archive removal hands the undo the playlist and every copy it took out`() {
+        val api = FakeDataApi(archive = listOf("vid", "other", "vid"))
+
+        val legs = journaled(archiveRuleOn(), api)
+
+        assertEquals(listOf("other"), api.archived())
+        assertEquals(listOf<UndoLeg>(UndoLeg.ArchiveRemove("PLarchive", 2)), legs)
+    }
+
+    @Test
+    fun `an archive removal cut short hands the undo only the copies it took out`() {
+        val api = FakeDataApi(archive = listOf("vid", "vid", "vid"), deletesAllowed = 1)
+
+        val legs = journaled(archiveRuleOn(), api)
+
+        assertEquals(listOf("vid", "vid"), api.archived())
+        assertEquals(listOf<UndoLeg>(UndoLeg.ArchiveRemove("PLarchive", 1)), legs)
+    }
+
+    @Test
+    fun `a promotion counted on this device hands the undo the local count and the best playlist`() {
+        val legs = journaled(bestRuleOn(threshold = 1), FakeDataApi())
+
+        assertEquals(listOf(UndoLeg.TrackCount(null), UndoLeg.BestPromote("PLbest")), legs)
+    }
+
+    @Test
+    fun `a promotion counted on the sheet hands the undo no local count`() {
+        val legs = journaled(bestRuleOn(threshold = 3), FakeDataApi(), sharedLikeCount = 3)
+
+        assertEquals(listOf<UndoLeg>(UndoLeg.BestPromote("PLbest")), legs)
+    }
+
+    @Test
+    fun `a like that promoted nothing hands the undo no best leg`() {
+        // Short of the threshold, and over it but already there: neither added it.
+        assertEquals(emptyList<UndoLeg>(), journaled(bestRuleOn(threshold = 3), FakeDataApi(), sharedLikeCount = 2))
+        val already = FakeDataApi(members = mutableSetOf("vid"))
+        assertEquals(emptyList<UndoLeg>(), journaled(bestRuleOn(threshold = 3), already, sharedLikeCount = 5))
+    }
+
+    @Test
+    fun `an artist's new video hands the undo its tally entry, a repeat does not`() {
+        val prefs = followRuleOn(threshold = 3)
+        val api = FakeDataApi()
+
+        assertEquals(listOf<UndoLeg>(UndoLeg.ArtistTrack("UCartist")), journaled(prefs, api, "vid-a"))
+        assertEquals(emptyList<UndoLeg>(), journaled(prefs, api, "vid-a"))
+    }
+
+    @Test
+    fun `a subscription this like made hands the undo the follow to take back`() {
+        val legs = journaled(followRuleOn(threshold = 1), FakeDataApi(), "vid-a")
+
+        assertEquals(
+            listOf(UndoLeg.ArtistTrack("UCartist"), UndoLeg.ArtistFollow("UCartist", alreadyFollowed = false)),
+            legs,
+        )
+    }
+
+    @Test
+    fun `a channel the user had already subscribed to is handed over as already followed`() {
+        val api = FakeDataApi(subscribeRefusal = ApiFailure("already subscribed", 400, "subscriptionDuplicate"))
+
+        val legs = journaled(followRuleOn(threshold = 1), api, "vid-a")
+
+        assertEquals(
+            listOf(UndoLeg.ArtistTrack("UCartist"), UndoLeg.ArtistFollow("UCartist", alreadyFollowed = true)),
+            legs,
+        )
+    }
+
+    @Test
+    fun `a refused subscription hands the undo no follow`() {
+        val api = FakeDataApi(subscribeRefusal = ApiFailure("HTTP 403", 403, "forbidden"))
+
+        val legs = journaled(followRuleOn(threshold = 1), api, "vid-a")
+
+        assertEquals(listOf<UndoLeg>(UndoLeg.ArtistTrack("UCartist")), legs)
+    }
+
+    @Test
+    fun `an add names the playlist it went to, for the undo of the like's playlist leg`() {
+        val actions = YouTubeMusicExtraActions(FakeSharedPreferences(), FakeDataApi()::call, { _, _, _, _ -> })
+
+        assertEquals("PLbest", actions.addToPlaylist("Best", "vid", "like_playlist_add", what = null))
     }
 
     // ---- countKey -------------------------------------------------

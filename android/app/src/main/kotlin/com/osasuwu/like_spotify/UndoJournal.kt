@@ -13,8 +13,13 @@ import org.json.JSONObject
  * counters (#272), best promotion and auto-follow (#273), YouTube Music (#274).
  */
 sealed class UndoLeg {
-    /** The track went into the Spotify library; [alreadySaved] means it was there before the press. */
-    data class NativeSave(val alreadySaved: Boolean) : UndoLeg()
+    /**
+     * The track was rated a like on its service; [alreadySaved] means it was
+     * before the press. [sessionSong] names the song when the rating went
+     * through the player's media session (YouTube Music, #274), which is
+     * where it has to be taken back; null means through the service's API.
+     */
+    data class NativeSave(val alreadySaved: Boolean, val sessionSong: String? = null) : UndoLeg()
 
     /** The track was appended to the like playlist [playlistId]. */
     data class LikePlaylistAdd(val playlistId: String) : UndoLeg()
@@ -53,7 +58,7 @@ sealed class UndoLeg {
      * The like stamped the track's last-liked time, which the like cooldown
      * reads; [previous] is the stamp it replaced, null when there was none.
      */
-    data class CooldownStamp(val previous: Long?) : UndoLeg()
+    data class CooldownStamp(val previous: Long?, val key: String? = null) : UndoLeg()
 
     /**
      * The like added one to the track's counter (#272): on the Google Sheet
@@ -118,6 +123,8 @@ object UndoJournal {
         val trackId: String?,
         val trackUri: String?,
         val legs: List<UndoLeg>,
+        /** The service the like went to; entries from before #274 are Spotify's. */
+        val provider: MusicProvider = MusicProvider.SPOTIFY,
     )
 
     /**
@@ -192,13 +199,14 @@ object UndoJournal {
 
     /** Opens a journal entry for a like the worker is about to run; returns its id. */
     @Synchronized
-    fun beginLike(prefs: SharedPreferences, now: Long): String {
+    fun beginLike(prefs: SharedPreferences, now: Long, provider: MusicProvider = MusicProvider.SPOTIFY): String {
         val id = java.util.UUID.randomUUID().toString()
         val entries = load(prefs)
         entries += JSONObject()
             .put(F_ID, id)
             .put(F_PRESSED_AT, now)
             .put(F_STATE, State.LIKING.name)
+            .put(F_PROVIDER, provider.id)
             .put(F_LEGS, JSONArray())
         save(prefs, entries.takeLast(MAX_ENTRIES))
         return id
@@ -254,6 +262,7 @@ object UndoJournal {
             trackId = json.optString(F_TRACK_ID).ifBlank { null },
             trackUri = json.optString(F_TRACK_URI).ifBlank { null },
             legs = (0 until legs.length()).mapNotNull { decode(legs.getJSONObject(it)) },
+            provider = MusicProvider.fromId(json.optString(F_PROVIDER).ifBlank { null }),
         )
     }
 
@@ -280,7 +289,10 @@ object UndoJournal {
     }
 
     private fun encode(leg: UndoLeg): JSONObject = when (leg) {
-        is UndoLeg.NativeSave -> JSONObject().put(F_KIND, K_NATIVE_SAVE).put("alreadySaved", leg.alreadySaved)
+        is UndoLeg.NativeSave -> JSONObject()
+            .put(F_KIND, K_NATIVE_SAVE)
+            .put("alreadySaved", leg.alreadySaved)
+            .putOpt("sessionSong", leg.sessionSong)
         is UndoLeg.LikePlaylistAdd -> JSONObject().put(F_KIND, K_LIKE_PLAYLIST_ADD).put("playlistId", leg.playlistId)
         is UndoLeg.ArchiveRemove -> JSONObject()
             .put(F_KIND, K_ARCHIVE_REMOVE)
@@ -298,7 +310,10 @@ object UndoJournal {
             .put("artistId", leg.artistId)
             .put("alreadyFollowed", leg.alreadyFollowed)
         // A null previous stamp is stored as an absent field.
-        is UndoLeg.CooldownStamp -> JSONObject().put(F_KIND, K_COOLDOWN_STAMP).put("previous", leg.previous)
+        is UndoLeg.CooldownStamp -> JSONObject()
+            .put(F_KIND, K_COOLDOWN_STAMP)
+            .put("previous", leg.previous)
+            .putOpt("key", leg.key)
         is UndoLeg.TrackCount -> JSONObject().put(F_KIND, K_TRACK_COUNT).apply {
             val sheet = leg.sheet
             if (sheet == null) {
@@ -310,7 +325,7 @@ object UndoJournal {
     }
 
     private fun decode(json: JSONObject): UndoLeg? = when (json.optString(F_KIND)) {
-        K_NATIVE_SAVE -> UndoLeg.NativeSave(json.getBoolean("alreadySaved"))
+        K_NATIVE_SAVE -> UndoLeg.NativeSave(json.getBoolean("alreadySaved"), json.optString("sessionSong").ifBlank { null })
         K_LIKE_PLAYLIST_ADD -> UndoLeg.LikePlaylistAdd(json.getString("playlistId"))
         K_ARCHIVE_REMOVE -> UndoLeg.ArchiveRemove(json.getString("playlistId"), json.getInt("copies"))
         K_BEST_PROMOTE -> UndoLeg.BestPromote(json.getString("playlistId"))
@@ -320,7 +335,10 @@ object UndoJournal {
             LikeCounter.Target(json.getString("spreadsheetId"), json.getString("userId")),
         )
         K_ARTIST_FOLLOW -> UndoLeg.ArtistFollow(json.getString("artistId"), json.getBoolean("alreadyFollowed"))
-        K_COOLDOWN_STAMP -> UndoLeg.CooldownStamp(if (json.has("previous")) json.getLong("previous") else null)
+        K_COOLDOWN_STAMP -> UndoLeg.CooldownStamp(
+            if (json.has("previous")) json.getLong("previous") else null,
+            json.optString("key").ifBlank { null },
+        )
         K_TRACK_COUNT -> when (json.optString("store")) {
             STORE_LOCAL -> UndoLeg.TrackCount(sheet = null)
             STORE_SHEET -> UndoLeg.TrackCount(
@@ -340,6 +358,7 @@ object UndoJournal {
     private const val F_TRACK_ID = "trackId"
     private const val F_TRACK_URI = "trackUri"
     private const val F_LEGS = "legs"
+    private const val F_PROVIDER = "provider"
     private const val F_KIND = "kind"
     private const val K_NATIVE_SAVE = "native_save"
     private const val K_LIKE_PLAYLIST_ADD = "like_playlist_add"

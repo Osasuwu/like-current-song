@@ -16,6 +16,7 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
+import org.json.JSONObject
 import java.io.BufferedReader
 import java.net.HttpURLConnection
 import java.net.URL
@@ -52,7 +53,16 @@ class ApiFailure(
  * main thread. The caller owns the outcome's feedback tone and final log line;
  * this class only logs the intermediate steps.
  */
-class YouTubeMusicLiker(context: Context) {
+class YouTubeMusicLiker(
+    context: Context,
+    /**
+     * The [UndoJournal] entry of the press this like runs for (#274): every
+     * leg it performs is recorded there, so a repeat of the trigger can take
+     * back exactly what this like did. Null for a like from the app's own
+     * button, which journals nothing.
+     */
+    private val pressId: String? = null,
+) {
     private val context = context.applicationContext
     private val prefs: SharedPreferences =
         this.context.getSharedPreferences(AppConstants.PREFS, Context.MODE_PRIVATE)
@@ -155,6 +165,35 @@ class YouTubeMusicLiker(context: Context) {
      */
     fun extraActions(outcome: Outcome) = synchronized(LOCK) { extraActionsLocked(outcome) }
 
+    /** Whether [closePress] has run; it runs once, after the like or on the way out. */
+    private var pressClosed = false
+
+    /**
+     * Closes this press's journal entry at [likedAt], when the tone played:
+     * from here a repeat of the trigger undoes the like instead of queueing.
+     * A repeat that came in during the like is answered now, through
+     * [report]. Returns true when an undo ran (or found nothing to revert);
+     * the caller then stops, since an undone like earns no counters.
+     */
+    internal fun closePress(likedAt: Long, report: UndoCompletion.Report): Boolean = synchronized(LOCK) {
+        val id = pressId ?: return false
+        if (pressClosed) return false
+        pressClosed = true
+        UndoCompletion.closeLike(prefs, id, likedAt, report, ::undoOps)
+    }
+
+    /** Undoes the like journalled under this liker's press, reporting through [report]. */
+    internal fun undo(report: UndoCompletion.Report) = synchronized(LOCK) {
+        UndoCompletion.undo(prefs, pressId, report, ::undoOps)
+    }
+
+    private fun undoOps(): UndoRunner.Ops =
+        YouTubeMusicUndoOps(prefs, apiCall = { method, url, body -> apiCall(method, url, body) }, unrate = ::unrate)
+
+    private fun journal(leg: UndoLeg) {
+        pressId?.let { UndoJournal.recordLeg(prefs, it, leg) }
+    }
+
     private fun extraActionsLocked(outcome: Outcome) {
         val nowPlaying = outcome.nowPlaying ?: return
         if (outcome.kind != Kind.LIKED && outcome.kind != Kind.ALREADY_LIKED) return
@@ -190,6 +229,7 @@ class YouTubeMusicLiker(context: Context) {
             log(message, result = result, httpCode = httpCode, actionType = actionType)
         },
         sharedArtistTrackCount = ::sharedArtistTrackCount,
+        journal = ::journal,
     )
 
     /**
@@ -200,7 +240,13 @@ class YouTubeMusicLiker(context: Context) {
      */
     private fun sharedArtistTrackCount(channelId: String, videoId: String): Int? {
         val target = LikeCounter.target(prefs, MusicProvider.YTMUSIC) ?: return null
-        val outcome = LikeCounter.recordArtistTrack(prefs, target, channelId, videoId)
+        val outcome = LikeCounter.recordArtistTrack(
+            prefs,
+            target,
+            channelId,
+            videoId,
+            onAppended = { journal(UndoLeg.ArtistTrackRow(channelId, target)) },
+        )
         outcome.count?.let { return it }
         log(
             "Artist like counted on this device only: ${outcome.failure}",
@@ -247,6 +293,7 @@ class YouTubeMusicLiker(context: Context) {
             )
             return outcome
         }
+        journal(UndoLeg.TrackCount(target))
         return outcome.copy(likeCount = newCount)
     }
 
@@ -260,6 +307,9 @@ class YouTubeMusicLiker(context: Context) {
 
         val cooldown = cooldownMinutes()
         val key = cooldownKey(nowPlaying.title, nowPlaying.artist)
+        // The song's key stands in for the track until a search names its
+        // video; [resolveMatch] replaces it with the videoId.
+        pressId?.let { UndoJournal.setTrack(prefs, it, key, key) }
         if (cooldown != null && isWithinCooldown(key, cooldown)) {
             return Outcome(Kind.COOLDOWN, nowPlaying.display, nowPlaying = nowPlaying)
         }
@@ -273,15 +323,25 @@ class YouTubeMusicLiker(context: Context) {
         val playlist = if (destination.addsToPlaylist) addToLikePlaylist(nowPlaying, playlistName) else null
 
         val outcome = combine(destination, nowPlaying, playlistName, native, playlist)
-        if (outcome.positive) recordLikedAt(key)
+        if (outcome.positive) {
+            val previousLikedAt = LocalCounters.lastLikedAt(prefs, key)
+            recordLikedAt(key)
+            journal(UndoLeg.CooldownStamp(previousLikedAt, key = key))
+        }
         return outcome
     }
 
     /** The service's own like: the media session, falling back to the Data API. */
     private fun nativeLike(controller: MediaController, nowPlaying: NowPlaying): Outcome =
         when (sessionLike(controller)) {
-            SessionResult.ALREADY_LIKED -> Outcome(Kind.ALREADY_LIKED, nowPlaying.display)
-            SessionResult.LIKED -> Outcome(Kind.LIKED, nowPlaying.display)
+            SessionResult.ALREADY_LIKED -> {
+                journal(UndoLeg.NativeSave(alreadySaved = true, sessionSong = cooldownKey(nowPlaying.title, nowPlaying.artist)))
+                Outcome(Kind.ALREADY_LIKED, nowPlaying.display)
+            }
+            SessionResult.LIKED -> {
+                journal(UndoLeg.NativeSave(alreadySaved = false, sessionSong = cooldownKey(nowPlaying.title, nowPlaying.artist)))
+                Outcome(Kind.LIKED, nowPlaying.display)
+            }
             SessionResult.UNSUPPORTED, SessionResult.DID_NOT_STICK -> apiLike(nowPlaying)
         }
 
@@ -298,13 +358,18 @@ class YouTubeMusicLiker(context: Context) {
         if (match == null) {
             PlaylistLeg(false, "no YouTube match for this song")
         } else {
-            val added = extraActionRunner().addToPlaylist(
+            val playlistId = extraActionRunner().addToPlaylist(
                 playlistName,
                 match.videoId,
                 YouTubeMusicExtraActions.LIKE_PLAYLIST_ACTION,
                 what = null,
             )
-            if (added) PlaylistLeg(true) else PlaylistLeg(false, "could not find or create \"$playlistName\"")
+            if (playlistId != null) {
+                journal(UndoLeg.LikePlaylistAdd(playlistId))
+                PlaylistLeg(true)
+            } else {
+                PlaylistLeg(false, "could not find or create \"$playlistName\"")
+            }
         }
     } catch (failure: ApiFailure) {
         PlaylistLeg(false, failure.outcomeError, failure.httpCode)
@@ -390,7 +455,9 @@ class YouTubeMusicLiker(context: Context) {
             val videoId = resolveMatch(nowPlaying)?.videoId
                 ?: return Outcome(Kind.FAILED, nowPlaying.display, error = "no YouTube match for this song")
             val encoded = URLEncoder.encode(videoId, Charsets.UTF_8.name())
+            val ratedBefore = if (pressId != null) ratedLike(encoded) else true
             apiCall("POST", "${YouTubeDataApi.API_BASE}/videos/rate?id=$encoded&rating=like")
+            journal(UndoLeg.NativeSave(alreadySaved = ratedBefore))
             log("Liked via YouTube Data API: $videoId", result = "success")
             Outcome(Kind.LIKED, nowPlaying.display)
         } catch (failure: ApiFailure) {
@@ -400,7 +467,61 @@ class YouTubeMusicLiker(context: Context) {
         }
     }
 
-    private fun resolveMatch(nowPlaying: NowPlaying): YouTubeDataApi.Match? {
+    /** Whether the video [encodedId] was rated before this press; see [ratedBefore]. */
+    private fun ratedLike(encodedId: String): Boolean = try {
+        ratedBefore(apiCall("GET", "${YouTubeDataApi.API_BASE}/videos/getRating?id=$encodedId"))
+    } catch (_: Exception) {
+        true
+    }
+
+    /**
+     * Takes back the like rating the session gave [song] (a [cooldownKey]),
+     * for an undo; returns why it could not, or null. The session goes
+     * first, as the like did. When it cannot (the player moved on, no thumb
+     * rating, no confirmation) the Data API takes it back instead: a session
+     * rating is the account's rating, and the video is known from the like's
+     * search.
+     */
+    private fun unrate(song: String): String? {
+        val session = sessionUnrate(song) ?: return null
+        val match = synchronized(RESOLVED) { RESOLVED[song] } ?: return session
+        return try {
+            val encoded = URLEncoder.encode(match.videoId, Charsets.UTF_8.name())
+            apiCall("POST", "${YouTubeDataApi.API_BASE}/videos/rate?id=$encoded&rating=none")
+            null
+        } catch (failure: ApiFailure) {
+            "$session; the Data API refused too: ${failure.outcomeError}"
+        } catch (e: Exception) {
+            "$session; the Data API failed too: ${e.message}"
+        }
+    }
+
+    private fun sessionUnrate(song: String): String? {
+        val controller = findController() ?: return "YouTube Music is not playing"
+        val playing = readNowPlaying(controller) ?: return "no song in the YouTube Music session"
+        if (cooldownKey(playing.title, playing.artist) != song) return "YouTube Music has moved on to another song"
+        if (controller.ratingType != Rating.RATING_THUMB_UP_DOWN) return "the YouTube Music session has no thumb rating"
+        if (!isThumbUp(controller)) return null
+
+        val sent = runCatching {
+            controller.transportControls.setRating(Rating.newUnratedRating(Rating.RATING_THUMB_UP_DOWN))
+        }
+        if (sent.isFailure) return "the YouTube Music session refused: ${sent.exceptionOrNull()?.message}"
+        val deadline = System.currentTimeMillis() + CONFIRM_TIMEOUT_MS
+        while (System.currentTimeMillis() < deadline) {
+            Thread.sleep(CONFIRM_POLL_MS)
+            if (!isThumbUp(controller)) return null
+        }
+        return "YouTube Music did not confirm within $CONFIRM_TIMEOUT_MS ms"
+    }
+
+    private fun resolveMatch(nowPlaying: NowPlaying): YouTubeDataApi.Match? =
+        searchMatch(nowPlaying)?.also { match ->
+            // The undo's playlist, rating and counter legs name the video.
+            pressId?.let { UndoJournal.setTrack(prefs, it, match.videoId, match.videoId) }
+        }
+
+    private fun searchMatch(nowPlaying: NowPlaying): YouTubeDataApi.Match? {
         val cacheKey = cooldownKey(nowPlaying.title, nowPlaying.artist)
         synchronized(RESOLVED) { RESOLVED[cacheKey] }?.let { return it }
 
@@ -589,6 +710,18 @@ class YouTubeMusicLiker(context: Context) {
         private const val HTTP_TIMEOUT_MS = 10_000
         private const val REAUTH_REQUEST_CODE = 6
         private const val RESOLVED_CACHE_SIZE = 64
+
+        /**
+         * Whether a `videos.getRating` [body] shows the video rated before
+         * the like, so an undo leaves a rating the user made alone. A rating
+         * that cannot be read counts as rated: an undo that keeps a like
+         * beats one that takes away the user's own.
+         */
+        fun ratedBefore(body: String): Boolean = try {
+            JSONObject(body).optJSONArray("items")?.optJSONObject(0)?.optString("rating") != "none"
+        } catch (_: Exception) {
+            true
+        }
 
         /**
          * The one outcome of the legs that ran. A one-leg destination is exactly

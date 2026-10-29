@@ -99,6 +99,21 @@ class UndoJournalTest {
     }
 
     @Test
+    fun `a YouTube Music like's session rating and cooldown key come back as recorded`() {
+        // YouTube Music rates through its media session, and keys its
+        // cooldown by artist and title rather than by the video (#274).
+        val legs = arrayOf(
+            UndoLeg.NativeSave(alreadySaved = false, sessionSong = "ytmusic:artist\u001Ftitle"),
+            UndoLeg.NativeSave(alreadySaved = false),
+            UndoLeg.CooldownStamp(previous = 1_234L, key = "ytmusic:artist\u001Ftitle"),
+            UndoLeg.CooldownStamp(previous = null),
+        )
+        val id = likedAt(50_000L, *legs)
+
+        assertEquals(legs.toList(), UndoJournal.entry(prefs, id)!!.legs)
+    }
+
+    @Test
     fun `a track counter leg comes back naming the sheet it went to, or this device`() {
         val legs = arrayOf(
             UndoLeg.TrackCount(sheet = LikeCounter.Target(spreadsheetId = "sheet-1", userId = "user-1")),

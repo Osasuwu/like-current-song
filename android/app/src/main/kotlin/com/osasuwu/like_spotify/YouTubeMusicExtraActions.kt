@@ -33,6 +33,11 @@ class YouTubeMusicExtraActions(
      * it did not answer, and follow-artist then decides on the local count.
      */
     private val sharedArtistTrackCount: (channelId: String, videoId: String) -> Int? = { _, _ -> null },
+    /**
+     * Takes each thing this run did that an undo has to take back (#274):
+     * only what this like changed, so an undo never reverts the user's own.
+     */
+    private val journal: (UndoLeg) -> Unit = {},
 ) {
     private val rules = loadRules()
 
@@ -56,7 +61,8 @@ class YouTubeMusicExtraActions(
         if (rules.bestEnabled && rules.bestPlaylistName.isNotBlank()) {
             // The shared counter already counted this like; the local map is
             // only the fallback for when there is no counter to ask.
-            val count = sharedLikeCount ?: incrementLocalCount(LocalCounters.Kind.TRACK, match.videoId)
+            val count = sharedLikeCount
+                ?: incrementLocalCount(LocalCounters.Kind.TRACK, match.videoId).also { journal(UndoLeg.TrackCount(null)) }
             runCatching { promoteToBest(rules.bestPlaylistName, match.videoId, count) }
                 .onFailure { report("Best promotion failed", BEST_ACTION, it) }
         }
@@ -72,13 +78,20 @@ class YouTubeMusicExtraActions(
                 // screen; the follow rule counts distinct videos (#243). The
                 // sheet keys the artist by the bare channel id, like the desktop.
                 incrementLocalCount(LocalCounters.Kind.ARTIST, channelId)
-                val count = LocalCounters.artistFollowCount(prefs, followedKey, match.videoId) {
+                val count = LocalCounters.artistFollowCount(
+                    prefs,
+                    followedKey,
+                    match.videoId,
+                    onAdded = { journal(UndoLeg.ArtistTrack(channelId)) },
+                ) {
                     sharedArtistTrackCount(channelId, match.videoId)
                 }
                 if (shouldFollow(count, rules.followArtistThreshold, followedKey)) {
                     runCatching {
-                        followChannel(channelId)
+                        val subscribed = followChannel(channelId)
                         LocalCounters.markArtistFollowed(prefs, followedKey)
+                        // A subscription the user already had stays; only the mark goes.
+                        journal(UndoLeg.ArtistFollow(channelId, alreadyFollowed = !subscribed))
                     }.onFailure { report("Follow artist failed", FOLLOW_ACTION, it) }
                 }
             }
@@ -98,8 +111,16 @@ class YouTubeMusicExtraActions(
             log("Archive removal skipped: not in \"$name\"", ARCHIVE_ACTION, "info", null)
             return
         }
-        itemIds.forEach {
-            apiCall("DELETE", "${YouTubeDataApi.API_BASE}/playlistItems?id=${encode(it)}", null)
+        var removed = 0
+        try {
+            itemIds.forEach {
+                deletePlaylistItem(it)
+                removed++
+            }
+        } finally {
+            // A delete that failed midway still took the earlier copies out,
+            // and the undo puts back exactly those.
+            if (removed > 0) journal(UndoLeg.ArchiveRemove(playlistId, removed))
         }
         log("Removed from archive playlist: $name", ARCHIVE_ACTION, "success", null)
     }
@@ -112,11 +133,19 @@ class YouTubeMusicExtraActions(
      * Shared with the like path: a like whose destination is a playlist adds
      * the song exactly the way the best-playlist rule does, so there is one
      * implementation of "put this song in that playlist of mine" rather than
-     * two that can drift. Throws [ApiFailure] when the API refuses; returns
-     * false when the playlist could neither be found nor created.
+     * two that can drift. Throws [ApiFailure] when the API refuses. Returns
+     * the playlist's id, which the undo needs, or null when the playlist
+     * could neither be found nor created.
      */
-    fun addToPlaylist(name: String, videoId: String, actionType: String, what: String?): Boolean {
-        val playlistId = ensurePlaylist(name, actionType) ?: return false
+    fun addToPlaylist(name: String, videoId: String, actionType: String, what: String?): String? {
+        val playlistId = ensurePlaylist(name, actionType) ?: return null
+        insertPlaylistItem(playlistId, videoId)
+        if (what != null) log("$what: $name", actionType, "success", null)
+        return playlistId
+    }
+
+    /** Puts one copy of [videoId] in [playlistId]. Throws [ApiFailure] when the API refuses. */
+    fun insertPlaylistItem(playlistId: String, videoId: String) {
         val body = JSONObject().put(
             "snippet",
             JSONObject()
@@ -127,8 +156,11 @@ class YouTubeMusicExtraActions(
                 ),
         ).toString()
         apiCall("POST", "${YouTubeDataApi.API_BASE}/playlistItems?part=snippet", body)
-        if (what != null) log("$what: $name", actionType, "success", null)
-        return true
+    }
+
+    /** Takes one playlistItem out. Throws [ApiFailure] when the API refuses. */
+    fun deletePlaylistItem(itemId: String) {
+        apiCall("DELETE", "${YouTubeDataApi.API_BASE}/playlistItems?id=${encode(itemId)}", null)
     }
 
     /**
@@ -138,14 +170,17 @@ class YouTubeMusicExtraActions(
      * filtered to the video, 1 quota unit, and only runs when the rule is due.
      */
     private fun promoteToBest(name: String, videoId: String, count: Int) {
+        var bestId: String? = null
         val outcome = BestPromotion.run(
             prefs,
             count,
             rules.bestThreshold,
             countKey(videoId),
             isInPlaylist = { findPlaylist(name)?.let { playlistItemIds(it, videoId).isNotEmpty() } ?: false },
-            add = { addToPlaylist(name, videoId, BEST_ACTION, "Added to best playlist") },
+            add = { addToPlaylist(name, videoId, BEST_ACTION, "Added to best playlist").also { bestId = it } != null },
         )
+        // Only the press that promoted the song hands the undo a best leg.
+        BestPromotion.undoLeg(outcome, bestId)?.let(journal)
         when (outcome) {
             BestPromotion.Outcome.ALREADY_IN_PLAYLIST ->
                 log("Already in best playlist: $name", BEST_ACTION, "info", null)
@@ -162,7 +197,7 @@ class YouTubeMusicExtraActions(
     }
 
     /** The playlistItem ids in [playlistId] that hold [videoId]; empty when it is not there. */
-    private fun playlistItemIds(playlistId: String, videoId: String): List<String> {
+    fun playlistItemIds(playlistId: String, videoId: String): List<String> {
         val fields = encode("items(id,contentDetails/videoId)")
         val body = apiCall(
             "GET",
@@ -174,7 +209,8 @@ class YouTubeMusicExtraActions(
         return YouTubeDataApi.parsePlaylistItemIds(body, videoId)
     }
 
-    private fun followChannel(channelId: String) {
+    /** Subscribes to [channelId]; false when the user already was. */
+    private fun followChannel(channelId: String): Boolean {
         val body = JSONObject().put(
             "snippet",
             JSONObject().put(
@@ -188,9 +224,10 @@ class YouTubeMusicExtraActions(
             // Subscribing twice is a 400, not a no-op: the user got there first.
             if (!YouTubeDataApi.isDuplicateSubscription(failure.reason)) throw failure
             log("Already subscribed to the artist's channel: $channelId", FOLLOW_ACTION, "info", null)
-            return
+            return false
         }
         log("Auto-followed artist channel: $channelId", FOLLOW_ACTION, "success", null)
+        return true
     }
 
     // ---- Playlist lookup / creation -------------------------------------------------
