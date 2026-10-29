@@ -95,7 +95,8 @@ you sign in from its Settings window.
   auto-follow is taken back only if this like made it. A repeat while the like
   is still running waits for it and then undoes it once. When one step fails
   the rest still go back, the error tone plays, and the Logs screen names the
-  step.
+  step. An undo still waiting for its like is lost if the app's process dies
+  before it runs.
 - **Desktop: extensions are discovered from their `manifest.json` (#144).** A
   new folder under `like_spotify/extensions/` with a valid manifest is loaded
   at startup by the Windows host and the CLI stub, with no edit to the host

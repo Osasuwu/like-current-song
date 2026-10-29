@@ -47,6 +47,8 @@ internal object YouTubeMusicJobs {
             override fun openWindow(beforeUndoLine: () -> Unit) =
                 liker.closePress(System.currentTimeMillis(), report(app, beforeUndoLine))
 
+            override fun undoAccepted() = liker.undoAccepted()
+
             override fun count(liked: YouTubeMusicLiker.Outcome) = liker.count(liked)
 
             override fun extras(outcome: YouTubeMusicLiker.Outcome) = liker.extraActions(outcome)

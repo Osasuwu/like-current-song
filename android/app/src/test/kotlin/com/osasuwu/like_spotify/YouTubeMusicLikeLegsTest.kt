@@ -139,4 +139,20 @@ class YouTubeMusicLikeLegsTest {
         assertEquals(YouTubeMusicLiker.PlaylistLeg(true), leg)
         assertEquals(listOf(UndoLeg.LikePlaylistAdd("PL-like", itemId = "item-1")), run.journal)
     }
+
+    @Test
+    fun `a like stamps the song's cooldown key and journals the stamp it replaced under that key`() {
+        // The undo restores a stamp under the leg's key, or else under the
+        // entry's track, which is the videoId once a search has run. The
+        // cooldown is kept by song, so a stamp journalled without its key
+        // would leave this like's stamp on the song and refuse the next press.
+        val prefs = FakeSharedPreferences()
+        LocalCounters.recordLikedAt(prefs, key, 1_000L)
+        val journal = mutableListOf<UndoLeg>()
+
+        YouTubeMusicLikeLegs.stampLiked(prefs, key, now = 5_000L, journal = { journal += it })
+
+        assertEquals(listOf(UndoLeg.CooldownStamp(previous = 1_000L, key = key)), journal)
+        assertEquals(5_000L, LocalCounters.lastLikedAt(prefs, key))
+    }
 }

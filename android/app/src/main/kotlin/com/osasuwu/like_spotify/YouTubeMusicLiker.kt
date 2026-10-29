@@ -181,6 +181,9 @@ class YouTubeMusicLiker(
         UndoCompletion.closeLike(prefs, id, likedAt, report, ::undoOps)
     }
 
+    /** Whether an undo of this press came in after its tone and waits behind this like. */
+    internal fun undoAccepted(): Boolean = pressId?.let { UndoJournal.undoAccepted(prefs, it) } ?: false
+
     /** Undoes the like journalled under this liker's press, reporting through [report]. */
     internal fun undo(report: UndoCompletion.Report) = synchronized(LOCK) {
         UndoCompletion.undo(prefs, pressId, report, ::undoOps)
@@ -322,11 +325,7 @@ class YouTubeMusicLiker(
         val playlist = if (destination.addsToPlaylist) addToLikePlaylist(nowPlaying, playlistName) else null
 
         val outcome = combine(destination, nowPlaying, playlistName, native, playlist)
-        if (outcome.positive) {
-            val previousLikedAt = LocalCounters.lastLikedAt(prefs, key)
-            recordLikedAt(key)
-            journal(UndoLeg.CooldownStamp(previousLikedAt, key = key))
-        }
+        if (outcome.positive) YouTubeMusicLikeLegs.stampLiked(prefs, key, System.currentTimeMillis(), ::journal)
         return outcome
     }
 
@@ -601,10 +600,6 @@ class YouTubeMusicLiker(
     private fun isWithinCooldown(key: String, minutes: Int): Boolean {
         val last = LocalCounters.lastLikedAt(prefs, key) ?: return false
         return System.currentTimeMillis() - last < minutes * 60_000L
-    }
-
-    private fun recordLikedAt(key: String) {
-        LocalCounters.recordLikedAt(prefs, key, System.currentTimeMillis())
     }
 
     // ---- Logging -------------------------------------------------

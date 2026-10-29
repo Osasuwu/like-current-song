@@ -11,13 +11,22 @@ import org.junit.Test
  */
 class YouTubeMusicLikeSequenceTest {
 
-    /** Records every step; the window answers [undoneAtTone] the first time it opens. */
+    /**
+     * Records every step; the window answers [undoneAtTone] the first time it
+     * opens. From the [undoAcceptedAtCheck]th look at the journal on (1-based),
+     * a repeat or an Undo tap after the tone has been accepted and is queued
+     * behind the like.
+     */
     private class Steps(
         private val undoneAtTone: Boolean = false,
         private val likeFails: Boolean = false,
+        private val undoAcceptedAtCheck: Int = Int.MAX_VALUE,
     ) : YouTubeMusicLikeSequence.Steps<String> {
         val calls = mutableListOf<String>()
         private var opened = 0
+        private var checks = 0
+
+        override fun undoAccepted(): Boolean = ++checks >= undoAcceptedAtCheck
 
         override fun like(): String {
             calls += "like"
@@ -89,6 +98,24 @@ class YouTubeMusicLikeSequenceTest {
 
         assertEquals(1, steps.calls.count { it == "log liked" })
         assertEquals(steps.calls.indexOf("log liked") + 1, steps.calls.indexOf("log undo"))
+    }
+
+    @Test
+    fun `an undo accepted after the tone stops the like before it is counted, so the undo has nothing extra to revert`() {
+        val steps = Steps(undoAcceptedAtCheck = 1)
+
+        YouTubeMusicLikeSequence.run(steps)
+
+        assertEquals(listOf("like", "tone", "open window", "log liked", "open window"), steps.calls)
+    }
+
+    @Test
+    fun `an undo accepted while the like is counted stops it before the extras`() {
+        val steps = Steps(undoAcceptedAtCheck = 2)
+
+        YouTubeMusicLikeSequence.run(steps)
+
+        assertEquals(listOf("like", "tone", "open window", "count", "log counted", "open window"), steps.calls)
     }
 
     @Test

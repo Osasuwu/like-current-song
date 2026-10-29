@@ -4,13 +4,15 @@ import com.osasuwu.like_spotify.YouTubeMusicLiker.Kind
 import com.osasuwu.like_spotify.YouTubeMusicLiker.NowPlaying
 import com.osasuwu.like_spotify.YouTubeMusicLiker.Outcome
 import com.osasuwu.like_spotify.YouTubeMusicLiker.PlaylistLeg
+import android.content.SharedPreferences
 import org.json.JSONObject
 import java.net.URLEncoder
 
 /**
  * The legs of a YouTube Music like and what each journals for its undo
- * (#274): the rating, through the media session or the Data API, and the
- * like playlist. Free of Android APIs so the journal writes are unit-tested;
+ * (#274): the rating, through the media session or the Data API, the like
+ * playlist, and the cooldown stamp. Free of Android APIs other than
+ * SharedPreferences, so the journal writes are unit-tested;
  * [YouTubeMusicLiker] reads the session and hands in the HTTP calls.
  *
  * [journal] is null for a like that is not journalled (the app's own
@@ -113,6 +115,18 @@ internal class YouTubeMusicLikeLegs(
     }
 
     companion object {
+        /**
+         * Stamps the song [key] as liked at [now], for the like cooldown, and
+         * journals the stamp it replaced under that key. YouTube Music keeps
+         * its cooldown by song, while the entry's track becomes the videoId
+         * once a search runs, so the undo must be told which stamp to restore.
+         */
+        fun stampLiked(prefs: SharedPreferences, key: String, now: Long, journal: (UndoLeg) -> Unit) {
+            val previous = LocalCounters.lastLikedAt(prefs, key)
+            LocalCounters.recordLikedAt(prefs, key, now)
+            journal(UndoLeg.CooldownStamp(previous, key = key))
+        }
+
         /**
          * The rating leg of a Data API like of [videoId], given the
          * `videos.getRating` [ratingBody] read before it. Unrated: the undo

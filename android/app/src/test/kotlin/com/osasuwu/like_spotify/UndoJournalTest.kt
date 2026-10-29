@@ -41,6 +41,16 @@ class UndoJournalTest {
     }
 
     @Test
+    fun `an undo accepted after the tone is seen by the like still running, and a like with none is not`() {
+        val id = likedAt(50_000L, UndoLeg.NativeSave(alreadySaved = false))
+        assertFalse(UndoJournal.undoAccepted(prefs, id))
+
+        UndoJournal.onPress(prefs, 52_000L)
+
+        assertTrue(UndoJournal.undoAccepted(prefs, id))
+    }
+
+    @Test
     fun `the window is 10 s from the like's tone, inclusive`() {
         val id = likedAt(likedAt = 53_000L, UndoLeg.NativeSave(alreadySaved = false), pressedAt = 50_000L)
 

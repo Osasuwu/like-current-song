@@ -260,6 +260,15 @@ object UndoJournal {
         return finish
     }
 
+    /**
+     * Whether an undo of [id] has been accepted, by a repeat or an Undo tap
+     * after the like's tone, and not yet run. A like still running reads
+     * this to skip work its undo would only revert.
+     */
+    @Synchronized
+    fun undoAccepted(prefs: SharedPreferences, id: String): Boolean =
+        load(prefs).firstOrNull { it.getString(F_ID) == id }?.getString(F_STATE) == State.UNDOING.name
+
     /** Closes the undo of [id]; the next press likes again. */
     @Synchronized
     fun finishUndo(prefs: SharedPreferences, id: String) {
