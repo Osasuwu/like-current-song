@@ -15,6 +15,12 @@ you sign in from its Settings window.
 
 ### Added
 
+- **Android: an Undo action in the listener notification (#269).** For the
+  10 seconds a background Spotify like can be undone, the notification shows
+  an Undo button after Stop (and Grant access, when it is there). Tapping it
+  does exactly what repeating the trigger does, tone included. The button goes
+  away by itself when the 10 seconds are up, and as soon as the like is undone
+  in any way.
 - **Android: undo a like by repeating the trigger within 10 seconds (#267).**
   When the phone likes a Spotify track in the background, the same media-button
   pattern again within 10 seconds of the like takes it back: the track is
@@ -25,9 +31,17 @@ you sign in from its Settings window.
   like is still running waits for it and then undoes it, the pattern after an
   undo likes again, and a repeat vetoed because another app started playing
   does nothing. Not yet
-  covered: likes made with the app open, YouTube Music, the like counters
-  (#272), and the best playlist and auto-follow (#273). Copies put back in the
+  covered: likes made with the app open, YouTube Music, and the best playlist
+  and auto-follow (#273). Copies put back in the
   archive go to its end.
+- **Android: the undo also takes back the like counter (#272).** Undoing a
+  background Spotify like now lowers the track's like count by the one the like
+  added, on the counter the like went to: the shared Google Sheet, or this
+  phone's own count when the Sheet could not be reached. The count never drops
+  below zero. If the counter cannot be lowered, the rest of the undo still
+  happens, the error tone plays and the Logs screen names the counter. Two
+  devices changing the same Sheet count at the same moment can still lose one
+  of the changes.
 - **Android: the undo also takes back a best promotion and an auto-follow (#273).**
   If the undone like promoted the track to the best playlist, the undo takes it
   off again, and the next like that reaches the threshold promotes it again. If

@@ -378,4 +378,36 @@ class LocalCountersTest {
         LocalCounters.restoreLikedAt(prefs, "trk-a", 1_000L)
         assertEquals(1_000L, LocalCounters.lastLikedAt(prefs, "trk-a"))
     }
+
+    // ---- decrement (#272) -------------------------------------------------
+
+    @Test
+    fun `an undone like takes the track's count back to what it was, and only that track's`() {
+        val prefs = FakeSharedPreferences()
+        LocalCounters.increment(prefs, LocalCounters.Kind.TRACK, "trk-b")
+        repeat(3) { LocalCounters.increment(prefs, LocalCounters.Kind.TRACK, "trk-a") }
+
+        assertEquals(2, LocalCounters.decrement(prefs, LocalCounters.Kind.TRACK, "trk-a"))
+        assertEquals(2, LocalCounters.count(prefs, LocalCounters.Kind.TRACK, "trk-a"))
+        assertEquals(1, LocalCounters.count(prefs, LocalCounters.Kind.TRACK, "trk-b"))
+    }
+
+    @Test
+    fun `an undone first like leaves the track uncounted`() {
+        // Not a stored zero: a track the user never kept a like of has no
+        // entry, the same as before the press.
+        val prefs = FakeSharedPreferences()
+        LocalCounters.increment(prefs, LocalCounters.Kind.TRACK, "trk-a")
+
+        assertEquals(0, LocalCounters.decrement(prefs, LocalCounters.Kind.TRACK, "trk-a"))
+        assertFalse(LocalCounters.counts(prefs, LocalCounters.Kind.TRACK).containsKey("trk-a"))
+    }
+
+    @Test
+    fun `lowering a track that has no count leaves it at zero, never below`() {
+        val prefs = FakeSharedPreferences()
+
+        assertEquals(0, LocalCounters.decrement(prefs, LocalCounters.Kind.TRACK, "trk-a"))
+        assertEquals(emptyMap<String, Int>(), LocalCounters.counts(prefs, LocalCounters.Kind.TRACK))
+    }
 }

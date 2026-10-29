@@ -54,6 +54,13 @@ sealed class UndoLeg {
      * reads; [previous] is the stamp it replaced, null when there was none.
      */
     data class CooldownStamp(val previous: Long?) : UndoLeg()
+
+    /**
+     * The like added one to the track's counter (#272): on the Google Sheet
+     * [sheet] names, or on this device's fallback counter when [sheet] is
+     * null. The undo lowers that same counter and never the other one.
+     */
+    data class TrackCount(val sheet: LikeCounter.Target?) : UndoLeg()
 }
 
 /**
@@ -146,6 +153,42 @@ object UndoJournal {
             else -> Press.Ignore
         }
     }
+
+    /** The like [pressId] can still be undone until [closesAt], inclusive. */
+    data class Window(val pressId: String, val closesAt: Long)
+
+    /**
+     * The like an Undo action may offer at [now] (#269): the latest entry,
+     * finished with something to revert, within [WINDOW_MS] of its tone.
+     * Null while the like runs, once any undo has started, and after the
+     * window — the same moments a repeat press would no longer undo.
+     */
+    @Synchronized
+    fun openWindow(prefs: SharedPreferences, now: Long): Window? {
+        val latest = load(prefs).lastOrNull() ?: return null
+        if (!undoable(latest, now)) return null
+        return Window(latest.getString(F_ID), latest.getLong(F_LIKED_AT) + WINDOW_MS)
+    }
+
+    /**
+     * A tap on the Undo action offered for [pressId]. Starts the undo, exactly
+     * as a repeat press inside the window would, and returns true; returns
+     * false and changes nothing when the action is stale — the window passed,
+     * a newer like took it over, or an undo already started.
+     */
+    @Synchronized
+    fun requestUndo(prefs: SharedPreferences, pressId: String, now: Long): Boolean {
+        val entries = load(prefs)
+        val latest = entries.lastOrNull() ?: return false
+        if (latest.getString(F_ID) != pressId || !undoable(latest, now)) return false
+        latest.put(F_STATE, State.UNDOING.name)
+        save(prefs, entries)
+        return true
+    }
+
+    private fun undoable(entry: JSONObject, now: Long): Boolean =
+        State.valueOf(entry.getString(F_STATE)) == State.LIKED &&
+            (now - entry.optLong(F_LIKED_AT)) in 0..WINDOW_MS
 
     /** Opens a journal entry for a like the worker is about to run; returns its id. */
     @Synchronized
@@ -256,6 +299,14 @@ object UndoJournal {
             .put("alreadyFollowed", leg.alreadyFollowed)
         // A null previous stamp is stored as an absent field.
         is UndoLeg.CooldownStamp -> JSONObject().put(F_KIND, K_COOLDOWN_STAMP).put("previous", leg.previous)
+        is UndoLeg.TrackCount -> JSONObject().put(F_KIND, K_TRACK_COUNT).apply {
+            val sheet = leg.sheet
+            if (sheet == null) {
+                put("store", STORE_LOCAL)
+            } else {
+                put("store", STORE_SHEET).put("spreadsheetId", sheet.spreadsheetId).put("userId", sheet.userId)
+            }
+        }
     }
 
     private fun decode(json: JSONObject): UndoLeg? = when (json.optString(F_KIND)) {
@@ -270,6 +321,14 @@ object UndoJournal {
         )
         K_ARTIST_FOLLOW -> UndoLeg.ArtistFollow(json.getString("artistId"), json.getBoolean("alreadyFollowed"))
         K_COOLDOWN_STAMP -> UndoLeg.CooldownStamp(if (json.has("previous")) json.getLong("previous") else null)
+        K_TRACK_COUNT -> when (json.optString("store")) {
+            STORE_LOCAL -> UndoLeg.TrackCount(sheet = null)
+            STORE_SHEET -> UndoLeg.TrackCount(
+                LikeCounter.Target(json.getString("spreadsheetId"), json.getString("userId")),
+            )
+            // A store this build does not know: skip the leg rather than lower the wrong counter.
+            else -> null
+        }
         else -> null
     }
 
@@ -290,4 +349,7 @@ object UndoJournal {
     private const val K_ARTIST_TRACK_ROW = "artist_track_row"
     private const val K_ARTIST_FOLLOW = "artist_follow"
     private const val K_COOLDOWN_STAMP = "cooldown_stamp"
+    private const val K_TRACK_COUNT = "track_count"
+    private const val STORE_SHEET = "sheet"
+    private const val STORE_LOCAL = "local"
 }

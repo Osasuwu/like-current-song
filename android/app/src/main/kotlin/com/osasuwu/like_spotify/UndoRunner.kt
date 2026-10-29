@@ -47,6 +47,12 @@ internal object UndoRunner {
 
         /** Sets the cooldown's last-liked stamp of [trackId] back to [previous], or clears it when null. */
         fun restoreLikedAt(trackId: String, previous: Long?)
+
+        /** Lowers [trackId]'s count on the Google Sheet [target] by one, never below 0 (#272). */
+        fun decrementSheetCount(target: LikeCounter.Target, trackId: String): LikeCounter.CountOutcome
+
+        /** Lowers [trackId]'s count on this device's fallback counter by one, never below 0 (#272). */
+        fun decrementLocalCount(trackId: String)
     }
 
     /** The leg named [leg] could not be reverted, because of [reason]. */
@@ -86,6 +92,7 @@ internal object UndoRunner {
         is UndoLeg.ArtistTrackRow -> "artist tally sheet row"
         is UndoLeg.ArtistFollow -> "artist follow"
         is UndoLeg.CooldownStamp -> "cooldown stamp"
+        is UndoLeg.TrackCount -> if (leg.sheet != null) "track counter (sheet)" else "track counter (this device)"
     }
 
     /** Reverts one leg; returns why it failed, or null. */
@@ -138,6 +145,20 @@ internal object UndoRunner {
         is UndoLeg.CooldownStamp -> {
             ops.restoreLikedAt(trackId, leg.previous)
             null
+        }
+
+        // Lowers the counter the like raised and only that one: a Sheet that
+        // cannot be reached now fails this leg rather than lowering this
+        // device's count, which the like never touched.
+        is UndoLeg.TrackCount -> {
+            val sheet = leg.sheet
+            if (sheet == null) {
+                ops.decrementLocalCount(trackId)
+                null
+            } else {
+                val outcome = ops.decrementSheetCount(sheet, trackId)
+                outcome.failure?.let { reason -> outcome.httpCode?.let { "$reason (HTTP $it)" } ?: reason }
+            }
         }
     }
 
