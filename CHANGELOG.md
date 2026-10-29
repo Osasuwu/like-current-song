@@ -31,9 +31,8 @@ you sign in from its Settings window.
   like is still running waits for it and then undoes it, the pattern after an
   undo likes again, and a repeat vetoed because another app started playing
   does nothing. Not yet
-  covered: likes made with the app open, YouTube Music, and the best playlist
-  and auto-follow (#273). Copies put back in the
-  archive go to its end.
+  covered: likes made with the app open and YouTube Music. Copies put back in
+  the archive go to its end.
 - **Android: the undo also takes back the like counter (#272).** Undoing a
   background Spotify like now lowers the track's like count by the one the like
   added, on the counter the like went to: the shared Google Sheet, or this
