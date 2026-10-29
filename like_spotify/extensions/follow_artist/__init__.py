@@ -142,7 +142,9 @@ class FollowArtistAction(PostLikeAction):
             logger.warning("follow-artist: could not resolve user_id: %s", e)
             return
 
-        for artist_id in artist_ids:
+        # A repeated id is one artist: recording it twice would journal
+        # "already counted" over "added", and the undo would leave it counted.
+        for artist_id in dict.fromkeys(artist_ids):
             try:
                 count = await self._storage.record_artist_track(
                     user_id, artist_id, ctx.track.provider_track_id

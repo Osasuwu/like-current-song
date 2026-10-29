@@ -447,6 +447,25 @@ async def test_undo_takes_a_newly_counted_track_off_below_the_threshold(
 
 
 @pytest.mark.asyncio
+async def test_undo_of_a_track_listing_an_artist_twice_takes_it_off_once(
+    tmp_path: Path, shared_sheet
+) -> None:
+    """A repeated artist id is one artist: recorded twice, the second
+    record would journal "already counted" over the first one's "added",
+    and the undo would fail and leave the track counted."""
+    provider = Provider()
+    action = FollowArtistAction(
+        shared_sheet(), threshold=5, followed_path=tmp_path / "f.json"
+    )
+    ctx = _ctx(provider, track_id="trk-a", artist_ids=("art1", "art1"))
+    await action.run(ctx)
+
+    await action.undo(ctx)
+
+    assert await shared_sheet().record_artist_track("user-1", "art1", "trk-b") == 1
+
+
+@pytest.mark.asyncio
 async def test_undo_skips_the_record_of_an_artist_whose_record_failed(
     tmp_path: Path,
 ) -> None:
