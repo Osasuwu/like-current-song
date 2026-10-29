@@ -32,6 +32,14 @@ you sign in from its Settings window.
   the like or remove hotkey already uses is refused. Copies put back in the
   archive go to its end. A remove press closes the window, so an undo never
   puts back what it just removed.
+- **Desktop: the undo also takes the track back off the artist's tally
+  (#283).** If the undone like counted a new track for an artist, the undo
+  takes it off that artist's tally on the shared counter sheet, so the tally
+  reads what it read before, and liking a track that was already counted no
+  longer follows the artist one track early. A like of a track that was
+  already counted leaves the tally alone. Tracks the phone or another computer
+  counted in the meantime stay counted. The cleared sheet row can stay behind
+  as an empty row.
 - **Android: an Undo button on the main screen, and undo with the app open
   (#268).** A trigger like made while the app is open now goes the same way as
   one made in the background, so repeating the trigger within 10 seconds undoes

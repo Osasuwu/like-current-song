@@ -343,6 +343,11 @@ class Storage(ABC):
     async def record_artist_track(
         self, user_id: str, artist_id: str, track_id: str
     ) -> int: ...
+    # Optional, for undo (#270, #283); the defaults raise NotImplementedError.
+    async def undo_increment(self, user_id: str, track: CurrentTrack) -> int: ...
+    async def undo_record_artist_track(
+        self, user_id: str, artist_id: str, track_id: str
+    ) -> int: ...
 ```
 
 `increment` is the hot path; it must be safe to call concurrently from
@@ -545,31 +550,35 @@ reverse:
 |-----------------|------|----------|
 | `PostLikeAction` | `async undo(ctx)` | Gets the same `ctx` that `run` got. Reverses only what `run` recorded in `ctx.extras` under a key of its own. Called even when `run` raised, so record each effect as it happens. |
 | `Storage` | `async undo_increment(user_id, track) -> int` | Reverses this instance's last `increment` for the key, once. Returns the count now stored. An undone first increment leaves no row, so the backfill flag still works. With nothing to reverse, raises `LookupError` and changes nothing. |
+| `Storage` | `async undo_record_artist_track(user_id, artist_id, track_id) -> int` | Reverses this instance's last `record_artist_track` for the triple, once. Returns the artist's distinct-track count now stored. A record that added the track takes it back off; one that found it already counted changes nothing. With nothing to reverse, raises `LookupError` and changes nothing. |
 | `MusicProvider` | `UnlikeCapableProvider.unlike(track)` | Optional protocol, checked like `DislikeCapableProvider`. Without it the like stays and the notification says so. |
 | `PlaylistCapableProvider` | `UnfollowCapableProvider.is_following_artist` / `unfollow_artist` | Optional protocol. `follow_artist` asks before it follows, so an artist the user already followed stays followed. |
 
-Both hooks are concrete methods whose default raises
+The three hooks are concrete methods whose default raises
 `NotImplementedError`, so an extension written before undo existed keeps
 working. The pipeline logs that as "not undoable" and does not count it
 as a failure. When an effect cannot be taken back, raise
 `NotImplementedError` yourself with the reason as the message. That
 reason is the log line. `follow_artist` does this for a provider that
-cannot unfollow. Its artist-track record counts a track once, so it is
-left as it is and only logged. A `PreLikeAction` has nothing to undo: it
+cannot unfollow, and for a storage that cannot reverse its artist-track
+record; the unfollow still happens. A `PreLikeAction` has nothing to undo: it
 only reads.
 
 Shipped reverses: `archive_remove` adds the track back to the archive
 (at the end; the API has no insert-at-position). `promote_to_best`
 removes the track from *Best* only if this press added it.
-`follow_artist` unfollows only the artists this press followed.
-`like_cooldown` puts back the stamp the press replaced, so the track can
+`follow_artist` unfollows only the artists this press followed, and hands
+each artist-track record the press made back to the storage, followed or
+not. `like_cooldown` puts back the stamp the press replaced, so the track can
 be liked again at once. `google_sheets_storage` takes one off the count
 the sheet reads now, so a press another device made since is kept, but it
 never writes a count below 0 (the phone's undo leaves a row at 0 too). A row the press created is blanked only while
 its count is still the one the press wrote and it is still the last row of
 the tab: a blank row inside the table could make the next append shift rows
 that other devices have cached by number. Otherwise it changes nothing and
-says so.
+says so. On the ArtistTracks tab it blanks the row the press appended,
+wherever it is now: that tab is a set that no device caches by row number,
+and the phone's undo clears the same row.
 
 ## Adding an extension — checklist
 
