@@ -77,4 +77,25 @@ object BestPromotion {
      */
     fun undoLeg(outcome: Outcome, playlistId: String?, itemId: String? = null): UndoLeg? =
         if (outcome == Outcome.ADDED && playlistId != null) UndoLeg.BestPromote(playlistId, itemId) else null
+
+    /**
+     * [run], then hands [journal] the run's [undoLeg], if any, against the
+     * best playlist [playlistId] names once the run is over -- the Spotify
+     * worker's pairing, so only the press that promoted the track leaves the
+     * undo a best leg (#273, #282).
+     */
+    fun runJournalled(
+        prefs: SharedPreferences,
+        count: Int,
+        threshold: Int,
+        key: String,
+        isInPlaylist: () -> Boolean,
+        add: () -> Boolean,
+        playlistId: () -> String?,
+        journal: (UndoLeg) -> Unit,
+    ): Outcome {
+        val outcome = run(prefs, count, threshold, key, isInPlaylist, add)
+        undoLeg(outcome, playlistId())?.let(journal)
+        return outcome
+    }
 }
