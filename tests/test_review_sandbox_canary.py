@@ -586,9 +586,15 @@ def test_canary_sandbox_lines_reach_the_log_and_the_debug_file_does_not_leave_th
     args = _step(steps, "canary")["with"]["claude_args"]
     assert "--debug-file ${{ runner.temp }}/claude-debug.log\n" in args
     assert "--debug-file" not in _reviewer()["with"]["claude_args"]
+    # The sandbox runtime logs only under SRT_DEBUG, to the CLI's stderr, and the
+    # SDK keeps that stderr only under DEBUG_CLAUDE_AGENT_SDK, in ~/.claude/debug.
+    env = _step(steps, "canary")["env"]
+    assert env["SRT_DEBUG"] == "1" and env["DEBUG_CLAUDE_AGENT_SDK"] == "1"
+    assert not {"SRT_DEBUG", "DEBUG_CLAUDE_AGENT_SDK"} & set(_reviewer().get("env", {}))
     mounts = _step(steps, "mounts")
     assert mounts["if"] == "always()"
     assert "[Sandbox" in mounts["run"]
+    assert "$HOME/.claude/debug" in mounts["run"]
     assert "cat " not in mounts["run"]
     assert _position(steps, "canary") < _position(steps, "mounts")
     uploads = [s for s in steps if "upload-artifact" in s.get("uses", "")]
