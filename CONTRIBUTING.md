@@ -665,7 +665,53 @@ in this section:
   the PR's head SHA and base branch), one per run attempt, never overwritten.
   It never decides anything itself. The reviewer's tool subprocesses run with
   their environment scrubbed of secrets, which needs bubblewrap: the job
-  installs it and fails at that step, by name, if it cannot (#240).
+  installs it and fails at that step, by name, if it cannot (#240). The same
+  step removes `/run/podman`: while the CLI cannot resolve the socket's path
+  there, no sandboxed command starts in a read-only workspace (#228).
+- The reviewer's boundary is that same bubblewrap, in three parts (#228). Its
+  Bash runs in the sandbox set by `.github/review-sandbox.json`, whose
+  `denyWrite` is exactly `/home`, `/opt`, `/var` and `/run`. `/home` covers the
+  workspace, the runner's temp directory with the trusted copies and the
+  workflow command files, the downloaded actions, `~/.claude` and the Homebrew
+  tree the runner's user owns in `/home/linuxbrew`; `/opt` holds the node those
+  actions run on. The rest of what the CLI opens stays writable from inside:
+  `/tmp`, on purpose, and `/mnt` and `/root`, where the canary's last step shows
+  the runner's user writes nothing. `/usr/local/bin` is
+  writable by that user but is not in what the CLI opens, so the sandbox holds
+  it read-only. The list is a denylist against the CLI's own allowance, which
+  the CLI can change, so the canary below reads that allowance from its run and
+  fails on anything new. The job fails if the sandbox cannot start, and
+  `check-sandbox` fails it if the sandbox died at setup, which the action itself
+  reports as a success. The `Edit` grant on `.review/findings.json` is its only write to the
+  workspace, and that file is read only as data. The env scrub, with the PID
+  namespace it runs in, keeps secrets out of its subprocesses. The
+  `--allowed-tools` and `--disallowed-tools` lists are no part of it: they match
+  command text and only steer the reviewer. The steps after the reviewer run
+  the copies made before it under the runner's temp directory, inside the
+  denied `/home`, and actions on the runner's node under `/opt`, also denied.
+  `check-tree` fails a run that left any changed, new or ignored file in the
+  workspace. `/tmp` is the one place both attempts can write: no later step runs
+  code from it, and what the first reviewer leaves there reaches the second as
+  data, no more trusted than the PR.
+- `review-sandbox-canary.yml` runs a real reviewer on the PR's copy of those
+  files, since a change to them never meets the review workflow's own run, and
+  a run on a developer machine shows nothing about bubblewrap.
+  One job has it attempt `git --output` writes the sandbox must refuse, in the
+  workspace, across the runner's home, in `/home/linuxbrew/.linuxbrew` and
+  beside what `/opt`, `/var` and `/run`
+  hold, a `docker version` on `/run/docker.sock` it must refuse too, a write
+  into `/tmp` and an `api.github.com` call it must allow, and runs
+  `check-sandbox` on its log. A trusted step first confirms each refused target
+  works outside the sandbox, so a refusal cannot pass on a path that was never
+  writable. An image that drops `/home/linuxbrew/.linuxbrew` fails that step,
+  which is the intended result: the attack would prove nothing there, so it has
+  to move. The job's last step fails, listing the paths, if the runner's user
+  can write anything inside the allowance the run's own debug log names and
+  outside the denied roots and `/tmp`, or can replace a `PATH` directory, node
+  runtime or binary a later step runs from inside it. It prints the mode of any
+  path there it could not read, and fails if that user can search one, since
+  what the path holds is then reachable and the walk did not see it. The other
+  job has no bubblewrap and must fail.
 - `code-gate-verdict.yml` runs from the **default branch** (it never checks out
   PR code), reads the artifacts of the review runs bound to the head SHA and
   posts `verify-verdict` as the `osasuwu-ci` GitHub App, on every PR event, when
@@ -744,8 +790,8 @@ png/jpg/gif/webp images anywhere. Everything else,
 including `docs/index.html` and `docs/style.css`, is code.
 
 **Gate machinery.** A PR that touches `code-review.yml`,
-`code-gate-verdict.yml`, `code_gate_verdict.py` or anything under
-`.github/actions/` is always red: its own review cannot be trusted, it is the
+`code-gate-verdict.yml`, `code_gate_verdict.py`, `.github/review-sandbox.json`
+or anything under `.github/actions/` is always red: its own review cannot be trusted, it is the
 thing under change. Its review run skips the reviewer (`gate-machinery`), since
 no evidence could clear it (#234). The maintainer unblocks it by an admin-merge after a
 review of the final SHA in a fresh session. This is the only sanctioned

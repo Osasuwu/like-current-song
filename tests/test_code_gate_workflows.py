@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import importlib.util
 import re
+import shlex
 from pathlib import Path
 
 import pytest
@@ -311,3 +312,127 @@ def test_bubblewrap_is_installed_before_the_reviewer_with_the_scrub_on():
     assert REVIEW["jobs"]["review"]["env"][SCRUB] == "1"
     overrides = [s.get("name") for s in steps if SCRUB in (s.get("env") or {})]
     assert overrides == []
+
+
+def test_the_runners_podman_directory_is_gone_before_the_reviewer_starts():
+    """#228: the CLI cannot resolve its denyRead entry /run/podman/podman.sock, which
+    drops its read-deny prediction, and then every absent denyWrite path in the
+    read-only workspace dies in bwrap. Pre-creating them is no way out: a
+    .git/config.lock stops the action removing the checkout's token, and the action
+    deletes .ripgreprc. The canary's install step is held equal to this one, so a
+    line lost here fails there too."""
+    steps = REVIEW["jobs"]["review"]["steps"]
+    (bwrap,) = [s for s in steps if s.get("name") == "Install subprocess isolation (bubblewrap)"]
+    lines = [line.strip() for line in bwrap["run"].splitlines()]
+    assert "sudo rm -rf /run/podman" in lines
+    assert lines.index("sudo rm -rf /run/podman") < lines.index("bwrap --ro-bind / / --unshare-all true")
+
+
+# --- what runs after the reviewer (#228) ----------------------------------
+
+TRUSTED_DIR = "$RUNNER_TEMP/trusted"
+TRUSTED_SCRIPT = f'"{TRUSTED_DIR}/code_gate_verdict.py"'
+
+
+def _review_steps() -> list[dict]:
+    return REVIEW["jobs"]["review"]["steps"]
+
+
+def _index(name: str) -> int:
+    (at,) = [i for i, s in enumerate(_review_steps()) if s.get("name") == name or s.get("id") == name]
+    return at
+
+
+def test_gate_script_runs_only_from_a_copy_made_before_the_reviewer():
+    """#228: the reviewer could once write the workspace, and a later step ran
+    `.github/scripts/code_gate_verdict.py` from it. Every call now runs a copy
+    taken right after the base checkout, outside the workspace."""
+    steps = _review_steps()
+    copy_at = _index("Copy the trusted gate script")
+    assert "actions/checkout@" in steps[copy_at - 1].get("uses", "")
+    copy = steps[copy_at]
+    assert "if" not in copy, "the skip path runs the script too"
+    lines = [line.strip() for line in copy["run"].splitlines()]
+    assert lines == [
+        "set -euo pipefail",
+        f'mkdir -p "{TRUSTED_DIR}"',
+        f'cp .github/scripts/code_gate_verdict.py "{TRUSTED_DIR}/"',
+    ]
+    calls = []
+    for i, step in enumerate(steps):
+        if i == copy_at or "run" not in step:
+            continue
+        assert ".github/scripts/" not in step["run"], step.get("name")
+        calls += [(i, m) for m in re.findall(r"python -I (\S+)", step["run"])]
+    assert len(calls) >= 6  # prepare, skip, validate x2, check-tree, stamp at least
+    assert {script for _, script in calls} == {TRUSTED_SCRIPT}
+    assert copy_at < min(i for i, _ in calls)
+
+
+def test_reviewer_sandbox_settings_are_checked_and_pinned_before_the_reviewer():
+    """#228: the reviewer loads `--settings` from outside the workspace, written
+    by `pin-sandbox` only after it has checked `denyWrite` is the four roots and
+    this run's paths sit under /home. A failed check is a red step, so the reviewer
+    never starts."""
+    pin_at = _index("Pin the reviewer sandbox settings")
+    pin = _review_steps()[pin_at]
+    assert _index("Copy the trusted gate script") < pin_at < _index("review1")
+    assert pin["if"] == "steps.prepare.outputs.skip_reason == ''"
+    assert "continue-on-error" not in pin
+    assert shlex.split(pin["run"]) == [
+        "python",
+        "-I",
+        f"{TRUSTED_DIR}/code_gate_verdict.py",
+        "pin-sandbox",
+        "--settings",
+        ".github/review-sandbox.json",
+        "--out",
+        f"{TRUSTED_DIR}/review-sandbox.json",
+    ]
+    # The file the reviewer loads is the one this step wrote.
+    for attempt in ("review1", "review2"):
+        args = _review_steps()[_index(attempt)]["with"]["claude_args"]
+        assert "--settings ${{ runner.temp }}/trusted/review-sandbox.json\n" in args
+
+
+def test_a_sandbox_that_died_fails_the_job_before_the_review_is_stamped():
+    """#228 AC2: a sandbox that dies at setup leaves the action green and the
+    reviewer's clean findings valid (run 41034402640), so nothing but this step
+    stops them being stamped. It reads the attempt whose findings get stamped."""
+    at = _index("Check the sandbox ran")
+    step = _review_steps()[at]
+    assert _index("Upload review execution log") < at < _index("Stamp review evidence")
+    assert at < _index("Check workspace is clean")
+    assert step["if"] == "steps.prepare.outputs.skip_reason == ''"
+    assert "continue-on-error" not in step
+    assert step["env"]["EXECUTION_LOG"] == (
+        "${{ steps.review2.outputs.execution_file || steps.review1.outputs.execution_file }}"
+    )
+    assert shlex.split(step["run"]) == [
+        "python",
+        "-I",
+        f"{TRUSTED_DIR}/code_gate_verdict.py",
+        "check-sandbox",
+        "--execution-log",
+        "$EXECUTION_LOG",
+    ]
+
+
+def test_retry_starts_only_from_the_tree_attempt_1_started_from():
+    """#228 AC4: attempt 2 is a second reviewer on the same job. Before it starts,
+    the trusted check-tree proves attempt 1 left nothing but the findings file,
+    and a dirty tree fails the job rather than handing it to the retry."""
+    check_at = _index("Check workspace is clean before the retry")
+    check = _review_steps()[check_at]
+    assert _index("v1") < check_at < _index("Reseed findings file for the retry")
+    assert check_at < _index("review2")
+    assert check["if"] == "steps.v1.outcome == 'failure'"
+    assert "continue-on-error" not in check
+    assert shlex.split(check["run"]) == [
+        "python",
+        "-I",
+        f"{TRUSTED_DIR}/code_gate_verdict.py",
+        "check-tree",
+        "--findings",
+        "$FINDINGS",
+    ]

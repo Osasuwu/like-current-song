@@ -1,0 +1,15 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "allowUnsandboxedCommands": false,
+    "autoAllowBashIfSandboxed": false,
+    "filesystem": {
+      "denyWrite": ["/home", "/opt", "/var", "/run"]
+    },
+    "network": {
+      "strictAllowlist": true,
+      "allowedDomains": ["api.github.com"]
+    }
+  }
+}

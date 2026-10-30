@@ -43,10 +43,11 @@ also runs daily and re-decides every open PR into the default branch (#231). A
 listing the verdict depends on that reaches its page cap is red as
 `listing-truncated`, never read as whole (`paged`, #237).
 
-Gate machinery. A PR touching the review workflow, the verdict workflow, this
-script or a local action is always red: its own review cannot be trusted, since
-it is the thing under change. The sanctioned unblock is a human review-blind
-admin-merge by the maintainer, backed by a fresh-session review of the final SHA
+Gate machinery. A PR touching the review workflow, the reviewer sandbox settings,
+the verdict workflow, this script or a local action is always red: its own
+review cannot be trusted, since it is the thing under change. The sanctioned
+unblock is a human review-blind admin-merge by the maintainer, backed by a
+fresh-session review of the final SHA
 (see CONTRIBUTING.md, "Code review gate").
 
 Every decision below is a pure function over plain dicts and lists; the API
@@ -62,6 +63,7 @@ import io
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import time
@@ -107,6 +109,7 @@ GATE_MACHINERY_FILES = frozenset(
     {
         REVIEW_WORKFLOW,
         ".github/workflows/code-gate-verdict.yml",
+        ".github/review-sandbox.json",
         ".github/scripts/code_gate_verdict.py",
     }
 )
@@ -239,16 +242,175 @@ def validate_findings(obj):
     return errors
 
 
-def check_clean_tree(porcelain, findings_path):
-    """Paths dirty in `git status --porcelain` output, apart from the findings file."""
+# Empty files Claude Code makes in its cwd when CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is
+# on, and lists in .git/info/exclude, so that a sandboxed command cannot create a
+# real one. Checked against the 2.1.296 and 2.1.314 binaries; a pin bump re-checks.
+# `.claude-pr/.gitmodules` is the same file, snapshotted by the action: the
+# installer's `claude` run leaves the placeholder, then restoreConfigFromBase
+# copies it under `.claude-pr/` (the action's own excluded directory).
+CLI_PLACEHOLDERS = (
+    ".claude-pr/.gitmodules",
+    ".env",
+    ".env.development",
+    ".env.development.local",
+    ".env.local",
+    ".env.production",
+    ".env.production.local",
+    ".env.test",
+    ".env.test.local",
+    ".gitmodules",
+    ".npmrc",
+    ".yarnrc",
+    ".yarnrc.yml",
+    "bunfig.toml",
+    "package-lock.json",
+    "package.json",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+)
+
+
+def is_cli_placeholder(path, root):
+    """True only for a listed name that is, on disk, an empty regular file.
+
+    lstat, not stat: a symlink to an empty file is a planted path, not a stub.
+    Content in one of these names (`.npmrc`, `.env`) is exactly what a later
+    step or tool would pick up, so it stays dirty.
+    """
+    if path not in CLI_PLACEHOLDERS:
+        return False
+    try:
+        info = os.lstat(os.path.join(root, path))
+    except OSError:
+        return False
+    return stat.S_ISREG(info.st_mode) and info.st_size == 0
+
+
+def check_clean_tree(porcelain, findings_path, head_dir=".pr-head", root="."):
+    """Paths dirty in `git status --porcelain --ignored` output.
+
+    Exempt: the findings file, the ignored PR copies prepare staged under
+    `head_dir`, and the CLI's own ignored placeholders. Any other ignored file
+    is dirty: a gitignored path is still a file a later step or tool could pick
+    up (#228). `root` is where the status was taken.
+    """
+    head_prefix = head_dir.rstrip("/") + "/"
     dirty = []
     for line in porcelain.splitlines():
         if len(line) < 4:
             continue
         path = line[3:].strip().strip('"')
-        if path != findings_path:
-            dirty.append(path)
+        if path == findings_path:
+            continue
+        if line.startswith("!! ") and (
+            path.startswith(head_prefix) or is_cli_placeholder(path, root)
+        ):
+            continue
+        dirty.append(path)
     return dirty
+
+
+# What `denyWrite` names, whole. The first is where a run's own paths have to sit.
+DENIED_HOME = "/home"
+DENIED_ROOTS = (DENIED_HOME, "/opt", "/var", "/run")
+
+# The whole settings file, held by value. The canary proved filesystem and sockets.
+# The literal test holds `network`: no run exercised a denied host.
+EXPECTED_SANDBOX = {
+    "sandbox": {
+        "enabled": True,
+        "failIfUnavailable": True,
+        "allowUnsandboxedCommands": False,
+        "autoAllowBashIfSandboxed": False,
+        "filesystem": {"denyWrite": list(DENIED_ROOTS)},
+        "network": {"strictAllowlist": True, "allowedDomains": ["api.github.com"]},
+    }
+}
+
+
+def _settings_differences(got, want, where):
+    """Each place `got` is not `want`, by its dotted path. JSON text decides, since
+    Python's `1 == True` would pass a value the file does not state."""
+    if not (isinstance(got, dict) and isinstance(want, dict)):
+        if json.dumps(got, sort_keys=True) == json.dumps(want, sort_keys=True):
+            return []
+        return [f"{where} must be exactly {json.dumps(want)}, got {json.dumps(got)}"]
+    errors = []
+    for key, value in want.items():
+        if key in got:
+            errors.extend(_settings_differences(got[key], value, f"{where}.{key}"))
+        else:
+            errors.append(f"{where}.{key} must be exactly {json.dumps(value)}, got nothing")
+    errors.extend(f"{where}.{key} must not be set, got {json.dumps(got[key])}"
+                  for key in got if key not in want)
+    return errors
+
+
+def sandbox_errors(settings, inside):
+    """Why `settings` is not the exact pinned boundary, in full (#228).
+
+    The comparison is every key and value against EXPECTED_SANDBOX, as the test on
+    the tracked file does: any other key or value is a boundary nothing holds, and
+    this copy is what the reviewer loads. `allowAllUnixSockets` turns off the seccomp
+    filter that refuses /run/docker.sock (run 41085350851). `network` is what limits
+    where a token can go. The literal test holds it, and the canary does not: its one
+    network command is the `gh pr list` control, so no run exercised a denied host.
+
+    The reviewer's Bash runs in the Claude Code sandbox, whose scrub-mode allowance
+    includes its cwd and all of /home, /opt, /var and /run (runs 41061647099,
+    41069935437). `denyWrite` takes back each of them: /home, with the workspace,
+    $RUNNER_TEMP and its trusted copies, the actions the job still has to run,
+    ~/.claude and the Homebrew tree the runner's user owns beside its home (run
+    41080588601), then /opt, which holds the node those actions run on, then /var and
+    /run. `inside` are the paths /home has to cover, so a layout that moves one out
+    from under it is refused. Sandbox paths are absolute with ONE leading slash: the
+    permission-rule spelling `//abs` names another path here, the #286 class of bug.
+    """
+    errors = _settings_differences(settings, EXPECTED_SANDBOX, "settings")
+    errors.extend(f"{path} is not under {DENIED_HOME}" for path in inside
+                  if not path.startswith(DENIED_HOME + "/"))
+    return errors
+
+
+# bubblewrap failing to build the sandbox kills the whole command, so its message
+# opens the result, behind the CLI's exit line when the CLI adds one. Further down
+# an output it is text the command printed.
+SANDBOX_DIED = re.compile(r"(?:Exit code \d+\n)?(bwrap: .*)")
+
+
+def _bash_results(log):
+    """The (output, is_error) of every Bash call in an execution log."""
+    commands = set()
+    results = []
+    for event in log:
+        message = event.get("message")
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content, list):
+            continue
+        for item in content:
+            if item.get("type") == "tool_use" and item.get("name") == "Bash":
+                commands.add(item.get("id"))
+            if item.get("type") == "tool_result" and item.get("tool_use_id") in commands:
+                output = item.get("content")
+                if isinstance(output, list):
+                    output = "\n".join(x.get("text", "") for x in output if isinstance(x, dict))
+                results.append((str(output or ""), bool(item.get("is_error"))))
+    return results
+
+
+def sandbox_run_errors(log):
+    """Why an execution log does not show the reviewer's Bash running sandboxed (#228).
+
+    A sandbox that dies at setup does not fail the action: every Bash call comes
+    back as bubblewrap's message and the reviewer still writes clean, valid findings
+    (run 41034402640). A review that ran no Bash is clean, having run nothing.
+    """
+    results = _bash_results(log)
+    died = {m.group(1) for output, _ in results if (m := SANDBOX_DIED.match(output))}
+    errors = [f"sandbox never started: {line}" for line in sorted(died)]
+    if results and not errors and all(is_error for _, is_error in results):
+        errors.append(f"no Bash command ran: every one of {len(results)} failed")
+    return errors
 
 
 def build_evidence(findings, sha, base_ref):
@@ -1204,15 +1366,62 @@ def cmd_validate(args):
 
 def cmd_check_tree(args):
     out = subprocess.run(
-        ["git", "status", "--porcelain", "--untracked-files=all"],
+        ["git", "status", "--porcelain", "--untracked-files=all", "--ignored"],
         check=True,
         capture_output=True,
         text=True,
     ).stdout
-    dirty = check_clean_tree(out, args.findings)
+    dirty = check_clean_tree(out, args.findings, args.head_dir)
     for path in dirty:
         print(f"workspace modified during review: {path}", file=sys.stderr)
     return 1 if dirty else 0
+
+
+def _plain_utf8(raw):
+    """`raw` as text, or ValueError with the reason it is not plain UTF-8.
+
+    json.loads on bytes also takes a BOM, UTF-16 and UTF-32, and the pin copies the
+    bytes, so what it checked would not be what the reviewer's CLI reads: JSON.parse
+    throws on a BOM, and no run showed what the CLI does with such a `--settings` file.
+    """
+    if raw.startswith(b"\xef\xbb\xbf"):
+        raise ValueError("not plain UTF-8: it opens with a byte order mark")
+    if b"\0" in raw:
+        raise ValueError("not plain UTF-8: it holds NUL bytes, as UTF-16 and UTF-32 do")
+    return raw.decode("utf-8")
+
+
+def cmd_pin_sandbox(args):
+    """Copy the reviewer's sandbox settings out of the workspace, once checked."""
+    try:
+        with open(args.settings, "rb") as fh:
+            raw = fh.read()
+        settings = json.loads(_plain_utf8(raw))
+    except (OSError, ValueError) as e:
+        print(f"unreadable sandbox settings: {e}", file=sys.stderr)
+        return 1
+    errors = sandbox_errors(
+        settings,
+        (os.environ["HOME"], os.environ["GITHUB_WORKSPACE"], os.environ["RUNNER_TEMP"]),
+    )
+    for e in errors:
+        print(f"refusing to pin sandbox settings: {e}", file=sys.stderr)
+    if errors:
+        return 1
+    with open(args.out, "wb") as fh:
+        fh.write(raw)
+    return 0
+
+
+def cmd_check_sandbox(args):
+    log = _read_json(args.execution_log)
+    if not isinstance(log, list):
+        print(f"no readable execution log: {args.execution_log!r}", file=sys.stderr)
+        return 1
+    errors = sandbox_run_errors(log)
+    for e in errors:
+        print(e, file=sys.stderr)
+    return 1 if errors else 0
 
 
 def _write_evidence(obj, out):
@@ -1363,7 +1572,15 @@ def main(argv=None):
     p.set_defaults(fn=cmd_validate)
     p = sub.add_parser("check-tree")
     p.add_argument("--findings", required=True)
+    p.add_argument("--head-dir", default=".pr-head")
     p.set_defaults(fn=cmd_check_tree)
+    p = sub.add_parser("pin-sandbox")
+    p.add_argument("--settings", required=True)
+    p.add_argument("--out", required=True)
+    p.set_defaults(fn=cmd_pin_sandbox)
+    p = sub.add_parser("check-sandbox")
+    p.add_argument("--execution-log", required=True)
+    p.set_defaults(fn=cmd_check_sandbox)
     p = sub.add_parser("stamp")
     p.add_argument("--findings", required=True)
     p.add_argument("--out", default=EVIDENCE_FILE)

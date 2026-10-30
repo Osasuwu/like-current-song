@@ -9,7 +9,10 @@ not read back from the module.
 import http.client
 import importlib.util
 import json
+import os
 import re
+import stat
+import subprocess
 import urllib.error
 from pathlib import Path
 
@@ -118,6 +121,7 @@ def test_deleted_file_keeps_its_path():
         ".github/workflows/code-review.yml",
         ".github/workflows/code-gate-verdict.yml",
         ".github/scripts/code_gate_verdict.py",
+        ".github/review-sandbox.json",
         ".github/actions/anything/action.yml",
     ],
 )
@@ -263,6 +267,534 @@ def test_modified_tracked_file_is_dirty():
 def test_stray_untracked_file_is_dirty():
     porcelain = "?? code-review-findings.json\n?? scratch.sh\n"
     assert gate.check_clean_tree(porcelain, "code-review-findings.json") == ["scratch.sh"]
+
+
+# #228: `--ignored` lists every gitignored file as `!! path`. Only the staged PR
+# copies under the head dir are expected; any other ignored file is dirty.
+@pytest.mark.parametrize(
+    "line, dirty",
+    [
+        ("!! .pr-head/lib/main.dart.pr", []),
+        ("!! .pr-head/changes.diff", []),
+        ("!! __pycache__/code_gate_verdict.cpython-312.pyc", ["__pycache__/code_gate_verdict.cpython-312.pyc"]),
+        ("!! .env", [".env"]),
+        ("!! .pr-headless/x.sh", [".pr-headless/x.sh"]),
+        ("?? .pr-head/stray.sh", [".pr-head/stray.sh"]),
+    ],
+    ids=["head-copy", "head-diff", "pycache", "dotenv", "head-prefix", "untracked-in-head"],
+)
+def test_ignored_files_are_dirty_outside_the_head_dir(line, dirty, tmp_path):
+    porcelain = f"?? .review/findings.json\n{line}\n"
+    assert gate.check_clean_tree(porcelain, ".review/findings.json", ".pr-head", tmp_path) == dirty
+
+
+# Under CLAUDE_CODE_SUBPROCESS_ENV_SCRUB the CLI itself creates these before the
+# first tool call: a literal list, read out of the 2.1.296 and 2.1.314 binaries.
+# They are exempt only as what the CLI makes: an ignored, empty, regular file.
+CLI_STUBS = [
+    ".npmrc",
+    ".yarnrc",
+    ".yarnrc.yml",
+    "bunfig.toml",
+    "package.json",
+    ".gitmodules",
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    ".env",
+    ".env.local",
+    ".env.development",
+    ".env.development.local",
+    ".env.test",
+    ".env.test.local",
+    ".env.production",
+    ".env.production.local",
+]
+ACTION_STUB = ".claude-pr/.gitmodules"
+
+
+def _plant(root, name, content=""):
+    path = root / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
+@pytest.mark.parametrize("name", [*CLI_STUBS, ACTION_STUB])
+def test_empty_ignored_cli_placeholder_is_not_dirty(name, tmp_path):
+    _plant(tmp_path, name)
+    assert gate.check_clean_tree(f"!! {name}\n", "f.json", ".pr-head", tmp_path) == []
+
+
+@pytest.mark.parametrize("name", [".npmrc", ".env", ".gitmodules", ACTION_STUB])
+def test_cli_placeholder_with_content_is_dirty(name, tmp_path):
+    _plant(tmp_path, name, "registry=https://attacker.example\n")
+    assert gate.check_clean_tree(f"!! {name}\n", "f.json", ".pr-head", tmp_path) == [name]
+
+
+@pytest.mark.parametrize("line", ["?? .npmrc", " M .npmrc", " D .npmrc", "A  .npmrc"])
+def test_cli_placeholder_name_outside_ignored_status_is_dirty(line, tmp_path):
+    # The CLI's stub is excluded, so it can only show as `!!`. A tracked file
+    # emptied by the review reads ` M` and is a change, whatever its name.
+    _plant(tmp_path, ".npmrc")
+    assert gate.check_clean_tree(f"{line}\n", "f.json", ".pr-head", tmp_path) == [".npmrc"]
+
+
+@pytest.mark.parametrize(
+    "name",
+    [".npmrc.bak", "sub/.npmrc", ".env.staging", ".claude-pr/.npmrc", "scripts"],
+)
+def test_empty_ignored_file_off_the_list_is_dirty(name, tmp_path):
+    _plant(tmp_path, name)
+    assert gate.check_clean_tree(f"!! {name}\n", "f.json", ".pr-head", tmp_path) == [name]
+
+
+def test_absent_cli_placeholder_is_dirty(tmp_path):
+    assert gate.check_clean_tree("!! .npmrc\n", "f.json", ".pr-head", tmp_path) == [".npmrc"]
+
+
+def test_directory_at_a_cli_placeholder_name_is_dirty(tmp_path):
+    (tmp_path / ".npmrc").mkdir()
+    assert gate.check_clean_tree("!! .npmrc\n", "f.json", ".pr-head", tmp_path) == [".npmrc"]
+
+
+def test_symlink_at_a_cli_placeholder_name_is_dirty(monkeypatch, tmp_path):
+    # Faked so it runs where a real symlink needs a privilege (Windows CI), and
+    # shaped so only lstat tells: stat follows the link to an empty regular file,
+    # and the link itself reports size 0 so the size test alone cannot catch it.
+    regular = os.stat_result((stat.S_IFREG | 0o644, 0, 0, 1, 0, 0, 0, 0, 0, 0))
+    link = os.stat_result((stat.S_IFLNK | 0o777, 0, 0, 1, 0, 0, 0, 0, 0, 0))
+    with monkeypatch.context() as patched:
+        patched.setattr(gate.os, "lstat", lambda _path: link)
+        patched.setattr(gate.os, "stat", lambda _path: regular)
+        dirty = gate.check_clean_tree("!! .env\n", "f.json", ".pr-head", tmp_path)
+    assert dirty == [".env"]
+
+
+def test_real_symlink_to_an_empty_file_is_dirty(tmp_path):
+    target = _plant(tmp_path, "elsewhere")
+    try:
+        (tmp_path / ".env").symlink_to(target)
+    except OSError:
+        pytest.skip("creating a symlink needs a privilege here")
+    assert gate.check_clean_tree("!! .env\n", "f.json", ".pr-head", tmp_path) == [".env"]
+
+
+def _git(cwd, *args):
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
+
+
+def test_check_tree_passes_cli_placeholders_on_a_real_status_and_fails_a_filled_one(
+    monkeypatch, tmp_path
+):
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "base")
+    (tmp_path / ".review").mkdir()
+    (tmp_path / ".review" / "findings.json").write_text("{}", encoding="utf-8")
+    exclude = ["/.claude-pr/"] + [f"/{name}" for name in CLI_STUBS]
+    (tmp_path / ".git" / "info" / "exclude").write_text("\n".join(exclude) + "\n", encoding="utf-8")
+    for name in [*CLI_STUBS, ACTION_STUB]:
+        _plant(tmp_path, name)
+    monkeypatch.chdir(tmp_path)
+    args = ["check-tree", "--findings", ".review/findings.json"]
+    assert gate.main(args) == 0
+    _plant(tmp_path, ".npmrc", "registry=https://attacker.example\n")
+    assert gate.main(args) == 1
+
+
+def test_check_tree_reports_a_gitignored_file_the_review_wrote(monkeypatch, tmp_path):
+    _git(tmp_path, "init", "-q")
+    (tmp_path / ".gitignore").write_text("*.log\n", encoding="utf-8")
+    _git(tmp_path, "add", ".gitignore")
+    _git(tmp_path, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base")
+    (tmp_path / ".review").mkdir()
+    (tmp_path / ".review" / "findings.json").write_text("{}", encoding="utf-8")
+    (tmp_path / ".pr-head").mkdir()
+    (tmp_path / ".pr-head" / "a.py.pr").write_text("x", encoding="utf-8")
+    (tmp_path / ".git" / "info" / "exclude").write_text(".pr-head/\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    args = ["check-tree", "--findings", ".review/findings.json"]
+    assert gate.main(args) == 0
+    (tmp_path / "planted.log").write_text("x", encoding="utf-8")
+    assert gate.main(args) == 1
+
+
+# --- pin-sandbox (#228) ---------------------------------------------------
+
+HOME = "/home/runner"
+WORKSPACE = "/home/runner/work/like-current-song/like-current-song"
+RUNNER_TEMP = "/home/runner/work/_temp"
+# Written out, not read from the gate: this list is what the tests hold it to.
+FOUR_ROOTS = ["/home", "/opt", "/var", "/run"]
+
+
+def _sandbox(**overrides):
+    """The committed file, changed by `overrides`: unchanged, it must pin. Its keys
+    are held to literals by test_sandbox_settings_are_exactly_the_fail_closed_boundary."""
+    path = _root / ".github" / "review-sandbox.json"
+    settings = json.loads(path.read_text(encoding="utf-8"))
+    settings["sandbox"].update(overrides)
+    return settings
+
+
+def _deny(*paths):
+    return _sandbox(filesystem={"denyWrite": list(paths)})
+
+
+def _network(**overrides):
+    return _sandbox(network={**_sandbox()["sandbox"]["network"], **overrides})
+
+
+def _without(key):
+    settings = _sandbox()
+    del settings["sandbox"][key]
+    return settings
+
+
+def _pin_bytes(
+    monkeypatch, tmp_path, raw, home=HOME, workspace=WORKSPACE, runner_temp=RUNNER_TEMP
+):
+    src = tmp_path / "review-sandbox.json"
+    src.write_bytes(raw)
+    out = tmp_path / "trusted" / "review-sandbox.json"
+    out.parent.mkdir()
+    monkeypatch.setenv("HOME", home)
+    monkeypatch.setenv("GITHUB_WORKSPACE", workspace)
+    monkeypatch.setenv("RUNNER_TEMP", runner_temp)
+    return gate.main(["pin-sandbox", "--settings", str(src), "--out", str(out)]), out
+
+
+def _pin(monkeypatch, tmp_path, settings, **env):
+    return _pin_bytes(monkeypatch, tmp_path, json.dumps(settings).encode("utf-8"), **env)
+
+
+def test_pin_sandbox_copies_settings_that_deny_the_four_roots(monkeypatch, tmp_path):
+    # The committed bytes: indented, so a copy rebuilt from the parsed object differs.
+    raw = (_root / ".github" / "review-sandbox.json").read_bytes()
+    code, out = _pin_bytes(monkeypatch, tmp_path, raw)
+    assert code == 0
+    assert out.read_bytes() == raw
+
+
+@pytest.mark.parametrize("removed", FOUR_ROOTS)
+def test_pin_sandbox_refuses_the_list_with_any_one_root_removed(
+    monkeypatch, tmp_path, capsys, removed
+):
+    code, out = _pin(monkeypatch, tmp_path, _deny(*[r for r in FOUR_ROOTS if r != removed]))
+    assert code == 1
+    assert "denyWrite must be exactly" in capsys.readouterr().err
+    assert not out.exists(), "nothing is pinned for the reviewer to load"
+
+
+def test_pin_sandbox_takes_any_runner_layout_under_home(monkeypatch, tmp_path):
+    # Denying /home whole names no user, so only the paths' place in it matters.
+    code, out = _pin(
+        monkeypatch,
+        tmp_path,
+        _sandbox(),
+        home="/home/other",
+        workspace="/home/other/work/repo/repo",
+        runner_temp="/home/other/work/_temp",
+    )
+    assert code == 0
+    assert json.loads(out.read_text(encoding="utf-8")) == _sandbox()
+
+
+@pytest.mark.parametrize(
+    "settings, env, refusal",
+    [
+        # The boundary of rounds 1 and 2: run 41061647099 wrote $RUNNER_TEMP and $HOME.
+        (_deny(WORKSPACE), {}, "denyWrite must be exactly"),
+        (_deny("/home/runner/work"), {}, "denyWrite must be exactly"),
+        (_deny(), {}, "denyWrite must be exactly"),
+        (_sandbox(filesystem={}), {}, "denyWrite must be exactly"),
+        # The permission-rule spelling: the sandbox reads `//home/...` as another path.
+        (_deny("//home", "/opt", "/var", "/run"), {}, "denyWrite must be exactly"),
+        # The boundary of round 3: run 41069935437 left /opt/pipx_bin and the runner's
+        # node writable.
+        (_deny("/home"), {}, "denyWrite must be exactly"),
+        # The boundary of round 4: run 41080588601 left /home/linuxbrew writable.
+        (_deny(HOME, "/opt", "/var", "/run"), {}, "denyWrite must be exactly"),
+        (_deny(HOME, "/home/linuxbrew", "/opt", "/var", "/run"), {}, "denyWrite must be exactly"),
+        # Part of a root is narrower than the root.
+        (_deny("/home", "/opt/pipx_bin", "/var", "/run"), {}, "denyWrite must be exactly"),
+        # Exactly the entries the canary proved, not a superset.
+        (_deny(*FOUR_ROOTS, WORKSPACE), {}, "denyWrite must be exactly"),
+        (_deny(*FOUR_ROOTS, "/usr"), {}, "denyWrite must be exactly"),
+        (_deny(*FOUR_ROOTS, "/tmp"), {}, "denyWrite must be exactly"),
+        # /home is denied, but what it must cover has moved out from under it.
+        (_sandbox(), {"workspace": "/__w/repo/repo"}, "/__w/repo/repo is not under /home"),
+        (_sandbox(), {"runner_temp": "/__w/_temp"}, "/__w/_temp is not under /home"),
+        (_sandbox(), {"home": "/github/home"}, "/github/home is not under /home"),
+        # /home itself holds nothing a job writes, so it is not where a home goes.
+        (_sandbox(), {"home": "/home"}, "/home is not under /home"),
+        # A prefix of the name, not of the path.
+        (_sandbox(), {"workspace": "/homeless/repo"}, "/homeless/repo is not under /home"),
+        (_sandbox(failIfUnavailable=False), {}, "failIfUnavailable"),
+        (_sandbox(allowUnsandboxedCommands=True), {}, "allowUnsandboxedCommands"),
+        (_sandbox(enabled=False), {}, "sandbox.enabled"),
+    ],
+    ids=[
+        "workspace-only",
+        "work-dir-only",
+        "empty-deny",
+        "no-deny",
+        "double-slash",
+        "home-only",
+        "runner-home-in-place-of-home",
+        "two-homes-in-place-of-home",
+        "part-of-a-root",
+        "extra-entry",
+        "another-extra-entry",
+        "temp-root-added",
+        "workspace-outside-home",
+        "temp-outside-home",
+        "home-outside-home",
+        "home-is-the-denied-root",
+        "sibling-of-home",
+        "fallback",
+        "unsandboxed",
+        "disabled",
+    ],
+)
+def test_pin_sandbox_refuses_anything_but_the_four_roots(
+    monkeypatch, tmp_path, capsys, settings, env, refusal
+):
+    code, out = _pin(monkeypatch, tmp_path, settings, **env)
+    assert code == 1
+    assert refusal in capsys.readouterr().err
+    assert not out.exists(), "nothing is pinned for the reviewer to load"
+
+
+@pytest.mark.parametrize(
+    "settings, refusal",
+    [
+        # `allowAllUnixSockets` turns the seccomp socket filter off (run 41085350851).
+        (
+            _sandbox(allowAllUnixSockets=True),
+            "settings.sandbox.allowAllUnixSockets must not be set, got true",
+        ),
+        (
+            _network(allowAllUnixSockets=True),
+            "settings.sandbox.network.allowAllUnixSockets must not be set, got true",
+        ),
+        (
+            _without("network"),
+            "settings.sandbox.network must be exactly "
+            '{"strictAllowlist": true, "allowedDomains": ["api.github.com"]}, got nothing',
+        ),
+        (
+            _network(allowedDomains=["*"]),
+            'settings.sandbox.network.allowedDomains must be exactly ["api.github.com"], '
+            'got ["*"]',
+        ),
+        (
+            _network(strictAllowlist=False),
+            "settings.sandbox.network.strictAllowlist must be exactly true, got false",
+        ),
+        (
+            _sandbox(autoAllowBashIfSandboxed=True),
+            "settings.sandbox.autoAllowBashIfSandboxed must be exactly false, got true",
+        ),
+        (
+            {**_sandbox(), "permissions": {"allow": ["Bash"]}},
+            'settings.permissions must not be set, got {"allow": ["Bash"]}',
+        ),
+        (
+            _sandbox(filesystem={"denyWrite": FOUR_ROOTS, "allowWrite": ["/home"]}),
+            'settings.sandbox.filesystem.allowWrite must not be set, got ["/home"]',
+        ),
+        # Python's 1 == True: the file says something else than the boundary does.
+        (
+            _sandbox(failIfUnavailable=1),
+            "settings.sandbox.failIfUnavailable must be exactly true, got 1",
+        ),
+        (
+            {},
+            "settings.sandbox must be exactly "
+            + json.dumps(_sandbox()["sandbox"])
+            + ", got nothing",
+        ),
+        ([], f"settings must be exactly {json.dumps(_sandbox())}, got []"),
+    ],
+    ids=[
+        "every-socket-on-the-sandbox",
+        "every-socket-in-network",
+        "no-network",
+        "any-domain",
+        "not-strict",
+        "auto-allow",
+        "extra-top-level-key",
+        "extra-filesystem-key",
+        "one-for-true",
+        "no-sandbox",
+        "not-an-object",
+    ],
+)
+def test_pin_sandbox_refuses_anything_but_the_exact_settings(
+    monkeypatch, tmp_path, capsys, settings, refusal
+):
+    code, out = _pin(monkeypatch, tmp_path, settings)
+    assert code == 1
+    assert capsys.readouterr().err == f"refusing to pin sandbox settings: {refusal}\n"
+    assert not out.exists(), "nothing is pinned for the reviewer to load"
+
+
+_SETTINGS_TEXT = json.dumps(_sandbox())
+_NOT_UTF8_BOM = "not plain UTF-8: it opens with a byte order mark"
+_NOT_UTF8_NUL = "not plain UTF-8: it holds NUL bytes, as UTF-16 and UTF-32 do"
+
+
+@pytest.mark.parametrize(
+    "raw, reason",
+    [
+        # Each decodes to the exact settings: only the encoding is wrong.
+        (b"\xef\xbb\xbf" + _SETTINGS_TEXT.encode("utf-8"), _NOT_UTF8_BOM),
+        (b"\xff\xfe" + _SETTINGS_TEXT.encode("utf-16-le"), _NOT_UTF8_NUL),
+        (_SETTINGS_TEXT.encode("utf-16-be"), _NOT_UTF8_NUL),
+        (_SETTINGS_TEXT.encode("utf-32-le"), _NOT_UTF8_NUL),
+        (
+            _SETTINGS_TEXT.encode("utf-8") + b"\n\xff",
+            f"'utf-8' codec can't decode byte 0xff in position {len(_SETTINGS_TEXT) + 1}: "
+            "invalid start byte",
+        ),
+    ],
+    ids=["utf8-bom", "utf16-le-bom", "utf16-be-nobom", "utf32-le-nobom", "invalid-utf8"],
+)
+def test_pin_sandbox_refuses_any_file_but_plain_utf8_json(
+    monkeypatch, tmp_path, capsys, raw, reason
+):
+    code, out = _pin_bytes(monkeypatch, tmp_path, raw)
+    assert code == 1
+    assert capsys.readouterr().err == f"unreadable sandbox settings: {reason}\n"
+    assert not out.exists(), "nothing is pinned for the reviewer to load"
+
+
+# --- check-sandbox (#228) -------------------------------------------------
+
+# Both shapes are lines of the real dead-sandbox log (run 41034402640): the second
+# reached the reviewer with is_error false.
+DIED = "bwrap: Can't create file at /work/repo/scripts: Read-only file system"
+DIED_WITH_EXIT = f"Exit code 1\n{DIED}"
+
+
+def _exchange(tool_id, name, output, is_error=False):
+    """One tool call and its result, as an execution log holds them."""
+    return [
+        {
+            "type": "assistant",
+            "message": {"content": [{"type": "tool_use", "id": tool_id, "name": name}]},
+        },
+        {
+            "type": "user",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tool_id,
+                        "content": output,
+                        "is_error": is_error,
+                    }
+                ]
+            },
+        },
+    ]
+
+
+def _bash(*results):
+    return [
+        event
+        for i, (output, is_error) in enumerate(results)
+        for event in _exchange(f"toolu_{i}", "Bash", output, is_error)
+    ]
+
+
+@pytest.mark.parametrize(
+    "output, is_error",
+    [(DIED_WITH_EXIT, True), (DIED, False), ([{"type": "text", "text": DIED_WITH_EXIT}], True)],
+    ids=["exit-line", "no-error-flag", "content-list"],
+)
+def test_a_bash_result_from_bubblewrap_is_a_dead_sandbox(output, is_error):
+    assert gate.sandbox_run_errors(_bash((output, is_error))) == [f"sandbox never started: {DIED}"]
+
+
+def test_one_dead_command_among_ones_that_ran_is_a_dead_sandbox():
+    log = _bash(("abc123 a commit\n", False), (DIED_WITH_EXIT, True))
+    assert gate.sandbox_run_errors(log) == [f"sandbox never started: {DIED}"]
+
+
+def test_the_same_startup_failure_is_named_once():
+    log = _bash((DIED_WITH_EXIT, True), (DIED, False), (DIED_WITH_EXIT, True))
+    assert len(gate.sandbox_run_errors(log)) == 1
+
+
+def test_a_review_whose_bash_ran_is_clean():
+    assert gate.sandbox_run_errors(_bash(("abc123 a commit\n", False))) == []
+
+
+def test_a_command_that_failed_alongside_one_that_ran_is_clean():
+    log = _bash(("fatal: bad revision\n", True), ("abc123 a commit\n", False))
+    assert gate.sandbox_run_errors(log) == []
+
+
+def test_a_sandbox_that_failed_in_a_way_nobody_has_seen_yet_still_fails():
+    """Bubblewrap's message is only the failure on record. When no command at all
+    came back clean, nothing shows the sandbox ran, whatever each one printed."""
+    log = _bash(("sandbox: cannot start proxy\n", True), ("sandbox: cannot start proxy\n", True))
+    assert gate.sandbox_run_errors(log) == ["no Bash command ran: every one of 2 failed"]
+
+
+def test_a_review_with_no_bash_is_clean():
+    log = _exchange("toolu_0", "Read", "file text\n")
+    assert gate.sandbox_run_errors(log) == []
+
+
+def test_a_file_that_reads_like_bubblewrap_is_not_a_dead_sandbox():
+    assert gate.sandbox_run_errors(_exchange("toolu_0", "Read", DIED_WITH_EXIT)) == []
+
+
+def test_bubblewrap_further_down_a_commands_output_is_not_a_dead_sandbox():
+    """The whole command died, so the message is its first line. A `cat` of a file
+    that quotes one has run."""
+    assert gate.sandbox_run_errors(_bash((f"line 1\n{DIED}\n", False))) == []
+
+
+def test_an_event_whose_message_is_text_is_not_a_tool_call():
+    log = [{"type": "system", "message": "A variable in this command..."}]
+    assert gate.sandbox_run_errors(log) == []
+
+
+def _check_sandbox(tmp_path, log):
+    path = tmp_path / "execution.json"
+    path.write_text(json.dumps(log), encoding="utf-8")
+    return gate.main(["check-sandbox", "--execution-log", str(path)])
+
+
+def test_check_sandbox_fails_a_dead_sandbox_and_says_why(tmp_path, capsys):
+    assert _check_sandbox(tmp_path, _bash((DIED_WITH_EXIT, True))) == 1
+    assert f"sandbox never started: {DIED}" in capsys.readouterr().err
+
+
+def test_check_sandbox_passes_a_review_whose_bash_ran(tmp_path, capsys):
+    assert _check_sandbox(tmp_path, _bash(("abc123 a commit\n", False))) == 0
+    assert capsys.readouterr().err == ""
+
+
+def test_check_sandbox_fails_a_log_that_is_not_there(tmp_path, capsys):
+    missing = str(tmp_path / "absent.json")
+    assert gate.main(["check-sandbox", "--execution-log", missing]) == 1
+    assert "no readable execution log" in capsys.readouterr().err
+
+
+def test_check_sandbox_fails_an_empty_log_path(capsys):
+    """The workflow passes "" when neither attempt produced a log."""
+    assert gate.main(["check-sandbox", "--execution-log", ""]) == 1
+    assert "no readable execution log" in capsys.readouterr().err
+
+
+def test_check_sandbox_fails_a_log_that_is_not_a_list_of_events(tmp_path, capsys):
+    assert _check_sandbox(tmp_path, {"not": "a log"}) == 1
+    assert "no readable execution log" in capsys.readouterr().err
 
 
 # --- build_evidence -------------------------------------------------------
