@@ -670,12 +670,13 @@ in this section:
   there, no sandboxed command starts in a read-only workspace (#228).
 - The reviewer's boundary is that same bubblewrap, in three parts (#228). Its
   Bash runs in the sandbox set by `.github/review-sandbox.json`, whose
-  `denyWrite` is exactly `/home/runner`, `/opt`, `/var` and `/run`. The home
-  covers the workspace, the runner's temp directory with the trusted copies and
-  the workflow command files, the downloaded actions and `~/.claude`; `/opt`
-  holds the node those actions run on. The rest of what the CLI opens stays
-  writable from inside: `/tmp`, on purpose, and `/mnt`, `/root` and the rest of
-  `/home`, where the runner's user can write nothing. `/usr/local/bin` is
+  `denyWrite` is exactly `/home`, `/opt`, `/var` and `/run`. `/home` covers the
+  workspace, the runner's temp directory with the trusted copies and the
+  workflow command files, the downloaded actions, `~/.claude` and the Homebrew
+  tree the runner's user owns in `/home/linuxbrew`; `/opt` holds the node those
+  actions run on. The rest of what the CLI opens stays writable from inside:
+  `/tmp`, on purpose, and `/mnt` and `/root`, where the canary's last step shows
+  the runner's user writes nothing. `/usr/local/bin` is
   writable by that user but is not in what the CLI opens, so the sandbox holds
   it read-only. The list is a denylist against the CLI's own allowance, which
   the CLI can change, so the canary below reads that allowance from its run and
@@ -687,7 +688,7 @@ in this section:
   `--allowed-tools` and `--disallowed-tools` lists are no part of it: they match
   command text and only steer the reviewer. The steps after the reviewer run
   the copies made before it under the runner's temp directory, inside the
-  denied home, and actions on the runner's node under `/opt`, also denied.
+  denied `/home`, and actions on the runner's node under `/opt`, also denied.
   `check-tree` fails a run that left any changed, new or ignored file in the
   workspace. `/tmp` is the one place both attempts can write: no later step runs
   code from it, and what the first reviewer leaves there reaches the second as
@@ -696,16 +697,21 @@ in this section:
   files, since a change to them never meets the review workflow's own run, and
   a run on a developer machine shows nothing about bubblewrap.
   One job has it attempt `git --output` writes the sandbox must refuse, in the
-  workspace, across the runner's home and beside what `/opt`, `/var` and `/run`
+  workspace, across the runner's home, in `/home/linuxbrew/.linuxbrew` and
+  beside what `/opt`, `/var` and `/run`
   hold, a `docker version` on `/run/docker.sock` it must refuse too, a write
   into `/tmp` and an `api.github.com` call it must allow, and runs
   `check-sandbox` on its log. A trusted step first confirms each refused target
   works outside the sandbox, so a refusal cannot pass on a path that was never
-  writable. The job's last step fails, listing the paths, if the runner's user
+  writable. An image that drops `/home/linuxbrew/.linuxbrew` fails that step,
+  which is the intended result: the attack would prove nothing there, so it has
+  to move. The job's last step fails, listing the paths, if the runner's user
   can write anything inside the allowance the run's own debug log names and
   outside the denied roots and `/tmp`, or can replace a `PATH` directory, node
-  runtime or binary a later step runs from inside it. The other job has no
-  bubblewrap and must fail.
+  runtime or binary a later step runs from inside it. It prints the mode of any
+  path there it could not read, and fails if that user can search one, since
+  what the path holds is then reachable and the walk did not see it. The other
+  job has no bubblewrap and must fail.
 - `code-gate-verdict.yml` runs from the **default branch** (it never checks out
   PR code), reads the artifacts of the review runs bound to the head SHA and
   posts `verify-verdict` as the `osasuwu-ci` GitHub App, on every PR event, when

@@ -5,7 +5,7 @@
     "allowUnsandboxedCommands": false,
     "autoAllowBashIfSandboxed": false,
     "filesystem": {
-      "denyWrite": ["/home/runner", "/opt", "/var", "/run"]
+      "denyWrite": ["/home", "/opt", "/var", "/run"]
     },
     "network": {
       "strictAllowlist": true,

@@ -371,8 +371,9 @@ def test_gate_script_runs_only_from_a_copy_made_before_the_reviewer():
 
 def test_reviewer_sandbox_settings_are_checked_and_pinned_before_the_reviewer():
     """#228: the reviewer loads `--settings` from outside the workspace, written
-    by `pin-sandbox` only after it has checked `denyWrite` names this run's
-    home. A failed check is a red step, so the reviewer never starts."""
+    by `pin-sandbox` only after it has checked `denyWrite` is the four roots and
+    this run's paths sit under /home. A failed check is a red step, so the reviewer
+    never starts."""
     pin_at = _index("Pin the reviewer sandbox settings")
     pin = _review_steps()[pin_at]
     assert _index("Copy the trusted gate script") < pin_at < _index("review1")

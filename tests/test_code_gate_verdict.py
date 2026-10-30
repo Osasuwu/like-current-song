@@ -425,7 +425,7 @@ HOME = "/home/runner"
 WORKSPACE = "/home/runner/work/like-current-song/like-current-song"
 RUNNER_TEMP = "/home/runner/work/_temp"
 # Written out, not read from the gate: this list is what the tests hold it to.
-FOUR_ROOTS = [HOME, "/opt", "/var", "/run"]
+FOUR_ROOTS = ["/home", "/opt", "/var", "/run"]
 
 
 def _sandbox(**overrides):
@@ -470,6 +470,20 @@ def test_pin_sandbox_refuses_the_list_with_any_one_root_removed(
     assert not out.exists(), "nothing is pinned for the reviewer to load"
 
 
+def test_pin_sandbox_takes_any_runner_layout_under_home(monkeypatch, tmp_path):
+    # Denying /home whole names no user, so only the paths' place in it matters.
+    code, out = _pin(
+        monkeypatch,
+        tmp_path,
+        _sandbox(),
+        home="/home/other",
+        workspace="/home/other/work/repo/repo",
+        runner_temp="/home/other/work/_temp",
+    )
+    assert code == 0
+    assert json.loads(out.read_text(encoding="utf-8")) == _sandbox()
+
+
 @pytest.mark.parametrize(
     "settings, env, refusal",
     [
@@ -479,31 +493,27 @@ def test_pin_sandbox_refuses_the_list_with_any_one_root_removed(
         (_deny(), {}, "denyWrite must be exactly"),
         (_sandbox(filesystem={}), {}, "denyWrite must be exactly"),
         # The permission-rule spelling: the sandbox reads `//home/...` as another path.
-        (_deny("/" + HOME, "/opt", "/var", "/run"), {}, "denyWrite must be exactly"),
+        (_deny("//home", "/opt", "/var", "/run"), {}, "denyWrite must be exactly"),
         # The boundary of round 3: run 41069935437 left /opt/pipx_bin and the runner's
         # node writable.
-        (_deny(HOME), {}, "denyWrite must be exactly"),
+        (_deny("/home"), {}, "denyWrite must be exactly"),
+        # The boundary of round 4: run 41080588601 left /home/linuxbrew writable.
+        (_deny(HOME, "/opt", "/var", "/run"), {}, "denyWrite must be exactly"),
+        (_deny(HOME, "/home/linuxbrew", "/opt", "/var", "/run"), {}, "denyWrite must be exactly"),
         # Part of a root is narrower than the root.
-        (_deny(HOME, "/opt/pipx_bin", "/var", "/run"), {}, "denyWrite must be exactly"),
+        (_deny("/home", "/opt/pipx_bin", "/var", "/run"), {}, "denyWrite must be exactly"),
         # Exactly the entries the canary proved, not a superset.
         (_deny(*FOUR_ROOTS, WORKSPACE), {}, "denyWrite must be exactly"),
         (_deny(*FOUR_ROOTS, "/usr"), {}, "denyWrite must be exactly"),
-        (_deny("/home"), {}, "denyWrite must be exactly"),
-        # Another runner layout: the tracked path no longer names this run's home.
-        (
-            _sandbox(),
-            {
-                "home": "/home/other",
-                "workspace": "/home/other/work/repo/repo",
-                "runner_temp": "/home/other/work/_temp",
-            },
-            "denyWrite must be exactly",
-        ),
-        # The home is denied, but what it must cover has moved out from under it.
-        (_sandbox(), {"workspace": "/__w/repo/repo"}, "/__w/repo/repo is not under"),
-        (_sandbox(), {"runner_temp": "/__w/_temp"}, "/__w/_temp is not under"),
+        (_deny(*FOUR_ROOTS, "/tmp"), {}, "denyWrite must be exactly"),
+        # /home is denied, but what it must cover has moved out from under it.
+        (_sandbox(), {"workspace": "/__w/repo/repo"}, "/__w/repo/repo is not under /home"),
+        (_sandbox(), {"runner_temp": "/__w/_temp"}, "/__w/_temp is not under /home"),
+        (_sandbox(), {"home": "/github/home"}, "/github/home is not under /home"),
+        # /home itself holds nothing a job writes, so it is not where a home goes.
+        (_sandbox(), {"home": "/home"}, "/home is not under /home"),
         # A prefix of the name, not of the path.
-        (_sandbox(), {"workspace": "/home/runner2/repo"}, "/home/runner2/repo is not under"),
+        (_sandbox(), {"workspace": "/homeless/repo"}, "/homeless/repo is not under /home"),
         (_sandbox(failIfUnavailable=False), {}, "failIfUnavailable"),
         (_sandbox(allowUnsandboxedCommands=True), {}, "allowUnsandboxedCommands"),
         (_sandbox(enabled=False), {}, "sandbox.enabled"),
@@ -515,13 +525,16 @@ def test_pin_sandbox_refuses_the_list_with_any_one_root_removed(
         "no-deny",
         "double-slash",
         "home-only",
+        "runner-home-in-place-of-home",
+        "two-homes-in-place-of-home",
         "part-of-a-root",
         "extra-entry",
         "another-extra-entry",
-        "parent",
-        "other-home",
+        "temp-root-added",
         "workspace-outside-home",
         "temp-outside-home",
+        "home-outside-home",
+        "home-is-the-denied-root",
         "sibling-of-home",
         "fallback",
         "unsandboxed",

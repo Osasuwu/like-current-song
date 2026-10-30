@@ -310,23 +310,25 @@ def check_clean_tree(porcelain, findings_path, head_dir=".pr-head", root="."):
     return dirty
 
 
-# What `denyWrite` names besides the runner's home.
-DENIED_ROOTS = ("/opt", "/var", "/run")
+# What `denyWrite` names, whole. The first is where a run's own paths have to sit.
+DENIED_HOME = "/home"
+DENIED_ROOTS = (DENIED_HOME, "/opt", "/var", "/run")
 
 
-def sandbox_errors(settings, home, inside):
+def sandbox_errors(settings, inside):
     """Why `settings` would leave the reviewer able to write what later steps run (#228).
 
     The reviewer's Bash runs in the Claude Code sandbox, whose scrub-mode allowance
     includes its cwd and all of /home, /opt, /var and /run (runs 41061647099,
-    41069935437). `denyWrite` takes back the runner's home, with the workspace,
-    $RUNNER_TEMP and its trusted copies, the actions the job still has to run and
-    ~/.claude, then /opt, which holds the node those actions run on, then /var and
+    41069935437). `denyWrite` takes back each of them: /home, with the workspace,
+    $RUNNER_TEMP and its trusted copies, the actions the job still has to run,
+    ~/.claude and the Homebrew tree the runner's user owns beside its home (run
+    41080588601), then /opt, which holds the node those actions run on, then /var and
     /run. The list is compared whole: a narrower one reopens a root, a longer one is a
-    boundary the canary did not prove. `inside` are the paths the home entry has to
-    cover, so a layout that moves one out of the home is refused. Sandbox paths are
-    absolute with ONE leading slash: the permission-rule spelling `//abs` names
-    another path here, the #286 class of bug.
+    boundary the canary did not prove. `inside` are the paths /home has to cover, so a
+    layout that moves one out from under it is refused. Sandbox paths are absolute
+    with ONE leading slash: the permission-rule spelling `//abs` names another path
+    here, the #286 class of bug.
     """
     sandbox = settings.get("sandbox") if isinstance(settings, dict) else None
     if not isinstance(sandbox, dict):
@@ -341,14 +343,14 @@ def sandbox_errors(settings, home, inside):
             errors.append(f"sandbox.{key} must be {json.dumps(want)}")
     fs = sandbox.get("filesystem")
     deny = fs.get("denyWrite") if isinstance(fs, dict) else None
-    want = [home, *DENIED_ROOTS]
+    want = list(DENIED_ROOTS)
     if deny != want:
         errors.append(
             f"sandbox.filesystem.denyWrite must be exactly {json.dumps(want)}, "
             f"got {json.dumps(deny)}"
         )
-    errors.extend(f"{path} is not under {home}" for path in inside
-                  if not path.startswith(home + "/"))
+    errors.extend(f"{path} is not under {DENIED_HOME}" for path in inside
+                  if not path.startswith(DENIED_HOME + "/"))
     return errors
 
 
@@ -1368,8 +1370,7 @@ def cmd_pin_sandbox(args):
         return 1
     errors = sandbox_errors(
         settings,
-        os.environ["HOME"],
-        (os.environ["GITHUB_WORKSPACE"], os.environ["RUNNER_TEMP"]),
+        (os.environ["HOME"], os.environ["GITHUB_WORKSPACE"], os.environ["RUNNER_TEMP"]),
     )
     for e in errors:
         print(f"refusing to pin sandbox settings: {e}", file=sys.stderr)

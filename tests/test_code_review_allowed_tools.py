@@ -311,9 +311,10 @@ EXPECTED_SANDBOX = {
         "autoAllowBashIfSandboxed": False,
         # The CLI's scrub mode allows writes to all of /home, /opt, /var and /run, and
         # each holds something later steps run or load: run 41061647099 wrote
-        # $RUNNER_TEMP and $HOME past a workspace-only deny, and run 41069935437 ran the
-        # job's node from a writable /opt behind a home-only one.
-        "filesystem": {"denyWrite": ["/home/runner", "/opt", "/var", "/run"]},
+        # $RUNNER_TEMP and $HOME past a workspace-only deny, run 41069935437 ran the
+        # job's node from a writable /opt behind a home-only one, and run 41080588601
+        # left /home/linuxbrew writable past /home/runner.
+        "filesystem": {"denyWrite": ["/home", "/opt", "/var", "/run"]},
         "network": {"strictAllowlist": True, "allowedDomains": ["api.github.com"]},
     }
 }

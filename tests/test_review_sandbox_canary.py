@@ -7,6 +7,7 @@ blocked nothing, cannot read as green.
 
 from __future__ import annotations
 
+import errno
 import importlib.util
 import json
 import os
@@ -151,6 +152,9 @@ LATER_STEP_TARGETS = {
     "ahead-on-path": "/opt/pipx_bin/review-sandbox-canary",
     "under-var": "/var/tmp/review-sandbox-canary",
     "under-run": "/run/lock/review-sandbox-canary",
+    # Nothing runs from here. It is what run 41080588601 left writable beside the
+    # runner's home.
+    "beside-the-runners-home": "/home/linuxbrew/.linuxbrew/review-sandbox-canary",
 }
 
 
@@ -166,11 +170,8 @@ def test_every_attack_outside_the_runners_home_is_confirmed_writable_there():
     # An attack nobody could land proves nothing, so no such target may go unconfirmed.
     outside = {t for _, t in _targets() if not t.startswith((WS, TMP, HOME))}
     assert outside == set(canary.OUTSIDE_TARGETS)
-    assert {root for root in ("/opt", "/var", "/run") if any(t.startswith(root) for t in outside)} == {
-        "/opt",
-        "/var",
-        "/run",
-    }
+    roots = ("/home", "/opt", "/var", "/run")
+    assert {root for root in roots if any(t.startswith(root) for t in outside)} == set(roots)
 
 
 @pytest.mark.parametrize(
@@ -1106,6 +1107,70 @@ def test_reach_lists_every_finding_however_many(tmp_path, monkeypatch, capsys):
     assert canary.main(["reach"]) == 1
     lines = capsys.readouterr().out.splitlines()
     assert sum(line.startswith(_real(allowed / "file")) for line in lines) == 130
+
+
+def _refuse_to_list(monkeypatch, closed, *, searchable):
+    scandir, access = canary.os.scandir, canary.os.access
+
+    def refuse(path):
+        if path == closed:
+            raise PermissionError(errno.EACCES, "Permission denied", closed)
+        return scandir(path)
+
+    def can(path, mode):
+        return searchable if path == closed and mode == os.X_OK else access(path, mode)
+
+    monkeypatch.setattr(canary.os, "scandir", refuse)
+    monkeypatch.setattr(canary.os, "access", can)
+    # Nothing else in the run is findable, so only the unread rule can decide it.
+    monkeypatch.setattr(canary, "_writable", lambda path: False)
+
+
+def _unread(tmp_path, monkeypatch, *, searchable):
+    """An allowance entry the walk cannot list, as /root is to the runner's user."""
+    closed = _real(Path(_dirs(tmp_path, "closed")[0]))
+    _reach(tmp_path, monkeypatch, allowance=[closed])
+    _refuse_to_list(monkeypatch, closed, searchable=searchable)
+    return closed
+
+
+def test_reach_fails_on_an_unread_path_this_user_can_search(tmp_path, monkeypatch, capsys):
+    # Its contents are reachable through a known path, and the walk did not see them.
+    closed = _unread(tmp_path, monkeypatch, searchable=True)
+    assert canary.main(["reach"]) == 1
+    captured = capsys.readouterr()
+    assert f"{closed} can be searched" in captured.err
+    assert "the reviewer can reach" not in captured.err
+    assert "searchable=True" in captured.out.split("== could not read: 1")[1]
+
+
+def test_reach_prints_an_unread_paths_mode_and_passes_when_it_cannot_be_searched(
+    tmp_path, monkeypatch, capsys
+):
+    closed = _unread(tmp_path, monkeypatch, searchable=False)
+    assert canary.main(["reach"]) == 0
+    section = capsys.readouterr().out.split("== could not read: 1\n")[1].split("== writable")[0]
+    assert re.fullmatch(rf"{re.escape(closed)} -> .* mode=\d+ .* searchable=False\n", section)
+
+
+@pytest.mark.parametrize("entry", ["denied", "."], ids=["is-the-root", "holds-the-root"])
+def test_reach_never_lists_a_denied_root_so_it_cannot_count_as_unread(
+    tmp_path, monkeypatch, capsys, entry
+):
+    # Listing it would be refused: /home/packer behind a /home/runner deny, and now no
+    # business of this rule. Each case has one guard between it and that refusal.
+    _, denied = _reach(tmp_path, monkeypatch, allowance=[_real(tmp_path / entry)])
+    _refuse_to_list(monkeypatch, _real(denied), searchable=True)
+    assert canary.main(["reach"]) == 0
+    assert "== could not read: 0\n" in capsys.readouterr().out
+
+
+def test_reach_does_not_fail_on_an_unread_path_that_is_gone(tmp_path, monkeypatch, capsys):
+    # A path that went away has nothing in it to reach.
+    gone = _real(tmp_path / "gone")
+    _reach(tmp_path, monkeypatch, allowance=[gone])
+    assert canary.main(["reach"]) == 0
+    assert "searchable=False" in capsys.readouterr().out.split("== could not read: 1")[1]
 
 
 def test_reach_fails_on_a_writable_path_directory_inside_the_allowance(

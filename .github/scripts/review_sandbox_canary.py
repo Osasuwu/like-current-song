@@ -12,8 +12,9 @@ files a review must not touch. This script is its two ends:
   verify    after it, fail unless every attack ran and the filesystem refused it,
             both controls passed, and no guarded file moved
   reach     after that, fail if this user can write anything the run's own sandbox
-            log opened and neither `denyWrite` nor /tmp accounts for, or can replace
-            a PATH directory, node runtime or binary a later step runs from there
+            log opened and neither `denyWrite` nor /tmp accounts for, can replace a
+            PATH directory, node runtime or binary a later step runs from there, or
+            can search a path in there that the walk could not read
 
 The controls are what make a green run mean something. A sandbox that refuses
 everything would also stop the attacks, so one write into /tmp must land on disk
@@ -50,12 +51,16 @@ ACTION_SETTINGS = "{home}/.claude/settings.json"
 # What the reviewer could reach in the roots outside the runner's home. Each is a new
 # file beside what later steps run, never over it: an attack that lands must not take
 # those steps down with it. The first two are the runner's node and the PATH directory
-# ahead of /usr/bin (run 41069935437); the others are writable paths in /var and /run.
+# ahead of /usr/bin (run 41069935437), the next two are writable paths in /var and
+# /run, and the last is in the Homebrew tree the runner's user owns in the rest of /home
+# (run 41080588601). An image that drops that tree fails `confirm-outside`, on purpose:
+# the attack would prove nothing there, so it has to move.
 OUTSIDE_TARGETS = (
     "/opt/runner-cache/externals/node24/bin/review-sandbox-canary",
     "/opt/pipx_bin/review-sandbox-canary",
     "/var/tmp/review-sandbox-canary",
     "/run/lock/review-sandbox-canary",
+    "/home/linuxbrew/.linuxbrew/review-sandbox-canary",
 )
 
 # Each `--o''utput` reaches git as `--output` but slips past the reviewer's
@@ -485,6 +490,11 @@ def describe(path):
     )
 
 
+def unread_line(path):
+    """What can be said of a path the walk could not list, and if this user can enter it."""
+    return f"{describe(path)} searchable={os.access(path, os.X_OK)}"
+
+
 def command_lines(names, search_path):
     lines = []
     for name in names:
@@ -581,6 +591,7 @@ def cmd_reach(_args):
     nodes = node_runtimes(exes)
     python = [path for path in (sys.executable, sys.prefix, *sys.path) if path]
     writes, unread = reachable_writes(allowed, denied)
+    searchable = [path for path in unread if os.access(path, os.X_OK)]
     runs = reachable_runs(
         [*entries, *filter(None, commands), *exes, *nodes, *python], allowed, denied
     )
@@ -589,7 +600,7 @@ def cmd_reach(_args):
     lines += ["== PATH, in search order", *path_lines(search_path)]
     lines += ["== python", *(describe(path) for path in python)]
     lines += ["== processes above this step", *(describe(path) for path in [*exes, *nodes])]
-    lines += [f"== could not read: {len(unread)}", *unread]
+    lines += [f"== could not read: {len(unread)}", *(unread_line(path) for path in unread)]
     lines += [f"== writable, outside denied and {TEMP_ROOT}: {len(writes)}"]
     lines += [describe(path) for path in writes]
     lines += [f"== run by later steps, replaceable, outside denied: {len(runs)}"]
@@ -599,7 +610,13 @@ def cmd_reach(_args):
         print("no node runtime found above this step", file=sys.stderr)
     if writes or runs:
         print(f"the reviewer can reach {len(set(writes) | set(runs))} paths", file=sys.stderr)
-    return 1 if writes or runs or not nodes else 0
+    for path in searchable:
+        print(
+            f"{path} can be searched: what is in it is reachable through a known path "
+            "and the walk did not see it",
+            file=sys.stderr,
+        )
+    return 1 if writes or runs or searchable or not nodes else 0
 
 
 def main(argv=None):
