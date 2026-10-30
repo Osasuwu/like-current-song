@@ -666,6 +666,22 @@ in this section:
   It never decides anything itself. The reviewer's tool subprocesses run with
   their environment scrubbed of secrets, which needs bubblewrap: the job
   installs it and fails at that step, by name, if it cannot (#240).
+- The reviewer's boundary is that same bubblewrap, in three parts (#228). Its
+  Bash runs in the sandbox set by `.github/review-sandbox.json`, which lets it
+  write only its own temp directory, so the workspace, the runner's temp
+  directory and the home directory are refused, and the job fails if the
+  sandbox cannot start. The `Edit` grant on `.review/findings.json` is its only
+  write to the workspace, and that file is read only as data. The env scrub, with the PID namespace it runs in, keeps secrets out of
+  its subprocesses. The `--allowed-tools` and `--disallowed-tools` lists are no
+  part of it: they match command text and only steer the reviewer. Steps after
+  the reviewer run only copies made before it, outside the workspace, and
+  `check-tree` fails a run that left any changed, new or ignored file.
+- `review-sandbox-canary.yml` runs a real reviewer on the PR's copy of those
+  files, since a change to them never meets the review workflow's own run, and
+  a run on a developer machine shows nothing about bubblewrap.
+  One job has it attempt `git --output` writes the sandbox must refuse, a write
+  into `$TMPDIR` and an `api.github.com` call it must allow; the other has no
+  bubblewrap and must fail.
 - `code-gate-verdict.yml` runs from the **default branch** (it never checks out
   PR code), reads the artifacts of the review runs bound to the head SHA and
   posts `verify-verdict` as the `osasuwu-ci` GitHub App, on every PR event, when
@@ -744,8 +760,8 @@ png/jpg/gif/webp images anywhere. Everything else,
 including `docs/index.html` and `docs/style.css`, is code.
 
 **Gate machinery.** A PR that touches `code-review.yml`,
-`code-gate-verdict.yml`, `code_gate_verdict.py` or anything under
-`.github/actions/` is always red: its own review cannot be trusted, it is the
+`code-gate-verdict.yml`, `code_gate_verdict.py`, `.github/review-sandbox.json`
+or anything under `.github/actions/` is always red: its own review cannot be trusted, it is the
 thing under change. Its review run skips the reviewer (`gate-machinery`), since
 no evidence could clear it (#234). The maintainer unblocks it by an admin-merge after a
 review of the final SHA in a fresh session. This is the only sanctioned

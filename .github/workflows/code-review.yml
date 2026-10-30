@@ -268,13 +268,17 @@ jobs:
             # runs a preload module. The only write grant
             # is `Edit` on the findings file (`Edit(path)` is the one
             # path-scoped write rule the harness consults; an unscoped `Write`
-            # is deliberately absent). These patterns steer the reviewer; they
-            # are not a boundary — the harness matches command text, so
-            # `git log --o''utput=<file>` passes the `--ou` deny. The read-only
-            # job token and the env scrub above bound what leaves the runner; a
-            # file written on the runner can still forge this job's evidence
-            # (#228). The findings grant is absolute (`//` after expansion):
-            # `./` is cwd-relative and the reviewer can `cd` (#286).
+            # is deliberately absent). These patterns only steer the reviewer;
+            # they are not a boundary — the harness matches command text, so
+            # `git log --o''utput=<file>` passes the `--ou` deny. The boundary
+            # is the bubblewrap sandbox set by `--settings`
+            # (.github/review-sandbox.json, #228): Bash writes only its own temp
+            # directory, the `Edit` grant is the only write to the workspace,
+            # and the env scrub with its PID namespace keeps secrets out of the
+            # subprocesses. review-sandbox-canary.yml proves it on a real run.
+            # The findings grant is absolute (`//` after expansion): `./` is
+            # cwd-relative and the reviewer can `cd` (#286). The sandbox
+            # settings take one slash; permission rules take `//`.
             # (tests/test_code_review_allowed_tools.py pins both lists.)
             --settings ${{ runner.temp }}/trusted/review-sandbox.json
             --allowed-tools "Read,Grep,Glob,Edit(/${{ github.workspace }}/.review/findings.json),Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git blame:*),Bash(git status:*),Bash(git rev-parse:*),Bash(git ls-files:*),Bash(git merge-base:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh label list:*),Bash(gh api repos/*/commits/*:*),Bash(gh api repos/*/compare/*:*),Bash(wc:*),Bash(head:*),Bash(tail:*),Bash(cat:*),Bash(cut:*),Bash(nl:*),Bash(tr:*),Bash(echo:*),Bash(python -m py_compile:*),Bash(python3 -m py_compile:*)"
