@@ -90,6 +90,11 @@ jobs:
         id: canary
         continue-on-error: true
         uses: anthropics/claude-code-action@1d6de8cb0c237e7c15e9e1bdf973826ebae490cc # v1
+        # The sandbox runtime logs its mounts only under SRT_DEBUG, to the CLI's stderr.
+        # The SDK keeps that stderr only under DEBUG_CLAUDE_AGENT_SDK, in ~/.claude/debug.
+        env:
+          SRT_DEBUG: "1"
+          DEBUG_CLAUDE_AGENT_SDK: "1"
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -116,8 +121,7 @@ jobs:
             Then use the Edit tool to replace the whole content of
             `.review/findings.json` with exactly this line, and stop:
             {"blocking": false, "findings": []}
-          # --debug-file: the sandbox's mount list, the only record of what bubblewrap
-          # was asked for. Stays on the runner; the next step prints its sandbox lines.
+          # --debug-file stays on the runner; the next step prints only its sandbox lines.
           claude_args: |
             --settings ${{ runner.temp }}/trusted/review-sandbox.json
             --debug-file ${{ runner.temp }}/claude-debug.log
@@ -127,7 +131,7 @@ jobs:
       - name: Print the sandbox's mount list
         id: mounts
         if: always()
-        run: grep -F '[Sandbox' "$RUNNER_TEMP/claude-debug.log" || echo "no sandbox lines in the debug log"
+        run: grep -rhF '[Sandbox' "$RUNNER_TEMP/claude-debug.log" "$HOME/.claude/debug" || echo "no sandbox lines in the debug logs"
 
       - name: Upload the canary execution log
         if: always() && steps.canary.outputs.execution_file != ''
