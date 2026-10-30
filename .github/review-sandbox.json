@@ -4,10 +4,8 @@
     "failIfUnavailable": true,
     "allowUnsandboxedCommands": false,
     "autoAllowBashIfSandboxed": false,
-    "filesystem": {
-      "denyWrite": ["/home", "/opt", "/var", "/run"]
-    },
     "network": {
+      "allowAllUnixSockets": true,
       "strictAllowlist": true,
       "allowedDomains": ["api.github.com"]
     }
