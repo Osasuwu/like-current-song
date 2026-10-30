@@ -59,7 +59,7 @@ jobs:
 
       - name: Pin the reviewer sandbox settings
         id: pin
-        run: cp .github/review-sandbox.json "$RUNNER_TEMP/trusted/review-sandbox.json"
+        run: python -I "$RUNNER_TEMP/trusted/code_gate_verdict.py" pin-sandbox --settings .github/review-sandbox.json --out "$RUNNER_TEMP/trusted/review-sandbox.json"
 
       - name: Seed findings file
         run: |
@@ -216,7 +216,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/trusted"
           cp .github/scripts/code_gate_verdict.py "$RUNNER_TEMP/trusted/"
-          cp .github/review-sandbox.json "$RUNNER_TEMP/trusted/review-sandbox.json"
+          python -I "$RUNNER_TEMP/trusted/code_gate_verdict.py" pin-sandbox --settings .github/review-sandbox.json --out "$RUNNER_TEMP/trusted/review-sandbox.json"
 
       - name: Confirm the runner has no bubblewrap
         id: absent
