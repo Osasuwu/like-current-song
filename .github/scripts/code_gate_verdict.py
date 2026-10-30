@@ -314,9 +314,45 @@ def check_clean_tree(porcelain, findings_path, head_dir=".pr-head", root="."):
 DENIED_HOME = "/home"
 DENIED_ROOTS = (DENIED_HOME, "/opt", "/var", "/run")
 
+# The whole settings file the canary proved, held by value.
+EXPECTED_SANDBOX = {
+    "sandbox": {
+        "enabled": True,
+        "failIfUnavailable": True,
+        "allowUnsandboxedCommands": False,
+        "autoAllowBashIfSandboxed": False,
+        "filesystem": {"denyWrite": list(DENIED_ROOTS)},
+        "network": {"strictAllowlist": True, "allowedDomains": ["api.github.com"]},
+    }
+}
+
+
+def _settings_differences(got, want, where):
+    """Each place `got` is not `want`, by its dotted path. JSON text decides, since
+    Python's `1 == True` would pass a value the file does not state."""
+    if not (isinstance(got, dict) and isinstance(want, dict)):
+        if json.dumps(got, sort_keys=True) == json.dumps(want, sort_keys=True):
+            return []
+        return [f"{where} must be exactly {json.dumps(want)}, got {json.dumps(got)}"]
+    errors = []
+    for key, value in want.items():
+        if key in got:
+            errors.extend(_settings_differences(got[key], value, f"{where}.{key}"))
+        else:
+            errors.append(f"{where}.{key} must be exactly {json.dumps(value)}, got nothing")
+    errors.extend(f"{where}.{key} must not be set, got {json.dumps(got[key])}"
+                  for key in got if key not in want)
+    return errors
+
 
 def sandbox_errors(settings, inside):
-    """Why `settings` would leave the reviewer able to write what later steps run (#228).
+    """Why `settings` is not the boundary the canary proved, in full (#228).
+
+    The comparison is the whole file against EXPECTED_SANDBOX, as the test on the
+    tracked file does: any other key or value is a boundary no run proved, and this
+    copy is what the reviewer loads. `network` is what limits where a token can go,
+    and `allowAllUnixSockets` turns off the seccomp filter that refuses
+    /run/docker.sock (run 41085350851).
 
     The reviewer's Bash runs in the Claude Code sandbox, whose scrub-mode allowance
     includes its cwd and all of /home, /opt, /var and /run (runs 41061647099,
@@ -324,31 +360,11 @@ def sandbox_errors(settings, inside):
     $RUNNER_TEMP and its trusted copies, the actions the job still has to run,
     ~/.claude and the Homebrew tree the runner's user owns beside its home (run
     41080588601), then /opt, which holds the node those actions run on, then /var and
-    /run. The list is compared whole: a narrower one reopens a root, a longer one is a
-    boundary the canary did not prove. `inside` are the paths /home has to cover, so a
-    layout that moves one out from under it is refused. Sandbox paths are absolute
-    with ONE leading slash: the permission-rule spelling `//abs` names another path
-    here, the #286 class of bug.
+    /run. `inside` are the paths /home has to cover, so a layout that moves one out
+    from under it is refused. Sandbox paths are absolute with ONE leading slash: the
+    permission-rule spelling `//abs` names another path here, the #286 class of bug.
     """
-    sandbox = settings.get("sandbox") if isinstance(settings, dict) else None
-    if not isinstance(sandbox, dict):
-        return ["no `sandbox` object"]
-    errors = []
-    for key, want in (
-        ("enabled", True),
-        ("failIfUnavailable", True),
-        ("allowUnsandboxedCommands", False),
-    ):
-        if sandbox.get(key) is not want:
-            errors.append(f"sandbox.{key} must be {json.dumps(want)}")
-    fs = sandbox.get("filesystem")
-    deny = fs.get("denyWrite") if isinstance(fs, dict) else None
-    want = list(DENIED_ROOTS)
-    if deny != want:
-        errors.append(
-            f"sandbox.filesystem.denyWrite must be exactly {json.dumps(want)}, "
-            f"got {json.dumps(deny)}"
-        )
+    errors = _settings_differences(settings, EXPECTED_SANDBOX, "settings")
     errors.extend(f"{path} is not under {DENIED_HOME}" for path in inside
                   if not path.startswith(DENIED_HOME + "/"))
     return errors

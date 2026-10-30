@@ -429,18 +429,26 @@ FOUR_ROOTS = ["/home", "/opt", "/var", "/run"]
 
 
 def _sandbox(**overrides):
-    sandbox = {
-        "enabled": True,
-        "failIfUnavailable": True,
-        "allowUnsandboxedCommands": False,
-        "filesystem": {"denyWrite": list(FOUR_ROOTS)},
-    }
-    sandbox.update(overrides)
-    return {"sandbox": sandbox}
+    """The committed file, changed by `overrides`: unchanged, it must pin. Its keys
+    are held to literals by test_sandbox_settings_are_exactly_the_fail_closed_boundary."""
+    path = _root / ".github" / "review-sandbox.json"
+    settings = json.loads(path.read_text(encoding="utf-8"))
+    settings["sandbox"].update(overrides)
+    return settings
 
 
 def _deny(*paths):
     return _sandbox(filesystem={"denyWrite": list(paths)})
+
+
+def _network(**overrides):
+    return _sandbox(network={**_sandbox()["sandbox"]["network"], **overrides})
+
+
+def _without(key):
+    settings = _sandbox()
+    del settings["sandbox"][key]
+    return settings
 
 
 def _pin(monkeypatch, tmp_path, settings, home=HOME, workspace=WORKSPACE, runner_temp=RUNNER_TEMP):
@@ -547,6 +555,80 @@ def test_pin_sandbox_refuses_anything_but_the_four_roots(
     code, out = _pin(monkeypatch, tmp_path, settings, **env)
     assert code == 1
     assert refusal in capsys.readouterr().err
+    assert not out.exists(), "nothing is pinned for the reviewer to load"
+
+
+@pytest.mark.parametrize(
+    "settings, refusal",
+    [
+        # `allowAllUnixSockets` turns the seccomp socket filter off (run 41085350851).
+        (
+            _sandbox(allowAllUnixSockets=True),
+            "settings.sandbox.allowAllUnixSockets must not be set, got true",
+        ),
+        (
+            _network(allowAllUnixSockets=True),
+            "settings.sandbox.network.allowAllUnixSockets must not be set, got true",
+        ),
+        (
+            _without("network"),
+            "settings.sandbox.network must be exactly "
+            '{"strictAllowlist": true, "allowedDomains": ["api.github.com"]}, got nothing',
+        ),
+        (
+            _network(allowedDomains=["*"]),
+            'settings.sandbox.network.allowedDomains must be exactly ["api.github.com"], '
+            'got ["*"]',
+        ),
+        (
+            _network(strictAllowlist=False),
+            "settings.sandbox.network.strictAllowlist must be exactly true, got false",
+        ),
+        (
+            _sandbox(autoAllowBashIfSandboxed=True),
+            "settings.sandbox.autoAllowBashIfSandboxed must be exactly false, got true",
+        ),
+        (
+            {**_sandbox(), "permissions": {"allow": ["Bash"]}},
+            'settings.permissions must not be set, got {"allow": ["Bash"]}',
+        ),
+        (
+            _sandbox(filesystem={"denyWrite": FOUR_ROOTS, "allowWrite": ["/home"]}),
+            'settings.sandbox.filesystem.allowWrite must not be set, got ["/home"]',
+        ),
+        # Python's 1 == True: the file says something else than the boundary does.
+        (
+            _sandbox(failIfUnavailable=1),
+            "settings.sandbox.failIfUnavailable must be exactly true, got 1",
+        ),
+        (
+            {},
+            "settings.sandbox must be exactly "
+            + json.dumps(_sandbox()["sandbox"])
+            + ", got nothing",
+        ),
+        ([], f"settings must be exactly {json.dumps(_sandbox())}, got []"),
+    ],
+    ids=[
+        "every-socket-on-the-sandbox",
+        "every-socket-in-network",
+        "no-network",
+        "any-domain",
+        "not-strict",
+        "auto-allow",
+        "extra-top-level-key",
+        "extra-filesystem-key",
+        "one-for-true",
+        "no-sandbox",
+        "not-an-object",
+    ],
+)
+def test_pin_sandbox_refuses_anything_but_the_exact_settings(
+    monkeypatch, tmp_path, capsys, settings, refusal
+):
+    code, out = _pin(monkeypatch, tmp_path, settings)
+    assert code == 1
+    assert capsys.readouterr().err == f"refusing to pin sandbox settings: {refusal}\n"
     assert not out.exists(), "nothing is pinned for the reviewer to load"
 
 

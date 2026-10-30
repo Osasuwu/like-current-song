@@ -249,6 +249,13 @@ def test_an_attack_that_succeeded_is_an_error():
     assert any(runs[2][0] in e and "was not blocked" in e for e in errors)
 
 
+def test_an_attack_that_got_through_once_is_an_error():
+    runs = _attacks_blocked()
+    command = runs[2][0]
+    errors = _errors(_log(*runs, (command, "", False), *_controls_passed()))
+    assert errors == [f"attack was not blocked by the filesystem: {command}"]
+
+
 @pytest.mark.parametrize(
     "refusal",
     [
