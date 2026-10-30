@@ -670,27 +670,42 @@ in this section:
   there, no sandboxed command starts in a read-only workspace (#228).
 - The reviewer's boundary is that same bubblewrap, in three parts (#228). Its
   Bash runs in the sandbox set by `.github/review-sandbox.json`, whose
-  `denyWrite` is the runner's whole home, `/home/runner`. That covers the
-  workspace, the runner's temp directory with the trusted copies and the
-  workflow command files, the downloaded actions and `~/.claude`. The rest of
-  what the CLI opens stays writable: `/tmp`, `/opt`, `/var`, `/run`, `/mnt` and
-  `/root`. The job fails if the sandbox cannot start, and `check-sandbox` fails
-  it if the sandbox died at setup, which the action itself reports as a
-  success. The `Edit` grant on `.review/findings.json` is its only write to the
+  `denyWrite` is exactly `/home/runner`, `/opt`, `/var` and `/run`. The home
+  covers the workspace, the runner's temp directory with the trusted copies and
+  the workflow command files, the downloaded actions and `~/.claude`; `/opt`
+  holds the node those actions run on. The rest of what the CLI opens stays
+  writable from inside: `/tmp`, on purpose, and `/mnt`, `/root` and the rest of
+  `/home`, where the runner's user can write nothing. `/usr/local/bin` is
+  writable by that user but is not in what the CLI opens, so the sandbox holds
+  it read-only. The list is a denylist against the CLI's own allowance, which
+  the CLI can change, so the canary below reads that allowance from its run and
+  fails on anything new. The job fails if the sandbox cannot start, and
+  `check-sandbox` fails it if the sandbox died at setup, which the action itself
+  reports as a success. The `Edit` grant on `.review/findings.json` is its only write to the
   workspace, and that file is read only as data. The env scrub, with the PID
   namespace it runs in, keeps secrets out of its subprocesses. The
   `--allowed-tools` and `--disallowed-tools` lists are no part of it: they match
-  command text and only steer the reviewer. Steps after the reviewer run only
-  copies made before it, outside the workspace, and `check-tree` fails a run
-  that left any changed, new or ignored file.
+  command text and only steer the reviewer. The steps after the reviewer run
+  the copies made before it under the runner's temp directory, inside the
+  denied home, and actions on the runner's node under `/opt`, also denied.
+  `check-tree` fails a run that left any changed, new or ignored file in the
+  workspace. `/tmp` is the one place both attempts can write: no later step runs
+  code from it, and what the first reviewer leaves there reaches the second as
+  data, no more trusted than the PR.
 - `review-sandbox-canary.yml` runs a real reviewer on the PR's copy of those
   files, since a change to them never meets the review workflow's own run, and
   a run on a developer machine shows nothing about bubblewrap.
   One job has it attempt `git --output` writes the sandbox must refuse, in the
-  workspace and across the runner's home, a write into `/tmp` and an
-  `api.github.com` call it must allow, runs `check-sandbox` on its log, and
-  prints what the writable roots reach; the other has no bubblewrap and must
-  fail.
+  workspace, across the runner's home and beside what `/opt`, `/var` and `/run`
+  hold, a `docker version` on `/run/docker.sock` it must refuse too, a write
+  into `/tmp` and an `api.github.com` call it must allow, and runs
+  `check-sandbox` on its log. A trusted step first confirms each refused target
+  works outside the sandbox, so a refusal cannot pass on a path that was never
+  writable. The job's last step fails, listing the paths, if the runner's user
+  can write anything inside the allowance the run's own debug log names and
+  outside the denied roots and `/tmp`, or can replace a `PATH` directory, node
+  runtime or binary a later step runs from inside it. The other job has no
+  bubblewrap and must fail.
 - `code-gate-verdict.yml` runs from the **default branch** (it never checks out
   PR code), reads the artifacts of the review runs bound to the head SHA and
   posts `verify-verdict` as the `osasuwu-ci` GitHub App, on every PR event, when

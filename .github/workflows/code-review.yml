@@ -136,8 +136,9 @@ jobs:
       # The reviewer's sandbox (#228), loaded through `--settings` below. The
       # tracked file names the runner's home by its absolute path, so a runner
       # with another layout would leave `denyWrite` on the wrong directory;
-      # pin-sandbox checks it against $HOME, and that $GITHUB_WORKSPACE and
-      # $RUNNER_TEMP lie inside it, and fails the job before the reviewer.
+      # pin-sandbox requires exactly that home, from $HOME, with /opt /var /run,
+      # and $GITHUB_WORKSPACE and $RUNNER_TEMP inside it, and fails the job
+      # before the reviewer.
       - name: Pin the reviewer sandbox settings
         if: steps.prepare.outputs.skip_reason == ''
         run: python -I "$RUNNER_TEMP/trusted/code_gate_verdict.py" pin-sandbox --settings .github/review-sandbox.json --out "$RUNNER_TEMP/trusted/review-sandbox.json"
@@ -285,9 +286,10 @@ jobs:
             # they are not a boundary — the harness matches command text, so
             # `git log --o''utput=<file>` passes the `--ou` deny. The boundary
             # is the bubblewrap sandbox set by `--settings`
-            # (.github/review-sandbox.json, #228): Bash is refused all of the
-            # runner's home, /home/runner, and keeps /tmp and the other roots
-            # the CLI opens (/opt /var /run /mnt /root). The `Edit` grant is the
+            # (.github/review-sandbox.json, #228): Bash is refused /home/runner,
+            # /opt, /var and /run, and keeps /tmp and the other roots the CLI
+            # opens (/mnt, /root, the rest of /home), where the runner's user
+            # writes nothing. The `Edit` grant is the
             # only write to the workspace, and the env scrub with its PID
             # namespace keeps secrets out of the subprocesses.
             # review-sandbox-canary.yml proves it on a real run.

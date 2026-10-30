@@ -310,16 +310,23 @@ def check_clean_tree(porcelain, findings_path, head_dir=".pr-head", root="."):
     return dirty
 
 
+# What `denyWrite` names besides the runner's home.
+DENIED_ROOTS = ("/opt", "/var", "/run")
+
+
 def sandbox_errors(settings, home, inside):
-    """Why `settings` would leave the reviewer able to write the runner's home (#228).
+    """Why `settings` would leave the reviewer able to write what later steps run (#228).
 
     The reviewer's Bash runs in the Claude Code sandbox, whose scrub-mode allowance
-    includes its cwd and all of /home (run 41061647099). `denyWrite` on the runner's
-    home is what takes back the workspace, $RUNNER_TEMP with the trusted copies,
-    the actions the job still has to run and ~/.claude. `inside` are the paths the
-    entry has to cover, so a layout that moves one out of the home is refused.
-    Sandbox paths are absolute with ONE leading slash: the permission-rule spelling
-    `//abs` names another path here, the #286 class of bug.
+    includes its cwd and all of /home, /opt, /var and /run (runs 41061647099,
+    41069935437). `denyWrite` takes back the runner's home, with the workspace,
+    $RUNNER_TEMP and its trusted copies, the actions the job still has to run and
+    ~/.claude, then /opt, which holds the node those actions run on, then /var and
+    /run. The list is compared whole: a narrower one reopens a root, a longer one is a
+    boundary the canary did not prove. `inside` are the paths the home entry has to
+    cover, so a layout that moves one out of the home is refused. Sandbox paths are
+    absolute with ONE leading slash: the permission-rule spelling `//abs` names
+    another path here, the #286 class of bug.
     """
     sandbox = settings.get("sandbox") if isinstance(settings, dict) else None
     if not isinstance(sandbox, dict):
@@ -334,9 +341,10 @@ def sandbox_errors(settings, home, inside):
             errors.append(f"sandbox.{key} must be {json.dumps(want)}")
     fs = sandbox.get("filesystem")
     deny = fs.get("denyWrite") if isinstance(fs, dict) else None
-    if deny != [home]:
+    want = [home, *DENIED_ROOTS]
+    if deny != want:
         errors.append(
-            f"sandbox.filesystem.denyWrite must be exactly [{json.dumps(home)}], "
+            f"sandbox.filesystem.denyWrite must be exactly {json.dumps(want)}, "
             f"got {json.dumps(deny)}"
         )
     errors.extend(f"{path} is not under {home}" for path in inside

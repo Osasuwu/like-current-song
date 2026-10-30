@@ -309,10 +309,11 @@ EXPECTED_SANDBOX = {
         "allowUnsandboxedCommands": False,
         # Sandboxed Bash still has to match the allowlist above.
         "autoAllowBashIfSandboxed": False,
-        # The runner's home, not the workspace: the CLI's scrub mode allows writes to
-        # all of /home, and run 41061647099 wrote $RUNNER_TEMP and $HOME past a
-        # workspace-only deny.
-        "filesystem": {"denyWrite": ["/home/runner"]},
+        # The CLI's scrub mode allows writes to all of /home, /opt, /var and /run, and
+        # each holds something later steps run or load: run 41061647099 wrote
+        # $RUNNER_TEMP and $HOME past a workspace-only deny, and run 41069935437 ran the
+        # job's node from a writable /opt behind a home-only one.
+        "filesystem": {"denyWrite": ["/home/runner", "/opt", "/var", "/run"]},
         "network": {"strictAllowlist": True, "allowedDomains": ["api.github.com"]},
     }
 }

@@ -424,6 +424,8 @@ def test_check_tree_reports_a_gitignored_file_the_review_wrote(monkeypatch, tmp_
 HOME = "/home/runner"
 WORKSPACE = "/home/runner/work/like-current-song/like-current-song"
 RUNNER_TEMP = "/home/runner/work/_temp"
+# Written out, not read from the gate: this list is what the tests hold it to.
+FOUR_ROOTS = [HOME, "/opt", "/var", "/run"]
 
 
 def _sandbox(**overrides):
@@ -431,7 +433,7 @@ def _sandbox(**overrides):
         "enabled": True,
         "failIfUnavailable": True,
         "allowUnsandboxedCommands": False,
-        "filesystem": {"denyWrite": [HOME]},
+        "filesystem": {"denyWrite": list(FOUR_ROOTS)},
     }
     sandbox.update(overrides)
     return {"sandbox": sandbox}
@@ -452,10 +454,20 @@ def _pin(monkeypatch, tmp_path, settings, home=HOME, workspace=WORKSPACE, runner
     return gate.main(["pin-sandbox", "--settings", str(src), "--out", str(out)]), out
 
 
-def test_pin_sandbox_copies_settings_that_deny_writes_to_the_runners_home(monkeypatch, tmp_path):
+def test_pin_sandbox_copies_settings_that_deny_the_four_roots(monkeypatch, tmp_path):
     code, out = _pin(monkeypatch, tmp_path, _sandbox())
     assert code == 0
     assert json.loads(out.read_text(encoding="utf-8")) == _sandbox()
+
+
+@pytest.mark.parametrize("removed", FOUR_ROOTS)
+def test_pin_sandbox_refuses_the_list_with_any_one_root_removed(
+    monkeypatch, tmp_path, capsys, removed
+):
+    code, out = _pin(monkeypatch, tmp_path, _deny(*[r for r in FOUR_ROOTS if r != removed]))
+    assert code == 1
+    assert "denyWrite must be exactly" in capsys.readouterr().err
+    assert not out.exists(), "nothing is pinned for the reviewer to load"
 
 
 @pytest.mark.parametrize(
@@ -467,9 +479,15 @@ def test_pin_sandbox_copies_settings_that_deny_writes_to_the_runners_home(monkey
         (_deny(), {}, "denyWrite must be exactly"),
         (_sandbox(filesystem={}), {}, "denyWrite must be exactly"),
         # The permission-rule spelling: the sandbox reads `//home/...` as another path.
-        (_deny("/" + HOME), {}, "denyWrite must be exactly"),
-        # Exactly the one entry the canary proved, not a superset.
-        (_deny(HOME, WORKSPACE), {}, "denyWrite must be exactly"),
+        (_deny("/" + HOME, "/opt", "/var", "/run"), {}, "denyWrite must be exactly"),
+        # The boundary of round 3: run 41069935437 left /opt/pipx_bin and the runner's
+        # node writable.
+        (_deny(HOME), {}, "denyWrite must be exactly"),
+        # Part of a root is narrower than the root.
+        (_deny(HOME, "/opt/pipx_bin", "/var", "/run"), {}, "denyWrite must be exactly"),
+        # Exactly the entries the canary proved, not a superset.
+        (_deny(*FOUR_ROOTS, WORKSPACE), {}, "denyWrite must be exactly"),
+        (_deny(*FOUR_ROOTS, "/usr"), {}, "denyWrite must be exactly"),
         (_deny("/home"), {}, "denyWrite must be exactly"),
         # Another runner layout: the tracked path no longer names this run's home.
         (
@@ -496,7 +514,10 @@ def test_pin_sandbox_copies_settings_that_deny_writes_to_the_runners_home(monkey
         "empty-deny",
         "no-deny",
         "double-slash",
+        "home-only",
+        "part-of-a-root",
         "extra-entry",
+        "another-extra-entry",
         "parent",
         "other-home",
         "workspace-outside-home",
@@ -507,7 +528,7 @@ def test_pin_sandbox_copies_settings_that_deny_writes_to_the_runners_home(monkey
         "disabled",
     ],
 )
-def test_pin_sandbox_refuses_anything_but_the_home_boundary(
+def test_pin_sandbox_refuses_anything_but_the_four_roots(
     monkeypatch, tmp_path, capsys, settings, env, refusal
 ):
     code, out = _pin(monkeypatch, tmp_path, settings, **env)
