@@ -148,6 +148,17 @@ jobs:
       # review and fails here, by name, before the reviewer would crash on it. The
       # sysctl is runner-wide, which costs nothing on an ephemeral VM whose user
       # already has passwordless sudo (decision 2026-10-08).
+      #
+      # /run/podman goes for the sandbox's sake (#228). The runner's user cannot
+      # resolve /run/podman/podman.sock, a denyRead entry of the CLI, and that makes
+      # the CLI (2.1.296) drop its read-deny prediction: it then asks bubblewrap for a
+      # placeholder at every absent denyWrite path inside the read-only workspace
+      # (`scripts`, `.git/config.lock`, ...), which bubblewrap cannot create, and every
+      # sandboxed command dies. With the directory gone the entry is plainly absent,
+      # and the CLI skips those paths as already uncreatable. denyWrite is untouched.
+      # Creating the placeholders here instead fails: a `.git/config.lock` stops the
+      # action removing the checkout's token from the git config, and the action
+      # deletes a `.ripgreprc`.
       - name: Install subprocess isolation (bubblewrap)
         if: steps.prepare.outputs.skip_reason == ''
         run: |
@@ -163,6 +174,7 @@ jobs:
           if [ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
+          sudo rm -rf /run/podman
           bwrap --ro-bind / / --unshare-all true
 
       - name: Run code review (attempt 1)

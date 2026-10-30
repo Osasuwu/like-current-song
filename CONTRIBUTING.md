@@ -665,7 +665,9 @@ in this section:
   the PR's head SHA and base branch), one per run attempt, never overwritten.
   It never decides anything itself. The reviewer's tool subprocesses run with
   their environment scrubbed of secrets, which needs bubblewrap: the job
-  installs it and fails at that step, by name, if it cannot (#240).
+  installs it and fails at that step, by name, if it cannot (#240). The same
+  step removes `/run/podman`: while the CLI cannot resolve the socket's path
+  there, no sandboxed command starts in a read-only workspace (#228).
 - The reviewer's boundary is that same bubblewrap, in three parts (#228). Its
   Bash runs in the sandbox set by `.github/review-sandbox.json`, which lets it
   write only its own temp directory, so the workspace, the runner's temp

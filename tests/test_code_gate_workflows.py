@@ -314,6 +314,20 @@ def test_bubblewrap_is_installed_before_the_reviewer_with_the_scrub_on():
     assert overrides == []
 
 
+def test_the_runners_podman_directory_is_gone_before_the_reviewer_starts():
+    """#228: the CLI cannot resolve its denyRead entry /run/podman/podman.sock, which
+    drops its read-deny prediction, and then every absent denyWrite path in the
+    read-only workspace dies in bwrap. Pre-creating them is no way out: a
+    .git/config.lock stops the action removing the checkout's token, and the action
+    deletes .ripgreprc. The canary's install step is held equal to this one, so a
+    line lost here fails there too."""
+    steps = REVIEW["jobs"]["review"]["steps"]
+    (bwrap,) = [s for s in steps if s.get("name") == "Install subprocess isolation (bubblewrap)"]
+    lines = [line.strip() for line in bwrap["run"].splitlines()]
+    assert "sudo rm -rf /run/podman" in lines
+    assert lines.index("sudo rm -rf /run/podman") < lines.index("bwrap --ro-bind / / --unshare-all true")
+
+
 # --- what runs after the reviewer (#228) ----------------------------------
 
 TRUSTED_DIR = "$RUNNER_TEMP/trusted"
