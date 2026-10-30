@@ -63,6 +63,7 @@ import io
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import time
@@ -241,12 +242,57 @@ def validate_findings(obj):
     return errors
 
 
-def check_clean_tree(porcelain, findings_path, head_dir=".pr-head"):
+# Empty files Claude Code makes in its cwd when CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is
+# on, and lists in .git/info/exclude, so that a sandboxed command cannot create a
+# real one. Checked against the 2.1.296 and 2.1.314 binaries; a pin bump re-checks.
+# `.claude-pr/.gitmodules` is the same file, snapshotted by the action: the
+# installer's `claude` run leaves the placeholder, then restoreConfigFromBase
+# copies it under `.claude-pr/` (the action's own excluded directory).
+CLI_PLACEHOLDERS = (
+    ".claude-pr/.gitmodules",
+    ".env",
+    ".env.development",
+    ".env.development.local",
+    ".env.local",
+    ".env.production",
+    ".env.production.local",
+    ".env.test",
+    ".env.test.local",
+    ".gitmodules",
+    ".npmrc",
+    ".yarnrc",
+    ".yarnrc.yml",
+    "bunfig.toml",
+    "package-lock.json",
+    "package.json",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+)
+
+
+def is_cli_placeholder(path, root):
+    """True only for a listed name that is, on disk, an empty regular file.
+
+    lstat, not stat: a symlink to an empty file is a planted path, not a stub.
+    Content in one of these names (`.npmrc`, `.env`) is exactly what a later
+    step or tool would pick up, so it stays dirty.
+    """
+    if path not in CLI_PLACEHOLDERS:
+        return False
+    try:
+        info = os.lstat(os.path.join(root, path))
+    except OSError:
+        return False
+    return stat.S_ISREG(info.st_mode) and info.st_size == 0
+
+
+def check_clean_tree(porcelain, findings_path, head_dir=".pr-head", root="."):
     """Paths dirty in `git status --porcelain --ignored` output.
 
-    Exempt: the findings file, and the ignored PR copies prepare staged under
-    `head_dir`. Any other ignored file is dirty: a gitignored path is still a
-    file a later step or tool could pick up (#228).
+    Exempt: the findings file, the ignored PR copies prepare staged under
+    `head_dir`, and the CLI's own ignored placeholders. Any other ignored file
+    is dirty: a gitignored path is still a file a later step or tool could pick
+    up (#228). `root` is where the status was taken.
     """
     head_prefix = head_dir.rstrip("/") + "/"
     dirty = []
@@ -256,7 +302,9 @@ def check_clean_tree(porcelain, findings_path, head_dir=".pr-head"):
         path = line[3:].strip().strip('"')
         if path == findings_path:
             continue
-        if line.startswith("!! ") and path.startswith(head_prefix):
+        if line.startswith("!! ") and (
+            path.startswith(head_prefix) or is_cli_placeholder(path, root)
+        ):
             continue
         dirty.append(path)
     return dirty
