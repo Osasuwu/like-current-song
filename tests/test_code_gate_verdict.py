@@ -451,9 +451,11 @@ def _without(key):
     return settings
 
 
-def _pin(monkeypatch, tmp_path, settings, home=HOME, workspace=WORKSPACE, runner_temp=RUNNER_TEMP):
+def _pin_bytes(
+    monkeypatch, tmp_path, raw, home=HOME, workspace=WORKSPACE, runner_temp=RUNNER_TEMP
+):
     src = tmp_path / "review-sandbox.json"
-    src.write_text(json.dumps(settings), encoding="utf-8")
+    src.write_bytes(raw)
     out = tmp_path / "trusted" / "review-sandbox.json"
     out.parent.mkdir()
     monkeypatch.setenv("HOME", home)
@@ -462,10 +464,16 @@ def _pin(monkeypatch, tmp_path, settings, home=HOME, workspace=WORKSPACE, runner
     return gate.main(["pin-sandbox", "--settings", str(src), "--out", str(out)]), out
 
 
+def _pin(monkeypatch, tmp_path, settings, **env):
+    return _pin_bytes(monkeypatch, tmp_path, json.dumps(settings).encode("utf-8"), **env)
+
+
 def test_pin_sandbox_copies_settings_that_deny_the_four_roots(monkeypatch, tmp_path):
-    code, out = _pin(monkeypatch, tmp_path, _sandbox())
+    # The committed bytes: indented, so a copy rebuilt from the parsed object differs.
+    raw = (_root / ".github" / "review-sandbox.json").read_bytes()
+    code, out = _pin_bytes(monkeypatch, tmp_path, raw)
     assert code == 0
-    assert json.loads(out.read_text(encoding="utf-8")) == _sandbox()
+    assert out.read_bytes() == raw
 
 
 @pytest.mark.parametrize("removed", FOUR_ROOTS)
@@ -629,6 +637,36 @@ def test_pin_sandbox_refuses_anything_but_the_exact_settings(
     code, out = _pin(monkeypatch, tmp_path, settings)
     assert code == 1
     assert capsys.readouterr().err == f"refusing to pin sandbox settings: {refusal}\n"
+    assert not out.exists(), "nothing is pinned for the reviewer to load"
+
+
+_SETTINGS_TEXT = json.dumps(_sandbox())
+_NOT_UTF8_BOM = "not plain UTF-8: it opens with a byte order mark"
+_NOT_UTF8_NUL = "not plain UTF-8: it holds NUL bytes, as UTF-16 and UTF-32 do"
+
+
+@pytest.mark.parametrize(
+    "raw, reason",
+    [
+        # Each decodes to the exact settings: only the encoding is wrong.
+        (b"\xef\xbb\xbf" + _SETTINGS_TEXT.encode("utf-8"), _NOT_UTF8_BOM),
+        (b"\xff\xfe" + _SETTINGS_TEXT.encode("utf-16-le"), _NOT_UTF8_NUL),
+        (_SETTINGS_TEXT.encode("utf-16-be"), _NOT_UTF8_NUL),
+        (_SETTINGS_TEXT.encode("utf-32-le"), _NOT_UTF8_NUL),
+        (
+            _SETTINGS_TEXT.encode("utf-8") + b"\n\xff",
+            f"'utf-8' codec can't decode byte 0xff in position {len(_SETTINGS_TEXT) + 1}: "
+            "invalid start byte",
+        ),
+    ],
+    ids=["utf8-bom", "utf16-le-bom", "utf16-be-nobom", "utf32-le-nobom", "invalid-utf8"],
+)
+def test_pin_sandbox_refuses_any_file_but_plain_utf8_json(
+    monkeypatch, tmp_path, capsys, raw, reason
+):
+    code, out = _pin_bytes(monkeypatch, tmp_path, raw)
+    assert code == 1
+    assert capsys.readouterr().err == f"unreadable sandbox settings: {reason}\n"
     assert not out.exists(), "nothing is pinned for the reviewer to load"
 
 

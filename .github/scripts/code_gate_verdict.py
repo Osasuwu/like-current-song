@@ -314,7 +314,8 @@ def check_clean_tree(porcelain, findings_path, head_dir=".pr-head", root="."):
 DENIED_HOME = "/home"
 DENIED_ROOTS = (DENIED_HOME, "/opt", "/var", "/run")
 
-# The whole settings file the canary proved, held by value.
+# The whole settings file, held by value. The canary proved filesystem and sockets.
+# The literal test holds `network`: no run exercised a denied host.
 EXPECTED_SANDBOX = {
     "sandbox": {
         "enabled": True,
@@ -346,13 +347,14 @@ def _settings_differences(got, want, where):
 
 
 def sandbox_errors(settings, inside):
-    """Why `settings` is not the boundary the canary proved, in full (#228).
+    """Why `settings` is not the exact pinned boundary, in full (#228).
 
-    The comparison is the whole file against EXPECTED_SANDBOX, as the test on the
-    tracked file does: any other key or value is a boundary no run proved, and this
-    copy is what the reviewer loads. `network` is what limits where a token can go,
-    and `allowAllUnixSockets` turns off the seccomp filter that refuses
-    /run/docker.sock (run 41085350851).
+    The comparison is every key and value against EXPECTED_SANDBOX, as the test on
+    the tracked file does: any other key or value is a boundary nothing holds, and
+    this copy is what the reviewer loads. `allowAllUnixSockets` turns off the seccomp
+    filter that refuses /run/docker.sock (run 41085350851). `network` is what limits
+    where a token can go. The literal test holds it, and the canary does not: its one
+    network command is the `gh pr list` control, so no run exercised a denied host.
 
     The reviewer's Bash runs in the Claude Code sandbox, whose scrub-mode allowance
     includes its cwd and all of /home, /opt, /var and /run (runs 41061647099,
@@ -1375,12 +1377,26 @@ def cmd_check_tree(args):
     return 1 if dirty else 0
 
 
+def _plain_utf8(raw):
+    """`raw` as text, or ValueError with the reason it is not plain UTF-8.
+
+    json.loads on bytes also takes a BOM, UTF-16 and UTF-32, and the pin copies the
+    bytes, so what it checked would not be what the reviewer's CLI reads: JSON.parse
+    throws on a BOM, and no run showed what the CLI does with such a `--settings` file.
+    """
+    if raw.startswith(b"\xef\xbb\xbf"):
+        raise ValueError("not plain UTF-8: it opens with a byte order mark")
+    if b"\0" in raw:
+        raise ValueError("not plain UTF-8: it holds NUL bytes, as UTF-16 and UTF-32 do")
+    return raw.decode("utf-8")
+
+
 def cmd_pin_sandbox(args):
     """Copy the reviewer's sandbox settings out of the workspace, once checked."""
     try:
         with open(args.settings, "rb") as fh:
             raw = fh.read()
-        settings = json.loads(raw)
+        settings = json.loads(_plain_utf8(raw))
     except (OSError, ValueError) as e:
         print(f"unreadable sandbox settings: {e}", file=sys.stderr)
         return 1
