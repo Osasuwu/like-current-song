@@ -378,3 +378,23 @@ def test_reviewer_sandbox_settings_are_checked_and_pinned_before_the_reviewer():
     for attempt in ("review1", "review2"):
         args = _review_steps()[_index(attempt)]["with"]["claude_args"]
         assert "--settings ${{ runner.temp }}/trusted/review-sandbox.json\n" in args
+
+
+def test_retry_starts_only_from_the_tree_attempt_1_started_from():
+    """#228 AC4: attempt 2 is a second reviewer on the same job. Before it starts,
+    the trusted check-tree proves attempt 1 left nothing but the findings file,
+    and a dirty tree fails the job rather than handing it to the retry."""
+    check_at = _index("Check workspace is clean before the retry")
+    check = _review_steps()[check_at]
+    assert _index("v1") < check_at < _index("Reseed findings file for the retry")
+    assert check_at < _index("review2")
+    assert check["if"] == "steps.v1.outcome == 'failure'"
+    assert "continue-on-error" not in check
+    assert shlex.split(check["run"]) == [
+        "python",
+        "-I",
+        f"{TRUSTED_DIR}/code_gate_verdict.py",
+        "check-tree",
+        "--findings",
+        "$FINDINGS",
+    ]

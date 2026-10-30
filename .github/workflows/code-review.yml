@@ -286,6 +286,14 @@ jobs:
         continue-on-error: true
         run: python -I "$RUNNER_TEMP/trusted/code_gate_verdict.py" validate --findings "$FINDINGS"
 
+      # Attempt 2 must start from the files attempt 1 started from (#228 AC4):
+      # anything attempt 1 left besides the findings file - CLAUDE.md, .claude/,
+      # .mcp.json, a gitignored file - would be loaded by the retry as config.
+      # A dirty tree fails the job here instead of reaching attempt 2.
+      - name: Check workspace is clean before the retry
+        if: steps.v1.outcome == 'failure'
+        run: python -I "$RUNNER_TEMP/trusted/code_gate_verdict.py" check-tree --findings "$FINDINGS"
+
       - name: Reseed findings file for the retry
         if: steps.v1.outcome == 'failure'
         run: |
