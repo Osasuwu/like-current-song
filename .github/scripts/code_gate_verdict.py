@@ -239,16 +239,54 @@ def validate_findings(obj):
     return errors
 
 
-def check_clean_tree(porcelain, findings_path):
-    """Paths dirty in `git status --porcelain` output, apart from the findings file."""
+def check_clean_tree(porcelain, findings_path, head_dir=".pr-head"):
+    """Paths dirty in `git status --porcelain --ignored` output.
+
+    Exempt: the findings file, and the ignored PR copies prepare staged under
+    `head_dir`. Any other ignored file is dirty: a gitignored path is still a
+    file a later step or tool could pick up (#228).
+    """
+    head_prefix = head_dir.rstrip("/") + "/"
     dirty = []
     for line in porcelain.splitlines():
         if len(line) < 4:
             continue
         path = line[3:].strip().strip('"')
-        if path != findings_path:
-            dirty.append(path)
+        if path == findings_path:
+            continue
+        if line.startswith("!! ") and path.startswith(head_prefix):
+            continue
+        dirty.append(path)
     return dirty
+
+
+def sandbox_errors(settings, workspace):
+    """Why `settings` would leave the reviewer able to write the workspace (#228).
+
+    The reviewer's Bash runs in the Claude Code sandbox, which may write its cwd
+    by default; `denyWrite` on the workspace is what takes that back. Sandbox
+    paths are absolute with ONE leading slash: the permission-rule spelling
+    `//abs` names another path here, the #286 class of bug.
+    """
+    sandbox = settings.get("sandbox") if isinstance(settings, dict) else None
+    if not isinstance(sandbox, dict):
+        return ["no `sandbox` object"]
+    errors = []
+    for key, want in (
+        ("enabled", True),
+        ("failIfUnavailable", True),
+        ("allowUnsandboxedCommands", False),
+    ):
+        if sandbox.get(key) is not want:
+            errors.append(f"sandbox.{key} must be {json.dumps(want)}")
+    fs = sandbox.get("filesystem")
+    deny = fs.get("denyWrite") if isinstance(fs, dict) else None
+    if deny != [workspace]:
+        errors.append(
+            f"sandbox.filesystem.denyWrite must be exactly [{json.dumps(workspace)}], "
+            f"got {json.dumps(deny)}"
+        )
+    return errors
 
 
 def build_evidence(findings, sha, base_ref):
@@ -1204,15 +1242,34 @@ def cmd_validate(args):
 
 def cmd_check_tree(args):
     out = subprocess.run(
-        ["git", "status", "--porcelain", "--untracked-files=all"],
+        ["git", "status", "--porcelain", "--untracked-files=all", "--ignored"],
         check=True,
         capture_output=True,
         text=True,
     ).stdout
-    dirty = check_clean_tree(out, args.findings)
+    dirty = check_clean_tree(out, args.findings, args.head_dir)
     for path in dirty:
         print(f"workspace modified during review: {path}", file=sys.stderr)
     return 1 if dirty else 0
+
+
+def cmd_pin_sandbox(args):
+    """Copy the reviewer's sandbox settings out of the workspace, once checked."""
+    try:
+        with open(args.settings, "rb") as fh:
+            raw = fh.read()
+        settings = json.loads(raw)
+    except (OSError, ValueError) as e:
+        print(f"unreadable sandbox settings: {e}", file=sys.stderr)
+        return 1
+    errors = sandbox_errors(settings, os.environ["GITHUB_WORKSPACE"])
+    for e in errors:
+        print(f"refusing to pin sandbox settings: {e}", file=sys.stderr)
+    if errors:
+        return 1
+    with open(args.out, "wb") as fh:
+        fh.write(raw)
+    return 0
 
 
 def _write_evidence(obj, out):
@@ -1363,7 +1420,12 @@ def main(argv=None):
     p.set_defaults(fn=cmd_validate)
     p = sub.add_parser("check-tree")
     p.add_argument("--findings", required=True)
+    p.add_argument("--head-dir", default=".pr-head")
     p.set_defaults(fn=cmd_check_tree)
+    p = sub.add_parser("pin-sandbox")
+    p.add_argument("--settings", required=True)
+    p.add_argument("--out", required=True)
+    p.set_defaults(fn=cmd_pin_sandbox)
     p = sub.add_parser("stamp")
     p.add_argument("--findings", required=True)
     p.add_argument("--out", default=EVIDENCE_FILE)

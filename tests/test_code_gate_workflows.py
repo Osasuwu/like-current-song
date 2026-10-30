@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import importlib.util
 import re
+import shlex
 from pathlib import Path
 
 import pytest
@@ -311,3 +312,69 @@ def test_bubblewrap_is_installed_before_the_reviewer_with_the_scrub_on():
     assert REVIEW["jobs"]["review"]["env"][SCRUB] == "1"
     overrides = [s.get("name") for s in steps if SCRUB in (s.get("env") or {})]
     assert overrides == []
+
+
+# --- what runs after the reviewer (#228) ----------------------------------
+
+TRUSTED_DIR = "$RUNNER_TEMP/trusted"
+TRUSTED_SCRIPT = f'"{TRUSTED_DIR}/code_gate_verdict.py"'
+
+
+def _review_steps() -> list[dict]:
+    return REVIEW["jobs"]["review"]["steps"]
+
+
+def _index(name: str) -> int:
+    (at,) = [i for i, s in enumerate(_review_steps()) if s.get("name") == name or s.get("id") == name]
+    return at
+
+
+def test_gate_script_runs_only_from_a_copy_made_before_the_reviewer():
+    """#228: the reviewer could once write the workspace, and a later step ran
+    `.github/scripts/code_gate_verdict.py` from it. Every call now runs a copy
+    taken right after the base checkout, outside the workspace."""
+    steps = _review_steps()
+    copy_at = _index("Copy the trusted gate script")
+    assert "actions/checkout@" in steps[copy_at - 1].get("uses", "")
+    copy = steps[copy_at]
+    assert "if" not in copy, "the skip path runs the script too"
+    lines = [line.strip() for line in copy["run"].splitlines()]
+    assert lines == [
+        "set -euo pipefail",
+        f'mkdir -p "{TRUSTED_DIR}"',
+        f'cp .github/scripts/code_gate_verdict.py "{TRUSTED_DIR}/"',
+    ]
+    calls = []
+    for i, step in enumerate(steps):
+        if i == copy_at or "run" not in step:
+            continue
+        assert ".github/scripts/" not in step["run"], step.get("name")
+        calls += [(i, m) for m in re.findall(r"python -I (\S+)", step["run"])]
+    assert len(calls) >= 6  # prepare, skip, validate x2, check-tree, stamp at least
+    assert {script for _, script in calls} == {TRUSTED_SCRIPT}
+    assert copy_at < min(i for i, _ in calls)
+
+
+def test_reviewer_sandbox_settings_are_checked_and_pinned_before_the_reviewer():
+    """#228: the reviewer loads `--settings` from outside the workspace, written
+    by `pin-sandbox` only after it has checked `denyWrite` names this run's
+    workspace. A failed check is a red step, so the reviewer never starts."""
+    pin_at = _index("Pin the reviewer sandbox settings")
+    pin = _review_steps()[pin_at]
+    assert _index("Copy the trusted gate script") < pin_at < _index("review1")
+    assert pin["if"] == "steps.prepare.outputs.skip_reason == ''"
+    assert "continue-on-error" not in pin
+    assert shlex.split(pin["run"]) == [
+        "python",
+        "-I",
+        f"{TRUSTED_DIR}/code_gate_verdict.py",
+        "pin-sandbox",
+        "--settings",
+        ".github/review-sandbox.json",
+        "--out",
+        f"{TRUSTED_DIR}/review-sandbox.json",
+    ]
+    # The file the reviewer loads is the one this step wrote.
+    for attempt in ("review1", "review2"):
+        args = _review_steps()[_index(attempt)]["with"]["claude_args"]
+        assert "--settings ${{ runner.temp }}/trusted/review-sandbox.json\n" in args

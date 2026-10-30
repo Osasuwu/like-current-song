@@ -1,0 +1,15 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "allowUnsandboxedCommands": false,
+    "autoAllowBashIfSandboxed": false,
+    "filesystem": {
+      "denyWrite": ["/home/runner/work/like-current-song/like-current-song"]
+    },
+    "network": {
+      "strictAllowlist": true,
+      "allowedDomains": ["api.github.com"]
+    }
+  }
+}

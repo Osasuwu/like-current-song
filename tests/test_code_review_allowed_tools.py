@@ -19,7 +19,9 @@ Design: Osasuwu/jarvis#1964, ported in #226.
 
 from __future__ import annotations
 
+import json
 import re
+import shlex
 from pathlib import Path
 
 import pytest
@@ -287,3 +289,58 @@ def test_findings_path_in_job_env_matches_the_edit_grant() -> None:
     the granted path. Two artifacts that must agree."""
     spec = yaml.safe_load(LIVE_WORKFLOW.read_text(encoding="utf-8"))
     assert spec["jobs"]["review"]["env"]["FINDINGS"] == FINDINGS_PATH
+
+
+# --- #228: the bubblewrap sandbox is the boundary ----------------------------
+# The tool lists above steer; `git log --o''utput=<file>` passes them. What stops
+# that write is the sandbox every reviewer Bash command runs in, configured by a
+# tracked settings file passed through `--settings` (the action's `settings`
+# input lands in user scope, where `allowUnsandboxedCommands: false` is not
+# admin-required). Sandbox paths take ONE leading slash for an absolute path,
+# unlike permission rules, which take `//`: the #286 class of bug.
+SANDBOX_SETTINGS = REPO_ROOT / ".github" / "review-sandbox.json"
+RUNNER_TEMP = "/home/runner/work/_temp"
+PINNED_SETTINGS = f"{RUNNER_TEMP}/trusted/review-sandbox.json"
+EXPECTED_SANDBOX = {
+    "sandbox": {
+        "enabled": True,
+        # No sandbox, no run: never fall back to running commands unsandboxed.
+        "failIfUnavailable": True,
+        "allowUnsandboxedCommands": False,
+        # Sandboxed Bash still has to match the allowlist above.
+        "autoAllowBashIfSandboxed": False,
+        "filesystem": {"denyWrite": [RUNNER_WORKSPACE]},
+        "network": {"strictAllowlist": True, "allowedDomains": ["api.github.com"]},
+    }
+}
+
+
+def test_sandbox_settings_are_exactly_the_fail_closed_boundary() -> None:
+    """Every key pinned: dropping `denyWrite` reopens the workspace to a sandboxed
+    `--output`, dropping `failIfUnavailable` lets a missing bwrap run commands
+    unsandboxed, and `//home/...` is a permission-rule path the sandbox reads as
+    relative, so it would deny nothing."""
+    got = json.loads(SANDBOX_SETTINGS.read_text(encoding="utf-8"))
+    assert got == EXPECTED_SANDBOX
+
+
+def _claude_args(step: dict) -> list[str]:
+    """The step's `claude_args` as the action splits it, with the runner's paths
+    substituted and the `#` comment lines dropped."""
+    rendered = (
+        step["with"]["claude_args"]
+        .replace("${{ runner.temp }}", RUNNER_TEMP)
+        .replace("${{ github.workspace }}", RUNNER_WORKSPACE)
+    )
+    lines = [ln for ln in rendered.splitlines() if not ln.lstrip().startswith("#")]
+    return shlex.split("\n".join(lines))
+
+
+def test_every_reviewer_attempt_loads_the_pinned_sandbox_settings() -> None:
+    """Through `--settings`, the copy pinned outside the workspace before the
+    first attempt, and never through the action's `settings` input."""
+    for step in _reviewer_steps():
+        args = _claude_args(step)
+        assert args.count("--settings") == 1, step["name"]
+        assert args[args.index("--settings") + 1] == PINNED_SETTINGS, step["name"]
+        assert "settings" not in step["with"], step["name"]

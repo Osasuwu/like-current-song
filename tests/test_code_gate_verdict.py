@@ -10,6 +10,7 @@ import http.client
 import importlib.util
 import json
 import re
+import subprocess
 import urllib.error
 from pathlib import Path
 
@@ -263,6 +264,100 @@ def test_modified_tracked_file_is_dirty():
 def test_stray_untracked_file_is_dirty():
     porcelain = "?? code-review-findings.json\n?? scratch.sh\n"
     assert gate.check_clean_tree(porcelain, "code-review-findings.json") == ["scratch.sh"]
+
+
+# #228: `--ignored` lists every gitignored file as `!! path`. Only the staged PR
+# copies under the head dir are expected; any other ignored file is dirty.
+@pytest.mark.parametrize(
+    "line, dirty",
+    [
+        ("!! .pr-head/lib/main.dart.pr", []),
+        ("!! .pr-head/changes.diff", []),
+        ("!! __pycache__/code_gate_verdict.cpython-312.pyc", ["__pycache__/code_gate_verdict.cpython-312.pyc"]),
+        ("!! .env", [".env"]),
+        ("!! .pr-headless/x.sh", [".pr-headless/x.sh"]),
+        ("?? .pr-head/stray.sh", [".pr-head/stray.sh"]),
+    ],
+    ids=["head-copy", "head-diff", "pycache", "dotenv", "head-prefix", "untracked-in-head"],
+)
+def test_ignored_files_are_dirty_outside_the_head_dir(line, dirty):
+    porcelain = f"?? .review/findings.json\n{line}\n"
+    assert gate.check_clean_tree(porcelain, ".review/findings.json", ".pr-head") == dirty
+
+
+def _git(cwd, *args):
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
+
+
+def test_check_tree_reports_a_gitignored_file_the_review_wrote(monkeypatch, tmp_path):
+    _git(tmp_path, "init", "-q")
+    (tmp_path / ".gitignore").write_text("*.log\n", encoding="utf-8")
+    _git(tmp_path, "add", ".gitignore")
+    _git(tmp_path, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base")
+    (tmp_path / ".review").mkdir()
+    (tmp_path / ".review" / "findings.json").write_text("{}", encoding="utf-8")
+    (tmp_path / ".pr-head").mkdir()
+    (tmp_path / ".pr-head" / "a.py.pr").write_text("x", encoding="utf-8")
+    (tmp_path / ".git" / "info" / "exclude").write_text(".pr-head/\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    args = ["check-tree", "--findings", ".review/findings.json"]
+    assert gate.main(args) == 0
+    (tmp_path / "planted.log").write_text("x", encoding="utf-8")
+    assert gate.main(args) == 1
+
+
+# --- pin-sandbox (#228) ---------------------------------------------------
+
+WORKSPACE = "/home/runner/work/like-current-song/like-current-song"
+
+
+def _sandbox(**overrides):
+    sandbox = {
+        "enabled": True,
+        "failIfUnavailable": True,
+        "allowUnsandboxedCommands": False,
+        "filesystem": {"denyWrite": [WORKSPACE]},
+    }
+    sandbox.update(overrides)
+    return {"sandbox": sandbox}
+
+
+def _pin(monkeypatch, tmp_path, settings, workspace=WORKSPACE):
+    src = tmp_path / "review-sandbox.json"
+    src.write_text(json.dumps(settings), encoding="utf-8")
+    out = tmp_path / "trusted" / "review-sandbox.json"
+    out.parent.mkdir()
+    monkeypatch.setenv("GITHUB_WORKSPACE", workspace)
+    return gate.main(["pin-sandbox", "--settings", str(src), "--out", str(out)]), out
+
+
+def test_pin_sandbox_copies_settings_that_deny_writes_to_the_workspace(monkeypatch, tmp_path):
+    code, out = _pin(monkeypatch, tmp_path, _sandbox())
+    assert code == 0
+    assert json.loads(out.read_text(encoding="utf-8")) == _sandbox()
+
+
+@pytest.mark.parametrize(
+    "settings, workspace",
+    [
+        # The permission-rule spelling: the sandbox reads `//home/...` as another path.
+        (_sandbox(filesystem={"denyWrite": ["/" + WORKSPACE]}), WORKSPACE),
+        # A renamed repo or another runner layout: the tracked path no longer
+        # names the directory the reviewer runs in.
+        (_sandbox(), "/home/runner/work/renamed/renamed"),
+        (_sandbox(filesystem={"denyWrite": []}), WORKSPACE),
+        (_sandbox(failIfUnavailable=False), WORKSPACE),
+        (_sandbox(allowUnsandboxedCommands=True), WORKSPACE),
+        (_sandbox(enabled=False), WORKSPACE),
+    ],
+    ids=["double-slash", "other-workspace", "no-deny", "fallback", "unsandboxed", "disabled"],
+)
+def test_pin_sandbox_refuses_settings_that_leave_the_workspace_writable(
+    monkeypatch, tmp_path, settings, workspace
+):
+    code, out = _pin(monkeypatch, tmp_path, settings, workspace)
+    assert code == 1
+    assert not out.exists(), "nothing is pinned for the reviewer to load"
 
 
 # --- build_evidence -------------------------------------------------------
