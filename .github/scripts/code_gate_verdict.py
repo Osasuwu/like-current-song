@@ -310,12 +310,15 @@ def check_clean_tree(porcelain, findings_path, head_dir=".pr-head", root="."):
     return dirty
 
 
-def sandbox_errors(settings, workspace):
-    """Why `settings` would leave the reviewer able to write the workspace (#228).
+def sandbox_errors(settings, home, inside):
+    """Why `settings` would leave the reviewer able to write the runner's home (#228).
 
-    The reviewer's Bash runs in the Claude Code sandbox, which may write its cwd
-    by default; `denyWrite` on the workspace is what takes that back. Sandbox
-    paths are absolute with ONE leading slash: the permission-rule spelling
+    The reviewer's Bash runs in the Claude Code sandbox, whose scrub-mode allowance
+    includes its cwd and all of /home (run 41061647099). `denyWrite` on the runner's
+    home is what takes back the workspace, $RUNNER_TEMP with the trusted copies,
+    the actions the job still has to run and ~/.claude. `inside` are the paths the
+    entry has to cover, so a layout that moves one out of the home is refused.
+    Sandbox paths are absolute with ONE leading slash: the permission-rule spelling
     `//abs` names another path here, the #286 class of bug.
     """
     sandbox = settings.get("sandbox") if isinstance(settings, dict) else None
@@ -331,11 +334,54 @@ def sandbox_errors(settings, workspace):
             errors.append(f"sandbox.{key} must be {json.dumps(want)}")
     fs = sandbox.get("filesystem")
     deny = fs.get("denyWrite") if isinstance(fs, dict) else None
-    if deny != [workspace]:
+    if deny != [home]:
         errors.append(
-            f"sandbox.filesystem.denyWrite must be exactly [{json.dumps(workspace)}], "
+            f"sandbox.filesystem.denyWrite must be exactly [{json.dumps(home)}], "
             f"got {json.dumps(deny)}"
         )
+    errors.extend(f"{path} is not under {home}" for path in inside
+                  if not path.startswith(home + "/"))
+    return errors
+
+
+# bubblewrap failing to build the sandbox kills the whole command, so its message
+# opens the result, behind the CLI's exit line when the CLI adds one. Further down
+# an output it is text the command printed.
+SANDBOX_DIED = re.compile(r"(?:Exit code \d+\n)?(bwrap: .*)")
+
+
+def _bash_results(log):
+    """The (output, is_error) of every Bash call in an execution log."""
+    commands = set()
+    results = []
+    for event in log:
+        message = event.get("message")
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content, list):
+            continue
+        for item in content:
+            if item.get("type") == "tool_use" and item.get("name") == "Bash":
+                commands.add(item.get("id"))
+            if item.get("type") == "tool_result" and item.get("tool_use_id") in commands:
+                output = item.get("content")
+                if isinstance(output, list):
+                    output = "\n".join(x.get("text", "") for x in output if isinstance(x, dict))
+                results.append((str(output or ""), bool(item.get("is_error"))))
+    return results
+
+
+def sandbox_run_errors(log):
+    """Why an execution log does not show the reviewer's Bash running sandboxed (#228).
+
+    A sandbox that dies at setup does not fail the action: every Bash call comes
+    back as bubblewrap's message and the reviewer still writes clean, valid findings
+    (run 41034402640). A review that ran no Bash is clean, having run nothing.
+    """
+    results = _bash_results(log)
+    died = {m.group(1) for output, _ in results if (m := SANDBOX_DIED.match(output))}
+    errors = [f"sandbox never started: {line}" for line in sorted(died)]
+    if results and not errors and all(is_error for _, is_error in results):
+        errors.append(f"no Bash command ran: every one of {len(results)} failed")
     return errors
 
 
@@ -1312,7 +1358,11 @@ def cmd_pin_sandbox(args):
     except (OSError, ValueError) as e:
         print(f"unreadable sandbox settings: {e}", file=sys.stderr)
         return 1
-    errors = sandbox_errors(settings, os.environ["GITHUB_WORKSPACE"])
+    errors = sandbox_errors(
+        settings,
+        os.environ["HOME"],
+        (os.environ["GITHUB_WORKSPACE"], os.environ["RUNNER_TEMP"]),
+    )
     for e in errors:
         print(f"refusing to pin sandbox settings: {e}", file=sys.stderr)
     if errors:
@@ -1320,6 +1370,17 @@ def cmd_pin_sandbox(args):
     with open(args.out, "wb") as fh:
         fh.write(raw)
     return 0
+
+
+def cmd_check_sandbox(args):
+    log = _read_json(args.execution_log)
+    if not isinstance(log, list):
+        print(f"no readable execution log: {args.execution_log!r}", file=sys.stderr)
+        return 1
+    errors = sandbox_run_errors(log)
+    for e in errors:
+        print(e, file=sys.stderr)
+    return 1 if errors else 0
 
 
 def _write_evidence(obj, out):
@@ -1476,6 +1537,9 @@ def main(argv=None):
     p.add_argument("--settings", required=True)
     p.add_argument("--out", required=True)
     p.set_defaults(fn=cmd_pin_sandbox)
+    p = sub.add_parser("check-sandbox")
+    p.add_argument("--execution-log", required=True)
+    p.set_defaults(fn=cmd_check_sandbox)
     p = sub.add_parser("stamp")
     p.add_argument("--findings", required=True)
     p.add_argument("--out", default=EVIDENCE_FILE)

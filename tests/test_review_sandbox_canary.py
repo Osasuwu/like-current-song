@@ -129,6 +129,22 @@ def test_attacks_cover_all_five_commands_and_all_three_trees():
     assert any(t.startswith(f"{HOME}/") for t in targets)
 
 
+# What a later step or attempt 2 would load if the reviewer could write it.
+LATER_STEP_TARGETS = {
+    "trusted-copy": f"{TMP}/trusted/review-sandbox-canary",
+    "actions": f"{HOME}/work/_actions/review-sandbox-canary",
+    "user-settings": f"{HOME}/.claude/settings.json",
+}
+
+
+@pytest.mark.parametrize("target", LATER_STEP_TARGETS.values(), ids=LATER_STEP_TARGETS)
+def test_an_attack_on_what_a_later_step_loads_must_be_refused(target):
+    assert target in [t for _, t in _targets()]
+    runs = [(c, "" if target in c else EROFS, target not in c) for c, _ in _targets()]
+    errors = _errors(_log(*runs, *_controls_passed()))
+    assert errors == [f"attack was not blocked by the filesystem: git log -1 --o''utput={target}"]
+
+
 def test_every_attack_spells_the_flag_past_the_deny_pattern():
     for command, _ in _targets():
         assert "--o''utput=" in command
@@ -172,7 +188,7 @@ def test_an_attack_the_harness_denied_is_an_error_whatever_it_printed():
 
 def test_an_event_whose_message_is_text_is_not_a_tool_call():
     log = _harness_refused(_log(*_attacks_blocked(), *_controls_passed()), 0)
-    assert [r["denied"] for r in canary.bash_runs(log)] == [True] + [False] * 8
+    assert [r["denied"] for r in canary.bash_runs(log)] == [True] + [False] * (len(_targets()) + 1)
 
 
 def test_a_sandbox_that_never_started_is_not_a_block():
@@ -182,6 +198,16 @@ def test_a_sandbox_that_never_started_is_not_a_block():
     errors = _errors(_log(*runs, *_controls_passed()))
     assert any("sandbox never started" in e and "/work/repo/scripts" in e for e in errors)
     assert sum("was not blocked" in e for e in errors) == len(runs)
+
+
+def test_the_gate_and_the_canary_agree_on_a_dead_sandbox():
+    """Two readers of one log: the scripts run as `python -I` and cannot share code."""
+    dead = _log(("git log -1", BWRAP_DIED, True))
+    assert "sandbox never started" in " ".join(_errors(dead))
+    assert "sandbox never started" in " ".join(gate.sandbox_run_errors(dead))
+    live = _log(("git log -1", "abc123 a commit\n", False))
+    assert "sandbox never started" not in " ".join(_errors(live))
+    assert gate.sandbox_run_errors(live) == []
 
 
 def test_one_startup_failure_is_named_once():
@@ -398,14 +424,46 @@ def test_an_unreadable_index_differs_from_a_readable_one(tmp_path):
 def test_a_file_written_outside_the_workspace_is_an_error(tmp_path):
     (tmp_path / "review-sandbox-canary").write_text("written\n")
     targets = [("cmd", str(tmp_path / "review-sandbox-canary")), ("cmd", str(tmp_path / "other"))]
-    assert canary.outside_errors(targets, str(tmp_path / "ws")) == [
+    assert canary.outside_errors(targets, str(tmp_path / "ws"), str(tmp_path / "home")) == [
         f"{tmp_path / 'review-sandbox-canary'} exists"
     ]
 
 
 def test_workspace_targets_are_left_to_the_snapshot():
     targets = [("cmd", f"{WS}/CLAUDE.md")]
-    assert canary.outside_errors(targets, WS) == []
+    assert canary.outside_errors(targets, WS, HOME) == []
+
+
+def _user_settings(home, content="{}\n"):
+    path = Path(home) / ".claude" / "settings.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if content is not None:
+        path.write_text(content, encoding="utf-8")
+    return str(path)
+
+
+def test_the_settings_file_the_action_writes_is_not_a_landed_attack(tmp_path):
+    target = _user_settings(tmp_path, '{"enableAllProjectMcpServers": true}\n')
+    assert canary.outside_errors([("cmd", target)], WS, str(tmp_path)) == []
+
+
+@pytest.mark.parametrize(
+    "content",
+    [f"commit {SHA}\nAuthor: canary\n", "", "[]\n"],
+    ids=["git-output", "emptied", "not-an-object"],
+)
+def test_a_rewritten_settings_file_is_an_error(tmp_path, content):
+    # `git --output` truncates and writes commits: the file's existence says nothing.
+    target = _user_settings(tmp_path, content)
+    errors = canary.outside_errors([("cmd", target)], WS, str(tmp_path))
+    assert errors == [f"{target} is not the action's settings"]
+
+
+def test_a_settings_file_that_is_gone_is_an_error(tmp_path):
+    target = _user_settings(tmp_path, content=None)
+    assert canary.outside_errors([("cmd", target)], WS, str(tmp_path)) == [
+        f"{target} is not the action's settings"
+    ]
 
 
 # --- the verify command ------------------------------------------------------
@@ -418,15 +476,26 @@ def _control_file(tmp_path, monkeypatch, content=f"canary-ok-{SHA}\n"):
     monkeypatch.setattr(canary, "WRITE_CONTROL", str(path))
 
 
+def _home(root):
+    """Per test: a run's home holds the settings file the action writes."""
+    return root.parent / f"{root.name}-home"
+
+
+def _run_env(root, monkeypatch):
+    monkeypatch.chdir(root)
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(root))
+    monkeypatch.setenv("RUNNER_TEMP", str(root.parent / "no-temp"))
+    monkeypatch.setenv("HOME", str(_home(root)))
+
+
 def _verify(tmp_path, monkeypatch, log):
     root = _tree(tmp_path)
     snap = tmp_path.parent / f"{tmp_path.name}-snap.json"
     exec_log = tmp_path.parent / f"{tmp_path.name}-exec.json"
     exec_log.write_text(json.dumps(log), encoding="utf-8")
-    monkeypatch.chdir(root)
-    monkeypatch.setenv("GITHUB_WORKSPACE", str(root))
-    monkeypatch.setenv("RUNNER_TEMP", str(root.parent / "no-temp"))
-    monkeypatch.setenv("HOME", str(root.parent / "no-home"))
+    _run_env(root, monkeypatch)
+    if not (_home(root) / ".claude" / "settings.json").exists():
+        _user_settings(_home(root))
     assert canary.main(["snapshot", "--out", str(snap)]) == 0
     return root, canary.main(
         ["verify", "--snapshot", str(snap), "--execution-log", str(exec_log), "--repo", "o/r"]
@@ -434,7 +503,7 @@ def _verify(tmp_path, monkeypatch, log):
 
 
 def _clean_log(root):
-    workspace, temp, home = str(root), str(root.parent / "no-temp"), str(root.parent / "no-home")
+    workspace, temp, home = str(root), str(root.parent / "no-temp"), str(_home(root))
     attacks = [(c, EROFS, True) for c, _ in canary.attack_commands(workspace, temp, home)]
     return _log(*attacks, *_controls_passed())
 
@@ -457,13 +526,19 @@ def test_verify_reads_a_real_shape_log_without_crashing(tmp_path, monkeypatch, c
     assert "was not blocked" in capsys.readouterr().err
 
 
+def test_verify_fails_a_rewritten_user_settings_file_even_with_a_clean_log(
+    tmp_path, monkeypatch, capsys
+):
+    _control_file(tmp_path, monkeypatch)
+    _user_settings(_home(tmp_path), f"commit {SHA}\n")
+    assert _verify(tmp_path, monkeypatch, _clean_log(tmp_path))[1] == 1
+    assert "is not the action's settings" in capsys.readouterr().err
+
+
 def test_verify_fails_a_missing_execution_log(tmp_path, monkeypatch, capsys):
     root = _tree(tmp_path)
     snap = tmp_path.parent / f"{tmp_path.name}-snap.json"
-    monkeypatch.chdir(root)
-    monkeypatch.setenv("GITHUB_WORKSPACE", str(root))
-    monkeypatch.setenv("RUNNER_TEMP", str(root.parent / "no-temp"))
-    monkeypatch.setenv("HOME", str(root.parent / "no-home"))
+    _run_env(root, monkeypatch)
     canary.main(["snapshot", "--out", str(snap)])
     assert canary.main(
         ["verify", "--snapshot", str(snap), "--execution-log", "", "--repo", "o/r"]
@@ -476,21 +551,127 @@ def test_verify_fails_when_a_log_error_is_found(tmp_path, monkeypatch):
     assert _verify(tmp_path, monkeypatch, _log())[1] == 1
 
 
-def test_verify_fails_a_rewritten_guarded_file_even_with_a_clean_log(tmp_path, monkeypatch):
+def test_verify_fails_a_rewritten_guarded_file_even_with_a_clean_log(tmp_path, monkeypatch, capsys):
     _control_file(tmp_path, monkeypatch)
     root = _tree(tmp_path)
     snap = tmp_path.parent / f"{tmp_path.name}-snap.json"
     exec_log = tmp_path.parent / f"{tmp_path.name}-exec.json"
     exec_log.write_text(json.dumps(_clean_log(root)), encoding="utf-8")
-    monkeypatch.chdir(root)
-    monkeypatch.setenv("GITHUB_WORKSPACE", str(root))
-    monkeypatch.setenv("RUNNER_TEMP", str(root.parent / "no-temp"))
-    monkeypatch.setenv("HOME", str(root.parent / "no-home"))
+    _run_env(root, monkeypatch)
+    _user_settings(_home(root))
     canary.main(["snapshot", "--out", str(snap)])
     (root / "CLAUDE.md").write_text("forged\n")
     assert canary.main(
         ["verify", "--snapshot", str(snap), "--execution-log", str(exec_log), "--repo", "o/r"]
     ) == 1
+    assert "guarded path changed: CLAUDE.md" in capsys.readouterr().err
+
+
+def _read_only(path):
+    path.write_text("x", encoding="utf-8")
+    path.chmod(0o444)
+    return path
+
+
+def test_describe_says_a_writable_file_can_be_replaced(tmp_path):
+    target = tmp_path / "tool"
+    target.write_text("x", encoding="utf-8")
+    assert " writable=True " in canary.describe(str(target))
+
+
+def test_describe_says_a_read_only_file_cannot_be_replaced(tmp_path):
+    line = canary.describe(str(_read_only(tmp_path / "tool")))
+    assert " writable=False " in line
+    assert "parent_writable=True" in line
+
+
+def test_describe_names_the_owner_and_mode(tmp_path, monkeypatch):
+    target = _read_only(tmp_path / "tool")
+    monkeypatch.setattr(canary, "_owner", lambda info: f"uid-{info.st_uid}")
+    line = canary.describe(str(target))
+    assert f"owner=uid-{target.stat().st_uid}" in line
+    assert f"mode={stat.S_IMODE(target.stat().st_mode):o}" in line
+
+
+def test_describe_judges_what_a_link_points_at(tmp_path, monkeypatch):
+    # No real symlink: Windows cannot always make one, and this runs everywhere.
+    target = tmp_path / "real"
+    target.write_text("x", encoding="utf-8")
+    monkeypatch.setattr(canary.os.path, "realpath", lambda path: str(target))
+    line = canary.describe(str(tmp_path / "link"))
+    assert f" -> {target} " in line
+    assert " writable=True " in line
+
+
+def test_describe_reports_a_path_that_is_not_there(tmp_path):
+    missing = tmp_path / "nothing"
+    assert canary.describe(str(missing)).startswith(f"{missing}: ")
+
+
+def test_command_lines_resolves_through_the_path_it_is_given(tmp_path):
+    tool = tmp_path / "tool.exe"
+    tool.write_text("x", encoding="utf-8")
+    tool.chmod(0o755)
+    (line,) = canary.command_lines(["tool.exe"], str(tmp_path))
+    assert line.startswith("tool.exe: ")
+    assert " writable=True " in line
+
+
+def test_command_lines_reports_a_command_that_is_not_there(tmp_path):
+    assert canary.command_lines(["no-such-tool"], str(tmp_path)) == ["no-such-tool: not found"]
+
+
+def test_path_lines_keeps_the_search_order_and_skips_empty_entries(tmp_path):
+    first, second = tmp_path / "b", tmp_path / "a"
+    first.mkdir()
+    second.mkdir()
+    lines = canary.path_lines(os.pathsep.join([str(first), "", str(second)]))
+    assert [line.split(" -> ")[0] for line in lines] == [str(first), str(second)]
+
+
+def test_writable_paths_lists_what_this_user_could_replace_and_nothing_else(tmp_path):
+    (tmp_path / "writable").write_text("x", encoding="utf-8")
+    _read_only(tmp_path / "read-only")
+    assert canary.writable_paths(str(tmp_path)) == [str(tmp_path / "writable")]
+
+
+def test_writable_paths_stops_at_its_depth(tmp_path):
+    deep = tmp_path / "a" / "b"
+    deep.mkdir(parents=True)
+    (deep / "too-deep").write_text("x", encoding="utf-8")
+    (tmp_path / "a" / "in-reach").write_text("x", encoding="utf-8")
+    found = canary.writable_paths(str(tmp_path), depth=2)
+    assert str(tmp_path / "a" / "in-reach") in found
+    assert str(deep / "too-deep") not in found
+
+
+def test_survey_prints_commands_path_and_the_writable_roots_and_fails_nothing(
+    tmp_path, monkeypatch, capsys
+):
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "planted").write_text("x", encoding="utf-8")
+    on_path = tmp_path / "on-path"
+    on_path.mkdir()
+    monkeypatch.setenv("PATH", str(on_path))
+    monkeypatch.setattr(canary, "WRITABLE_ROOTS", (str(root),))
+    assert canary.main(["survey"]) == 0
+    out = capsys.readouterr().out
+    assert "git: not found" in out
+    assert f"{on_path} -> " in out
+    assert f"{root / 'planted'} -> " in out
+
+
+def test_survey_cuts_a_long_root_and_says_how_many_it_found(tmp_path, monkeypatch, capsys):
+    for i in range(3):
+        (tmp_path / f"file{i}").write_text("x", encoding="utf-8")
+    monkeypatch.setenv("PATH", "")
+    monkeypatch.setattr(canary, "WRITABLE_ROOTS", (str(tmp_path),))
+    monkeypatch.setattr(canary, "SURVEY_LIMIT", 2)
+    canary.main(["survey"])
+    out = capsys.readouterr().out
+    assert f"== {tmp_path}: 3 writable" in out
+    assert sum(line.startswith(str(tmp_path / "file")) for line in out.splitlines()) == 2
 
 
 def test_an_attack_that_exited_zero_is_an_error():
@@ -581,6 +762,15 @@ def test_canary_prompt_makes_every_attack_and_both_controls():
     assert canary.network_command("${{ github.repository }}") in prompt
 
 
+def test_canary_prompt_numbers_every_command_and_expects_only_the_attacks_to_fail():
+    prompt = _step(HELD["steps"], "canary")["with"]["prompt"]
+    attacks = len(canary.attack_commands(*PLACEHOLDERS))
+    assert len(re.findall(r"^\d+\. ", prompt, re.M)) == attacks + 2
+    flat = " ".join(prompt.split())
+    assert f"Run commands 1 to {attacks + 2} exactly" in flat
+    assert f"Commands 1 to {attacks} are expected to fail" in flat
+
+
 def test_canary_sandbox_lines_reach_the_log_and_the_debug_file_does_not_leave_the_runner():
     steps = HELD["steps"]
     args = _step(steps, "canary")["with"]["claude_args"]
@@ -615,17 +805,32 @@ def test_held_job_snapshots_before_the_reviewer_and_judges_from_trusted_copies_a
         _step(steps, "copy")["run"]
     )
     assert _step(steps, "canary")["continue-on-error"] is True
-    for step_id in ("snapshot", "verify", "check-tree", "validate"):
+    for step_id in ("snapshot", "survey", "verify", "check-sandbox", "check-tree", "validate"):
         run = _step(steps, step_id)["run"]
         assert f'python -I "{TRUSTED}/' in run
         assert ".github/scripts/" not in run
 
 
-@pytest.mark.parametrize("step_id", ["verify", "check-tree", "validate"])
+def test_held_job_surveys_after_the_reviewer_because_the_action_changes_path():
+    steps = HELD["steps"]
+    assert _position(steps, "canary") < _position(steps, "survey")
+    assert "review_sandbox_canary.py\" survey" in _step(steps, "survey")["run"]
+
+
+@pytest.mark.parametrize("step_id", ["survey", "verify", "check-sandbox", "check-tree", "validate"])
 def test_held_job_judges_even_when_the_reviewer_failed(step_id):
     step = _step(HELD["steps"], step_id)
     assert step["if"] == "always()"
     assert "continue-on-error" not in step
+
+
+def test_held_job_runs_the_reviewers_sandbox_check_on_its_own_log():
+    """code-review.yml runs the base copy and skips gate-machinery PRs, so this is
+    where a change to `check-sandbox` meets a real execution log."""
+    step = _step(HELD["steps"], "check-sandbox")
+    assert _position(HELD["steps"], "canary") < _position(HELD["steps"], "check-sandbox")
+    assert step["env"]["EXECUTION_LOG"] == "${{ steps.canary.outputs.execution_file }}"
+    assert 'code_gate_verdict.py" check-sandbox --execution-log "$EXECUTION_LOG"' in step["run"]
 
 
 def test_held_job_keeps_the_env_scrub_and_read_only_token():

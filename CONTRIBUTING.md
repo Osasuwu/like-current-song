@@ -669,21 +669,28 @@ in this section:
   step removes `/run/podman`: while the CLI cannot resolve the socket's path
   there, no sandboxed command starts in a read-only workspace (#228).
 - The reviewer's boundary is that same bubblewrap, in three parts (#228). Its
-  Bash runs in the sandbox set by `.github/review-sandbox.json`, which lets it
-  write only its own temp directory, so the workspace, the runner's temp
-  directory and the home directory are refused, and the job fails if the
-  sandbox cannot start. The `Edit` grant on `.review/findings.json` is its only
-  write to the workspace, and that file is read only as data. The env scrub, with the PID namespace it runs in, keeps secrets out of
-  its subprocesses. The `--allowed-tools` and `--disallowed-tools` lists are no
-  part of it: they match command text and only steer the reviewer. Steps after
-  the reviewer run only copies made before it, outside the workspace, and
-  `check-tree` fails a run that left any changed, new or ignored file.
+  Bash runs in the sandbox set by `.github/review-sandbox.json`, whose
+  `denyWrite` is the runner's whole home, `/home/runner`. That covers the
+  workspace, the runner's temp directory with the trusted copies and the
+  workflow command files, the downloaded actions and `~/.claude`. The rest of
+  what the CLI opens stays writable: `/tmp`, `/opt`, `/var`, `/run`, `/mnt` and
+  `/root`. The job fails if the sandbox cannot start, and `check-sandbox` fails
+  it if the sandbox died at setup, which the action itself reports as a
+  success. The `Edit` grant on `.review/findings.json` is its only write to the
+  workspace, and that file is read only as data. The env scrub, with the PID
+  namespace it runs in, keeps secrets out of its subprocesses. The
+  `--allowed-tools` and `--disallowed-tools` lists are no part of it: they match
+  command text and only steer the reviewer. Steps after the reviewer run only
+  copies made before it, outside the workspace, and `check-tree` fails a run
+  that left any changed, new or ignored file.
 - `review-sandbox-canary.yml` runs a real reviewer on the PR's copy of those
   files, since a change to them never meets the review workflow's own run, and
   a run on a developer machine shows nothing about bubblewrap.
-  One job has it attempt `git --output` writes the sandbox must refuse, a write
-  into `/tmp` and an `api.github.com` call it must allow; the other has no
-  bubblewrap and must fail.
+  One job has it attempt `git --output` writes the sandbox must refuse, in the
+  workspace and across the runner's home, a write into `/tmp` and an
+  `api.github.com` call it must allow, runs `check-sandbox` on its log, and
+  prints what the writable roots reach; the other has no bubblewrap and must
+  fail.
 - `code-gate-verdict.yml` runs from the **default branch** (it never checks out
   PR code), reads the artifacts of the review runs bound to the head SHA and
   posts `verify-verdict` as the `osasuwu-ci` GitHub App, on every PR event, when

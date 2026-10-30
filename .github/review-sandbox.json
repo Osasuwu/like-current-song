@@ -5,7 +5,7 @@
     "allowUnsandboxedCommands": false,
     "autoAllowBashIfSandboxed": false,
     "filesystem": {
-      "denyWrite": ["/home/runner/work/like-current-song/like-current-song"]
+      "denyWrite": ["/home/runner"]
     },
     "network": {
       "strictAllowlist": true,

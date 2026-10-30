@@ -134,9 +134,10 @@ jobs:
           printf '%s\n' '{"status":"unreviewed"}' > "$FINDINGS"
 
       # The reviewer's sandbox (#228), loaded through `--settings` below. The
-      # tracked file names the workspace by its absolute path, so a renamed repo
-      # would leave `denyWrite` on a directory that does not exist; pin-sandbox
-      # checks it against $GITHUB_WORKSPACE and fails the job before the reviewer.
+      # tracked file names the runner's home by its absolute path, so a runner
+      # with another layout would leave `denyWrite` on the wrong directory;
+      # pin-sandbox checks it against $HOME, and that $GITHUB_WORKSPACE and
+      # $RUNNER_TEMP lie inside it, and fails the job before the reviewer.
       - name: Pin the reviewer sandbox settings
         if: steps.prepare.outputs.skip_reason == ''
         run: python -I "$RUNNER_TEMP/trusted/code_gate_verdict.py" pin-sandbox --settings .github/review-sandbox.json --out "$RUNNER_TEMP/trusted/review-sandbox.json"
@@ -284,10 +285,12 @@ jobs:
             # they are not a boundary — the harness matches command text, so
             # `git log --o''utput=<file>` passes the `--ou` deny. The boundary
             # is the bubblewrap sandbox set by `--settings`
-            # (.github/review-sandbox.json, #228): Bash writes only its own temp
-            # directory, the `Edit` grant is the only write to the workspace,
-            # and the env scrub with its PID namespace keeps secrets out of the
-            # subprocesses. review-sandbox-canary.yml proves it on a real run.
+            # (.github/review-sandbox.json, #228): Bash is refused all of the
+            # runner's home, /home/runner, and keeps /tmp and the other roots
+            # the CLI opens (/opt /var /run /mnt /root). The `Edit` grant is the
+            # only write to the workspace, and the env scrub with its PID
+            # namespace keeps secrets out of the subprocesses.
+            # review-sandbox-canary.yml proves it on a real run.
             # The findings grant is absolute (`//` after expansion): `./` is
             # cwd-relative and the reviewer can `cd` (#286). The sandbox
             # settings take one slash; permission rules take `//`.
@@ -337,6 +340,15 @@ jobs:
           path: ${{ steps.review2.outputs.execution_file || steps.review1.outputs.execution_file }}
           retention-days: 7
           if-no-files-found: warn
+
+      # A sandbox that dies at setup fails no step above: the action ends green and
+      # the reviewer still writes valid findings (run 41034402640, #228). The log is
+      # the only place that shows it, so nothing is stamped until this has read it.
+      - name: Check the sandbox ran
+        if: steps.prepare.outputs.skip_reason == ''
+        env:
+          EXECUTION_LOG: ${{ steps.review2.outputs.execution_file || steps.review1.outputs.execution_file }}
+        run: python -I "$RUNNER_TEMP/trusted/code_gate_verdict.py" check-sandbox --execution-log "$EXECUTION_LOG"
 
       # Nothing but the findings file may differ from the base checkout.
       - name: Check workspace is clean

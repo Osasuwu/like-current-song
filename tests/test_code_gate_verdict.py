@@ -421,7 +421,9 @@ def test_check_tree_reports_a_gitignored_file_the_review_wrote(monkeypatch, tmp_
 
 # --- pin-sandbox (#228) ---------------------------------------------------
 
+HOME = "/home/runner"
 WORKSPACE = "/home/runner/work/like-current-song/like-current-song"
+RUNNER_TEMP = "/home/runner/work/_temp"
 
 
 def _sandbox(**overrides):
@@ -429,48 +431,216 @@ def _sandbox(**overrides):
         "enabled": True,
         "failIfUnavailable": True,
         "allowUnsandboxedCommands": False,
-        "filesystem": {"denyWrite": [WORKSPACE]},
+        "filesystem": {"denyWrite": [HOME]},
     }
     sandbox.update(overrides)
     return {"sandbox": sandbox}
 
 
-def _pin(monkeypatch, tmp_path, settings, workspace=WORKSPACE):
+def _deny(*paths):
+    return _sandbox(filesystem={"denyWrite": list(paths)})
+
+
+def _pin(monkeypatch, tmp_path, settings, home=HOME, workspace=WORKSPACE, runner_temp=RUNNER_TEMP):
     src = tmp_path / "review-sandbox.json"
     src.write_text(json.dumps(settings), encoding="utf-8")
     out = tmp_path / "trusted" / "review-sandbox.json"
     out.parent.mkdir()
+    monkeypatch.setenv("HOME", home)
     monkeypatch.setenv("GITHUB_WORKSPACE", workspace)
+    monkeypatch.setenv("RUNNER_TEMP", runner_temp)
     return gate.main(["pin-sandbox", "--settings", str(src), "--out", str(out)]), out
 
 
-def test_pin_sandbox_copies_settings_that_deny_writes_to_the_workspace(monkeypatch, tmp_path):
+def test_pin_sandbox_copies_settings_that_deny_writes_to_the_runners_home(monkeypatch, tmp_path):
     code, out = _pin(monkeypatch, tmp_path, _sandbox())
     assert code == 0
     assert json.loads(out.read_text(encoding="utf-8")) == _sandbox()
 
 
 @pytest.mark.parametrize(
-    "settings, workspace",
+    "settings, env, refusal",
     [
+        # The boundary of rounds 1 and 2: run 41061647099 wrote $RUNNER_TEMP and $HOME.
+        (_deny(WORKSPACE), {}, "denyWrite must be exactly"),
+        (_deny("/home/runner/work"), {}, "denyWrite must be exactly"),
+        (_deny(), {}, "denyWrite must be exactly"),
+        (_sandbox(filesystem={}), {}, "denyWrite must be exactly"),
         # The permission-rule spelling: the sandbox reads `//home/...` as another path.
-        (_sandbox(filesystem={"denyWrite": ["/" + WORKSPACE]}), WORKSPACE),
-        # A renamed repo or another runner layout: the tracked path no longer
-        # names the directory the reviewer runs in.
-        (_sandbox(), "/home/runner/work/renamed/renamed"),
-        (_sandbox(filesystem={"denyWrite": []}), WORKSPACE),
-        (_sandbox(failIfUnavailable=False), WORKSPACE),
-        (_sandbox(allowUnsandboxedCommands=True), WORKSPACE),
-        (_sandbox(enabled=False), WORKSPACE),
+        (_deny("/" + HOME), {}, "denyWrite must be exactly"),
+        # Exactly the one entry the canary proved, not a superset.
+        (_deny(HOME, WORKSPACE), {}, "denyWrite must be exactly"),
+        (_deny("/home"), {}, "denyWrite must be exactly"),
+        # Another runner layout: the tracked path no longer names this run's home.
+        (
+            _sandbox(),
+            {
+                "home": "/home/other",
+                "workspace": "/home/other/work/repo/repo",
+                "runner_temp": "/home/other/work/_temp",
+            },
+            "denyWrite must be exactly",
+        ),
+        # The home is denied, but what it must cover has moved out from under it.
+        (_sandbox(), {"workspace": "/__w/repo/repo"}, "/__w/repo/repo is not under"),
+        (_sandbox(), {"runner_temp": "/__w/_temp"}, "/__w/_temp is not under"),
+        # A prefix of the name, not of the path.
+        (_sandbox(), {"workspace": "/home/runner2/repo"}, "/home/runner2/repo is not under"),
+        (_sandbox(failIfUnavailable=False), {}, "failIfUnavailable"),
+        (_sandbox(allowUnsandboxedCommands=True), {}, "allowUnsandboxedCommands"),
+        (_sandbox(enabled=False), {}, "sandbox.enabled"),
     ],
-    ids=["double-slash", "other-workspace", "no-deny", "fallback", "unsandboxed", "disabled"],
+    ids=[
+        "workspace-only",
+        "work-dir-only",
+        "empty-deny",
+        "no-deny",
+        "double-slash",
+        "extra-entry",
+        "parent",
+        "other-home",
+        "workspace-outside-home",
+        "temp-outside-home",
+        "sibling-of-home",
+        "fallback",
+        "unsandboxed",
+        "disabled",
+    ],
 )
-def test_pin_sandbox_refuses_settings_that_leave_the_workspace_writable(
-    monkeypatch, tmp_path, settings, workspace
+def test_pin_sandbox_refuses_anything_but_the_home_boundary(
+    monkeypatch, tmp_path, capsys, settings, env, refusal
 ):
-    code, out = _pin(monkeypatch, tmp_path, settings, workspace)
+    code, out = _pin(monkeypatch, tmp_path, settings, **env)
     assert code == 1
+    assert refusal in capsys.readouterr().err
     assert not out.exists(), "nothing is pinned for the reviewer to load"
+
+
+# --- check-sandbox (#228) -------------------------------------------------
+
+# Both shapes are lines of the real dead-sandbox log (run 41034402640): the second
+# reached the reviewer with is_error false.
+DIED = "bwrap: Can't create file at /work/repo/scripts: Read-only file system"
+DIED_WITH_EXIT = f"Exit code 1\n{DIED}"
+
+
+def _exchange(tool_id, name, output, is_error=False):
+    """One tool call and its result, as an execution log holds them."""
+    return [
+        {
+            "type": "assistant",
+            "message": {"content": [{"type": "tool_use", "id": tool_id, "name": name}]},
+        },
+        {
+            "type": "user",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tool_id,
+                        "content": output,
+                        "is_error": is_error,
+                    }
+                ]
+            },
+        },
+    ]
+
+
+def _bash(*results):
+    return [
+        event
+        for i, (output, is_error) in enumerate(results)
+        for event in _exchange(f"toolu_{i}", "Bash", output, is_error)
+    ]
+
+
+@pytest.mark.parametrize(
+    "output, is_error",
+    [(DIED_WITH_EXIT, True), (DIED, False), ([{"type": "text", "text": DIED_WITH_EXIT}], True)],
+    ids=["exit-line", "no-error-flag", "content-list"],
+)
+def test_a_bash_result_from_bubblewrap_is_a_dead_sandbox(output, is_error):
+    assert gate.sandbox_run_errors(_bash((output, is_error))) == [f"sandbox never started: {DIED}"]
+
+
+def test_one_dead_command_among_ones_that_ran_is_a_dead_sandbox():
+    log = _bash(("abc123 a commit\n", False), (DIED_WITH_EXIT, True))
+    assert gate.sandbox_run_errors(log) == [f"sandbox never started: {DIED}"]
+
+
+def test_the_same_startup_failure_is_named_once():
+    log = _bash((DIED_WITH_EXIT, True), (DIED, False), (DIED_WITH_EXIT, True))
+    assert len(gate.sandbox_run_errors(log)) == 1
+
+
+def test_a_review_whose_bash_ran_is_clean():
+    assert gate.sandbox_run_errors(_bash(("abc123 a commit\n", False))) == []
+
+
+def test_a_command_that_failed_alongside_one_that_ran_is_clean():
+    log = _bash(("fatal: bad revision\n", True), ("abc123 a commit\n", False))
+    assert gate.sandbox_run_errors(log) == []
+
+
+def test_a_sandbox_that_failed_in_a_way_nobody_has_seen_yet_still_fails():
+    """Bubblewrap's message is only the failure on record. When no command at all
+    came back clean, nothing shows the sandbox ran, whatever each one printed."""
+    log = _bash(("sandbox: cannot start proxy\n", True), ("sandbox: cannot start proxy\n", True))
+    assert gate.sandbox_run_errors(log) == ["no Bash command ran: every one of 2 failed"]
+
+
+def test_a_review_with_no_bash_is_clean():
+    log = _exchange("toolu_0", "Read", "file text\n")
+    assert gate.sandbox_run_errors(log) == []
+
+
+def test_a_file_that_reads_like_bubblewrap_is_not_a_dead_sandbox():
+    assert gate.sandbox_run_errors(_exchange("toolu_0", "Read", DIED_WITH_EXIT)) == []
+
+
+def test_bubblewrap_further_down_a_commands_output_is_not_a_dead_sandbox():
+    """The whole command died, so the message is its first line. A `cat` of a file
+    that quotes one has run."""
+    assert gate.sandbox_run_errors(_bash((f"line 1\n{DIED}\n", False))) == []
+
+
+def test_an_event_whose_message_is_text_is_not_a_tool_call():
+    log = [{"type": "system", "message": "A variable in this command..."}]
+    assert gate.sandbox_run_errors(log) == []
+
+
+def _check_sandbox(tmp_path, log):
+    path = tmp_path / "execution.json"
+    path.write_text(json.dumps(log), encoding="utf-8")
+    return gate.main(["check-sandbox", "--execution-log", str(path)])
+
+
+def test_check_sandbox_fails_a_dead_sandbox_and_says_why(tmp_path, capsys):
+    assert _check_sandbox(tmp_path, _bash((DIED_WITH_EXIT, True))) == 1
+    assert f"sandbox never started: {DIED}" in capsys.readouterr().err
+
+
+def test_check_sandbox_passes_a_review_whose_bash_ran(tmp_path, capsys):
+    assert _check_sandbox(tmp_path, _bash(("abc123 a commit\n", False))) == 0
+    assert capsys.readouterr().err == ""
+
+
+def test_check_sandbox_fails_a_log_that_is_not_there(tmp_path, capsys):
+    missing = str(tmp_path / "absent.json")
+    assert gate.main(["check-sandbox", "--execution-log", missing]) == 1
+    assert "no readable execution log" in capsys.readouterr().err
+
+
+def test_check_sandbox_fails_an_empty_log_path(capsys):
+    """The workflow passes "" when neither attempt produced a log."""
+    assert gate.main(["check-sandbox", "--execution-log", ""]) == 1
+    assert "no readable execution log" in capsys.readouterr().err
+
+
+def test_check_sandbox_fails_a_log_that_is_not_a_list_of_events(tmp_path, capsys):
+    assert _check_sandbox(tmp_path, {"not": "a log"}) == 1
+    assert "no readable execution log" in capsys.readouterr().err
 
 
 # --- build_evidence -------------------------------------------------------

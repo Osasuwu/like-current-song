@@ -372,7 +372,7 @@ def test_gate_script_runs_only_from_a_copy_made_before_the_reviewer():
 def test_reviewer_sandbox_settings_are_checked_and_pinned_before_the_reviewer():
     """#228: the reviewer loads `--settings` from outside the workspace, written
     by `pin-sandbox` only after it has checked `denyWrite` names this run's
-    workspace. A failed check is a red step, so the reviewer never starts."""
+    home. A failed check is a red step, so the reviewer never starts."""
     pin_at = _index("Pin the reviewer sandbox settings")
     pin = _review_steps()[pin_at]
     assert _index("Copy the trusted gate script") < pin_at < _index("review1")
@@ -392,6 +392,29 @@ def test_reviewer_sandbox_settings_are_checked_and_pinned_before_the_reviewer():
     for attempt in ("review1", "review2"):
         args = _review_steps()[_index(attempt)]["with"]["claude_args"]
         assert "--settings ${{ runner.temp }}/trusted/review-sandbox.json\n" in args
+
+
+def test_a_sandbox_that_died_fails_the_job_before_the_review_is_stamped():
+    """#228 AC2: a sandbox that dies at setup leaves the action green and the
+    reviewer's clean findings valid (run 41034402640), so nothing but this step
+    stops them being stamped. It reads the attempt whose findings get stamped."""
+    at = _index("Check the sandbox ran")
+    step = _review_steps()[at]
+    assert _index("Upload review execution log") < at < _index("Stamp review evidence")
+    assert at < _index("Check workspace is clean")
+    assert step["if"] == "steps.prepare.outputs.skip_reason == ''"
+    assert "continue-on-error" not in step
+    assert step["env"]["EXECUTION_LOG"] == (
+        "${{ steps.review2.outputs.execution_file || steps.review1.outputs.execution_file }}"
+    )
+    assert shlex.split(step["run"]) == [
+        "python",
+        "-I",
+        f"{TRUSTED_DIR}/code_gate_verdict.py",
+        "check-sandbox",
+        "--execution-log",
+        "$EXECUTION_LOG",
+    ]
 
 
 def test_retry_starts_only_from_the_tree_attempt_1_started_from():

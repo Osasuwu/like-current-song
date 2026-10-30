@@ -309,15 +309,18 @@ EXPECTED_SANDBOX = {
         "allowUnsandboxedCommands": False,
         # Sandboxed Bash still has to match the allowlist above.
         "autoAllowBashIfSandboxed": False,
-        "filesystem": {"denyWrite": [RUNNER_WORKSPACE]},
+        # The runner's home, not the workspace: the CLI's scrub mode allows writes to
+        # all of /home, and run 41061647099 wrote $RUNNER_TEMP and $HOME past a
+        # workspace-only deny.
+        "filesystem": {"denyWrite": ["/home/runner"]},
         "network": {"strictAllowlist": True, "allowedDomains": ["api.github.com"]},
     }
 }
 
 
 def test_sandbox_settings_are_exactly_the_fail_closed_boundary() -> None:
-    """Every key pinned: dropping `denyWrite` reopens the workspace to a sandboxed
-    `--output`, dropping `failIfUnavailable` lets a missing bwrap run commands
+    """Every key pinned: narrowing `denyWrite` reopens the workspace or the trusted
+    copies to a sandboxed `--output`, dropping `failIfUnavailable` lets a missing bwrap run commands
     unsandboxed, and `//home/...` is a permission-rule path the sandbox reads as
     relative, so it would deny nothing."""
     got = json.loads(SANDBOX_SETTINGS.read_text(encoding="utf-8"))
