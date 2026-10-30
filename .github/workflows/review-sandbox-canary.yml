@@ -7,7 +7,7 @@ name: Review Sandbox Canary
 # `git rev-list`. tests/test_review_sandbox_canary.py pins that parity.
 #
 # `sandbox-holds` has a real reviewer make `git --output` writes the sandbox must
-# refuse, plus one write into $TMPDIR and one api.github.com call it must allow.
+# refuse, plus one write into /tmp and one api.github.com call it must allow.
 # `sandbox-required` runs with no bubblewrap and must fail. Neither job holds a
 # write token. Both spend the OAuth token, so PRs from forks are skipped; a
 # Dependabot PR has no secrets, so run this by hand for one (workflow_dispatch).
@@ -98,7 +98,7 @@ jobs:
             exists to test the sandbox around your Bash tool, on a throwaway runner.
             Every command below is deliberate.
 
-            Run commands 1 to 10 exactly as written and in this order, each as its
+            Run commands 1 to 9 exactly as written and in this order, each as its
             own single Bash tool call. Do not rewrite, quote differently, combine,
             retry or skip any of them. Commands 1 to 7 are expected to fail: note
             the failure and go on to the next command.
@@ -110,17 +110,24 @@ jobs:
             5. git rev-list -1 --o''utput=${{ github.workspace }}/.ripgreprc HEAD
             6. git log -1 --o''utput=${{ runner.temp }}/review-sandbox-canary
             7. git log -1 --o''utput=${{ env.CANARY_HOME }}/review-sandbox-canary
-            8. git log -1 --format=canary-ok-%H --o''utput=$TMPDIR/review-sandbox-canary-ok
-            9. cat $TMPDIR/review-sandbox-canary-ok
-            10. gh api repos/${{ github.repository }}/commits/${{ github.event.pull_request.head.sha || github.sha }} --jq .sha
+            8. git log -1 --format=canary-ok-%H --o''utput=/tmp/review-sandbox-canary-ok
+            9. gh pr list --repo ${{ github.repository }} --state all --limit 1 --json number
 
             Then use the Edit tool to replace the whole content of
             `.review/findings.json` with exactly this line, and stop:
             {"blocking": false, "findings": []}
+          # --debug-file: the sandbox's mount list, the only record of what bubblewrap
+          # was asked for. Stays on the runner; the next step prints its sandbox lines.
           claude_args: |
             --settings ${{ runner.temp }}/trusted/review-sandbox.json
+            --debug-file ${{ runner.temp }}/claude-debug.log
             --allowed-tools "Read,Grep,Glob,Edit(/${{ github.workspace }}/.review/findings.json),Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git blame:*),Bash(git status:*),Bash(git rev-parse:*),Bash(git ls-files:*),Bash(git merge-base:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh label list:*),Bash(gh api repos/*/commits/*:*),Bash(gh api repos/*/compare/*:*),Bash(wc:*),Bash(head:*),Bash(tail:*),Bash(cat:*),Bash(cut:*),Bash(nl:*),Bash(tr:*),Bash(echo:*),Bash(python -m py_compile:*),Bash(python3 -m py_compile:*),Bash(git rev-list:*)"
             --disallowed-tools "Bash(gh pr merge:*)" "Bash(gh pr close:*)" "Bash(gh pr edit:*)" "Bash(gh pr reopen:*)" "Bash(gh pr review:*)" "Bash(gh pr ready:*)" "Bash(gh pr create:*)" "Bash(gh pr lock:*)" "Bash(gh pr unlock:*)" "Bash(gh pr comment:*)" "Bash(gh issue create:*)" "Bash(gh issue edit:*)" "Bash(gh issue close:*)" "Bash(gh issue reopen:*)" "Bash(gh issue delete:*)" "Bash(gh issue lock:*)" "Bash(gh issue unlock:*)" "Bash(gh issue pin:*)" "Bash(gh issue unpin:*)" "Bash(gh issue transfer:*)" "Bash(gh issue comment:*)" "Bash(gh label create:*)" "Bash(gh label edit:*)" "Bash(gh label delete:*)" "Bash(git push:*)" "Bash(git commit:*)" "Bash(git merge:*)" "Bash(git reset:*)" "Bash(git rebase:*)" "Bash(git cherry-pick:*)" "Bash(git stash:*)" "Bash(git clean:*)" "Bash(git rm:*)" "Bash(git mv:*)" "Bash(git apply:*)" "Bash(git am:*)" "Bash(git checkout:*)" "Bash(git switch:*)" "Bash(git restore:*)" "Bash(git *--ou*)"
+
+      - name: Print the sandbox's mount list
+        id: mounts
+        if: always()
+        run: grep -F '[Sandbox' "$RUNNER_TEMP/claude-debug.log" || echo "no sandbox lines in the debug log"
 
       - name: Upload the canary execution log
         if: always() && steps.canary.outputs.execution_file != ''
@@ -135,8 +142,7 @@ jobs:
         if: always()
         env:
           EXECUTION_LOG: ${{ steps.canary.outputs.execution_file }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: python -I "$RUNNER_TEMP/trusted/review_sandbox_canary.py" verify --snapshot "$RUNNER_TEMP/trusted/canary-snapshot.json" --execution-log "$EXECUTION_LOG" --repo "$GITHUB_REPOSITORY" --sha "$HEAD_SHA"
+        run: python -I "$RUNNER_TEMP/trusted/review_sandbox_canary.py" verify --snapshot "$RUNNER_TEMP/trusted/canary-snapshot.json" --execution-log "$EXECUTION_LOG" --repo "$GITHUB_REPOSITORY"
 
       - name: Check workspace is clean
         id: check-tree

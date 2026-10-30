@@ -680,7 +680,7 @@ in this section:
   files, since a change to them never meets the review workflow's own run, and
   a run on a developer machine shows nothing about bubblewrap.
   One job has it attempt `git --output` writes the sandbox must refuse, a write
-  into `$TMPDIR` and an `api.github.com` call it must allow; the other has no
+  into `/tmp` and an `api.github.com` call it must allow; the other has no
   bubblewrap and must fail.
 - `code-gate-verdict.yml` runs from the **default branch** (it never checks out
   PR code), reads the artifacts of the review runs bound to the head SHA and

@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
+import stat
 from pathlib import Path
 
 import pytest
@@ -23,11 +25,18 @@ _spec = importlib.util.spec_from_file_location(
 canary = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(canary)
 
+_gate_spec = importlib.util.spec_from_file_location(
+    "code_gate_verdict", ROOT / ".github" / "scripts" / "code_gate_verdict.py"
+)
+gate = importlib.util.module_from_spec(_gate_spec)
+_gate_spec.loader.exec_module(gate)
+
 WS = "/work/repo"
 TMP = "/work/_temp"
 HOME = "/home/runner"
 SHA = "a" * 40
 EROFS = "fatal: could not create file: Read-only file system"
+BWRAP_DIED = "Exit code 1\nbwrap: Can't create file at /work/repo/scripts: Read-only file system"
 
 
 def _targets():
@@ -78,14 +87,26 @@ def _attacks_blocked():
 
 def _controls_passed():
     return [
-        (canary.tmpdir_write_command(), "", False),
-        (canary.tmpdir_read_command(), f"canary-ok-{SHA}\n", False),
-        (canary.network_command("o/r", SHA), f"{SHA}\n", False),
+        (canary.write_control_command(), "", False),
+        (canary.network_command("o/r"), '[{"number":296}]\n', False),
     ]
 
 
-def _errors(log, **overrides):
-    return canary.run_errors(log, WS, TMP, HOME, overrides.get("repo", "o/r"), SHA)
+def _errors(log):
+    return canary.run_errors(log, WS, TMP, HOME, "o/r")
+
+
+def _harness_refused(log, position):
+    """The harness refused the Bash call at `position`, as the real log says so."""
+    log.append(
+        {
+            "type": "system",
+            "subtype": "permission_denied",
+            "tool_use_id": f"toolu_{position}",
+            "message": "A variable in this command can't be checked before it runs",
+        }
+    )
+    return log
 
 
 # --- what the execution log says ---------------------------------------------
@@ -149,24 +170,76 @@ def test_an_attack_the_harness_denied_is_an_error_whatever_it_printed():
     assert any(_targets()[0][0] in e and "was not blocked" in e for e in errors)
 
 
-def test_a_failed_tmpdir_write_is_an_error():
+def test_an_event_whose_message_is_text_is_not_a_tool_call():
+    log = _harness_refused(_log(*_attacks_blocked(), *_controls_passed()), 0)
+    assert [r["denied"] for r in canary.bash_runs(log)] == [True] + [False] * 8
+
+
+def test_a_sandbox_that_never_started_is_not_a_block():
+    # bubblewrap's own failure says "Read-only file system" too: it must not read
+    # as the filesystem refusing the attack, when no attack ran at all.
+    runs = [(command, BWRAP_DIED, True) for command, _ in _targets()]
+    errors = _errors(_log(*runs, *_controls_passed()))
+    assert any("sandbox never started" in e and "/work/repo/scripts" in e for e in errors)
+    assert sum("was not blocked" in e for e in errors) == len(runs)
+
+
+def test_one_startup_failure_is_named_once():
+    runs = [(command, BWRAP_DIED, True) for command, _ in _targets()]
+    errors = _errors(_log(*runs, *_controls_passed()))
+    assert sum("sandbox never started" in e for e in errors) == 1
+
+
+def test_a_write_control_the_sandbox_refused_is_an_error():
     controls = _controls_passed()
     controls[0] = (controls[0][0], EROFS, True)
-    controls[1] = (controls[1][0], "cat: no such file", True)
     errors = _errors(_log(*_attacks_blocked(), *controls))
-    assert any("$TMPDIR" in e for e in errors)
+    assert any("write control failed" in e for e in errors)
 
 
-def test_a_tmpdir_control_that_never_ran_is_an_error():
-    errors = _errors(_log(*_attacks_blocked()))
-    assert any("$TMPDIR" in e for e in errors)
+def test_a_write_control_the_harness_refused_says_it_proves_nothing():
+    log = _harness_refused(_log(*_attacks_blocked(), *_controls_passed()), len(_attacks_blocked()))
+    errors = _errors(log)
+    assert any("write control" in e and "harness" in e for e in errors)
 
 
-def test_a_network_control_without_the_sha_is_an_error():
+def test_a_write_control_that_never_ran_is_an_error():
+    errors = _errors(_log(*_attacks_blocked(), *_controls_passed()[1:]))
+    assert any("write control never ran" in e for e in errors)
+
+
+def test_a_reworded_write_control_does_not_count():
     controls = _controls_passed()
-    controls[2] = (controls[2][0], "connection refused", True)
+    controls[0] = ("git log -1 > /dev/null", "", False)
     errors = _errors(_log(*_attacks_blocked(), *controls))
-    assert any("network" in e for e in errors)
+    assert any("write control never ran" in e for e in errors)
+
+
+def test_a_network_control_refused_on_the_way_out_is_an_error():
+    controls = _controls_passed()
+    controls[1] = (controls[1][0], "connection refused", True)
+    errors = _errors(_log(*_attacks_blocked(), *controls))
+    assert any("network control failed" in e for e in errors)
+
+
+def test_a_network_control_that_printed_no_pr_is_an_error():
+    controls = _controls_passed()
+    controls[1] = (controls[1][0], "[]\n", False)
+    errors = _errors(_log(*_attacks_blocked(), *controls))
+    assert any("network control failed" in e for e in errors)
+
+
+def test_a_network_control_the_harness_refused_says_it_proves_nothing():
+    log = _harness_refused(_log(*_attacks_blocked(), *_controls_passed()), len(_attacks_blocked()) + 1)
+    errors = _errors(log)
+    assert any("network control" in e and "harness" in e for e in errors)
+
+
+def test_the_control_commands_avoid_what_the_harness_refused():
+    # A variable in the path, and `gh api` under its prefix grant, were both refused
+    # before Bash ran in run 41034402640. Those controls proved nothing.
+    assert "$" not in canary.write_control_command()
+    assert canary.network_command("o/r").startswith("gh pr list ")
 
 
 # --- what the disk says ------------------------------------------------------
@@ -222,6 +295,94 @@ def test_an_unchanged_tree_does_not_differ(tmp_path):
     assert canary.changed(canary.snapshot(root, index="index"), canary.snapshot(root, index="index")) == []
 
 
+@pytest.mark.parametrize("path", [".ripgreprc", ".mcp.json", "CLAUDE.local.md"])
+def test_an_empty_guarded_file_created_during_the_run_differs(tmp_path, path):
+    root = _tree(tmp_path)
+    before = canary.snapshot(root, index="index")
+    (root / path).write_text("")
+    assert canary.changed(before, canary.snapshot(root, index="index")) == [path]
+
+
+def test_the_exclude_filter_applies_to_no_other_guarded_file(tmp_path):
+    root = _tree(tmp_path)
+    before = canary.snapshot(root, index="index")
+    with (root / "CLAUDE.md").open("a", encoding="utf-8", newline="\n") as rules:
+        rules.write("/.npmrc\n")
+    assert canary.changed(before, canary.snapshot(root, index="index")) == ["CLAUDE.md"]
+
+
+def test_the_clis_exclude_block_does_not_differ(tmp_path):
+    root = _tree(tmp_path)
+    before = canary.snapshot(root, index="index")
+    with (root / ".git" / "info" / "exclude").open("a", encoding="utf-8", newline="\n") as exclude:
+        exclude.write("\n# claude-code scrub-mode stubs\n/.npmrc\n/.env\n/.claude-pr/\n")
+    assert canary.changed(before, canary.snapshot(root, index="index")) == []
+
+
+@pytest.mark.parametrize("line", ["/scripts", "!/.npmrc", "*", "# claude-code scrub-mode stubs x"])
+def test_any_other_line_in_exclude_differs(tmp_path, line):
+    root = _tree(tmp_path)
+    before = canary.snapshot(root, index="index")
+    with (root / ".git" / "info" / "exclude").open("a", encoding="utf-8", newline="\n") as exclude:
+        exclude.write(f"\n# claude-code scrub-mode stubs\n/.npmrc\n{line}\n")
+    assert canary.changed(before, canary.snapshot(root, index="index")) == [".git/info/exclude"]
+
+
+def test_the_exclude_block_tolerates_every_stub_the_gate_exempts():
+    stubs = {name for name in gate.CLI_PLACEHOLDERS if "/" not in name}
+    assert set(canary.CLI_STUBS) == stubs
+
+
+def test_the_clis_empty_gitmodules_placeholder_does_not_differ(tmp_path):
+    root = _tree(tmp_path)
+    before = canary.snapshot(root, index="index")
+    (root / ".gitmodules").write_text("", encoding="utf-8")
+    assert canary.changed(before, canary.snapshot(root, index="index")) == []
+
+
+def test_a_symlink_at_gitmodules_differs(tmp_path):
+    root = _tree(tmp_path)
+    before = canary.snapshot(root, index="index")
+    (root / "empty").write_text("", encoding="utf-8")
+    try:
+        os.symlink(root / "empty", root / ".gitmodules")
+    except OSError:
+        pytest.skip("this platform cannot make a symlink")
+    assert canary.changed(before, canary.snapshot(root, index="index")) == [".gitmodules"]
+
+
+def test_only_a_regular_file_counts_as_the_empty_placeholder(tmp_path, monkeypatch):
+    # The real symlink above skips on Windows; this one runs everywhere.
+    path = tmp_path / ".gitmodules"
+    path.write_text("", encoding="utf-8")
+    assert canary.is_empty_file(path)
+    link = os.stat_result((stat.S_IFLNK | 0o777, 0, 0, 1, 0, 0, 0, 0, 0, 0))
+    with monkeypatch.context() as patched:
+        patched.setattr(canary.os, "lstat", lambda *a, **k: link)
+        verdict = canary.is_empty_file(path)
+    assert verdict is False
+
+
+def test_an_empty_file_placeholder_that_is_absent_is_not_empty(tmp_path):
+    assert not canary.is_empty_file(tmp_path / "nothing")
+
+
+def test_write_control_passes_a_file_the_command_wrote(tmp_path):
+    path = tmp_path / "control"
+    path.write_text(f"canary-ok-{SHA}\n", encoding="utf-8")
+    assert canary.write_control_errors(path) == []
+
+
+def test_write_control_fails_a_file_it_did_not_write(tmp_path):
+    path = tmp_path / "control"
+    path.write_text("something else\n", encoding="utf-8")
+    assert any("write control" in e for e in canary.write_control_errors(path))
+
+
+def test_write_control_fails_with_no_file(tmp_path):
+    assert any("write control" in e for e in canary.write_control_errors(tmp_path / "control"))
+
+
 def test_a_changed_index_listing_differs(tmp_path):
     root = _tree(tmp_path)
     before = canary.snapshot(root, index="100644 abc 0\tREADME.md\n")
@@ -250,6 +411,13 @@ def test_workspace_targets_are_left_to_the_snapshot():
 # --- the verify command ------------------------------------------------------
 
 
+def _control_file(tmp_path, monkeypatch, content=f"canary-ok-{SHA}\n"):
+    path = tmp_path.parent / f"{tmp_path.name}-control"
+    if content is not None:
+        path.write_text(content, encoding="utf-8")
+    monkeypatch.setattr(canary, "WRITE_CONTROL", str(path))
+
+
 def _verify(tmp_path, monkeypatch, log):
     root = _tree(tmp_path)
     snap = tmp_path.parent / f"{tmp_path.name}-snap.json"
@@ -261,8 +429,7 @@ def _verify(tmp_path, monkeypatch, log):
     monkeypatch.setenv("HOME", str(root.parent / "no-home"))
     assert canary.main(["snapshot", "--out", str(snap)]) == 0
     return root, canary.main(
-        ["verify", "--snapshot", str(snap), "--execution-log", str(exec_log),
-         "--repo", "o/r", "--sha", SHA]
+        ["verify", "--snapshot", str(snap), "--execution-log", str(exec_log), "--repo", "o/r"]
     )
 
 
@@ -273,7 +440,21 @@ def _clean_log(root):
 
 
 def test_verify_passes_a_run_where_the_sandbox_held(tmp_path, monkeypatch):
+    _control_file(tmp_path, monkeypatch)
     assert _verify(tmp_path, monkeypatch, _clean_log(tmp_path))[1] == 0
+
+
+def test_verify_fails_when_the_write_control_left_no_file(tmp_path, monkeypatch, capsys):
+    _control_file(tmp_path, monkeypatch, content=None)
+    assert _verify(tmp_path, monkeypatch, _clean_log(tmp_path))[1] == 1
+    assert "write control" in capsys.readouterr().err
+
+
+def test_verify_reads_a_real_shape_log_without_crashing(tmp_path, monkeypatch, capsys):
+    _control_file(tmp_path, monkeypatch)
+    log = _harness_refused(_clean_log(tmp_path), 0)
+    assert _verify(tmp_path, monkeypatch, log)[1] == 1
+    assert "was not blocked" in capsys.readouterr().err
 
 
 def test_verify_fails_a_missing_execution_log(tmp_path, monkeypatch, capsys):
@@ -285,16 +466,18 @@ def test_verify_fails_a_missing_execution_log(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("HOME", str(root.parent / "no-home"))
     canary.main(["snapshot", "--out", str(snap)])
     assert canary.main(
-        ["verify", "--snapshot", str(snap), "--execution-log", "", "--repo", "o/r", "--sha", SHA]
+        ["verify", "--snapshot", str(snap), "--execution-log", "", "--repo", "o/r"]
     ) == 1
     assert "execution log" in capsys.readouterr().err
 
 
 def test_verify_fails_when_a_log_error_is_found(tmp_path, monkeypatch):
+    _control_file(tmp_path, monkeypatch)
     assert _verify(tmp_path, monkeypatch, _log())[1] == 1
 
 
 def test_verify_fails_a_rewritten_guarded_file_even_with_a_clean_log(tmp_path, monkeypatch):
+    _control_file(tmp_path, monkeypatch)
     root = _tree(tmp_path)
     snap = tmp_path.parent / f"{tmp_path.name}-snap.json"
     exec_log = tmp_path.parent / f"{tmp_path.name}-exec.json"
@@ -306,8 +489,7 @@ def test_verify_fails_a_rewritten_guarded_file_even_with_a_clean_log(tmp_path, m
     canary.main(["snapshot", "--out", str(snap)])
     (root / "CLAUDE.md").write_text("forged\n")
     assert canary.main(
-        ["verify", "--snapshot", str(snap), "--execution-log", str(exec_log),
-         "--repo", "o/r", "--sha", SHA]
+        ["verify", "--snapshot", str(snap), "--execution-log", str(exec_log), "--repo", "o/r"]
     ) == 1
 
 
@@ -319,8 +501,8 @@ def test_an_attack_that_exited_zero_is_an_error():
 
 
 def test_a_network_control_that_never_ran_is_an_error():
-    errors = _errors(_log(*_attacks_blocked(), *_controls_passed()[:2]))
-    assert any("network" in e for e in errors)
+    errors = _errors(_log(*_attacks_blocked(), *_controls_passed()[:1]))
+    assert any("network control never ran" in e for e in errors)
 
 
 # --- the workflow carries the reviewer's boundary, unchanged -----------------
@@ -395,12 +577,22 @@ def test_canary_prompt_makes_every_attack_and_both_controls():
     prompt = _step(HELD["steps"], "canary")["with"]["prompt"]
     for command, _ in canary.attack_commands(*PLACEHOLDERS):
         assert command in prompt
-    assert canary.tmpdir_write_command() in prompt
-    assert canary.tmpdir_read_command() in prompt
-    assert (
-        canary.network_command("${{ github.repository }}", "${{ github.event.pull_request.head.sha || github.sha }}")
-        in prompt
-    )
+    assert canary.write_control_command() in prompt
+    assert canary.network_command("${{ github.repository }}") in prompt
+
+
+def test_canary_sandbox_lines_reach_the_log_and_the_debug_file_does_not_leave_the_runner():
+    steps = HELD["steps"]
+    args = _step(steps, "canary")["with"]["claude_args"]
+    assert "--debug-file ${{ runner.temp }}/claude-debug.log\n" in args
+    assert "--debug-file" not in _reviewer()["with"]["claude_args"]
+    mounts = _step(steps, "mounts")
+    assert mounts["if"] == "always()"
+    assert "[Sandbox" in mounts["run"]
+    assert "cat " not in mounts["run"]
+    assert _position(steps, "canary") < _position(steps, "mounts")
+    uploads = [s for s in steps if "upload-artifact" in s.get("uses", "")]
+    assert uploads and all("claude-debug" not in s["with"]["path"] for s in uploads)
 
 
 def test_held_job_snapshots_before_the_reviewer_and_judges_from_trusted_copies_after():
