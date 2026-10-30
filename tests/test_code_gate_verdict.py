@@ -119,6 +119,7 @@ def test_deleted_file_keeps_its_path():
         ".github/workflows/code-review.yml",
         ".github/workflows/code-gate-verdict.yml",
         ".github/scripts/code_gate_verdict.py",
+        ".github/review-sandbox.json",
         ".github/actions/anything/action.yml",
     ],
 )

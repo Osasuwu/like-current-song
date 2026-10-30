@@ -43,10 +43,11 @@ also runs daily and re-decides every open PR into the default branch (#231). A
 listing the verdict depends on that reaches its page cap is red as
 `listing-truncated`, never read as whole (`paged`, #237).
 
-Gate machinery. A PR touching the review workflow, the verdict workflow, this
-script or a local action is always red: its own review cannot be trusted, since
-it is the thing under change. The sanctioned unblock is a human review-blind
-admin-merge by the maintainer, backed by a fresh-session review of the final SHA
+Gate machinery. A PR touching the review workflow, the reviewer sandbox settings,
+the verdict workflow, this script or a local action is always red: its own
+review cannot be trusted, since it is the thing under change. The sanctioned
+unblock is a human review-blind admin-merge by the maintainer, backed by a
+fresh-session review of the final SHA
 (see CONTRIBUTING.md, "Code review gate").
 
 Every decision below is a pure function over plain dicts and lists; the API
@@ -107,6 +108,7 @@ GATE_MACHINERY_FILES = frozenset(
     {
         REVIEW_WORKFLOW,
         ".github/workflows/code-gate-verdict.yml",
+        ".github/review-sandbox.json",
         ".github/scripts/code_gate_verdict.py",
     }
 )
