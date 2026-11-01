@@ -98,7 +98,7 @@ jobs:
       - name: Attack the sandbox
         id: canary
         continue-on-error: true
-        uses: anthropics/claude-code-action@1d6de8cb0c237e7c15e9e1bdf973826ebae490cc # v1
+        uses: anthropics/claude-code-action@d70510b174a1244958df0b03166a54912811f3e6 # v1
         # The sandbox runtime logs its mounts only under SRT_DEBUG, to the CLI's stderr.
         # The SDK keeps that stderr only under DEBUG_CLAUDE_AGENT_SDK, in ~/.claude/debug.
         env:
@@ -225,7 +225,7 @@ jobs:
       - name: Run the reviewer with no sandbox available
         id: canary
         continue-on-error: true
-        uses: anthropics/claude-code-action@1d6de8cb0c237e7c15e9e1bdf973826ebae490cc # v1
+        uses: anthropics/claude-code-action@d70510b174a1244958df0b03166a54912811f3e6 # v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}

@@ -184,7 +184,7 @@ jobs:
         # A reviewer error is not itself a verdict: what decides is whether a
         # valid findings file exists afterwards (validate step below).
         continue-on-error: true
-        uses: anthropics/claude-code-action@1d6de8cb0c237e7c15e9e1bdf973826ebae490cc # v1
+        uses: anthropics/claude-code-action@d70510b174a1244958df0b03166a54912811f3e6 # v1
         # Anchored: attempt 2 reuses this block whole (#235).
         with: &reviewer-inputs
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -326,7 +326,7 @@ jobs:
         # A reviewer error is not itself a verdict: what decides is whether a
         # valid findings file exists afterwards (validate step below).
         continue-on-error: true
-        uses: anthropics/claude-code-action@1d6de8cb0c237e7c15e9e1bdf973826ebae490cc # v1
+        uses: anthropics/claude-code-action@d70510b174a1244958df0b03166a54912811f3e6 # v1
         # The same inputs as attempt 1, by YAML alias: prompt and tool lists are
         # written once, above (#235).
         with: *reviewer-inputs
