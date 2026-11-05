@@ -180,9 +180,11 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 				}
 
 				"getTripleTapStatus" -> {
-					// The screen re-reads this on resume, after the user may have run
-					// the adb grant: let a running service retry its registration
-					// first, so the line reflects the retry (#158).
+					// The screen reads this when it opens, after a Save and on Check
+					// again, any of which may follow the adb grant: let a running
+					// service retry its registration first, so the line reflects the
+					// retry. A fresh registration answers CHECKING until its slot
+					// probe ends; the screen reads again for that (#158).
 					LocalBroadcastManager.getInstance(this)
 						.sendBroadcastSync(Intent(AppConstants.ACTION_TRIPLE_TAP_CHANGED))
 					result.success(TripleTapListener.status(this).wire)

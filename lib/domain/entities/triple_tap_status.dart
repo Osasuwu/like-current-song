@@ -8,6 +8,7 @@ enum TripleTapStatus {
   needsNotificationAccess('needs_notification_access'),
   listenerOff('listener_off'),
   slotTaken('slot_taken'),
+  checking('checking'),
   noBluetoothOutput('no_bluetooth_output'),
   active('active');
 
@@ -38,6 +39,7 @@ enum TripleTapStatus {
           'Starts with the media button listener; turn the listener on.',
         slotTaken =>
           'Another app is listening to media keys; close or disable it.',
+        checking => 'Checking that no other app holds the media keys…',
         noBluetoothOutput =>
           'Ready. Waiting for Bluetooth earbuds or another Bluetooth output.',
         active => 'Active: a triple tap on the earbuds likes the track.',

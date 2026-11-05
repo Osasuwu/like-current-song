@@ -82,16 +82,33 @@ class _TriggerConfigScreenState extends ConsumerState<TriggerConfigScreen> {
     _readTripleTapStatus();
   }
 
-  Future<void> _readTripleTapStatus() async {
-    setState(() => _tripleTapStatus = null);
+  /// A first read usually lands inside the native slot probe (500 ms after
+  /// the listener registers), so a [TripleTapStatus.checking] answer is read
+  /// again after this long, a few times at most: a probe that never ends
+  /// leaves the line on "checking" and the Check again button.
+  static const _checkingRereadDelay = Duration(milliseconds: 700);
+  static const _checkingRereads = 5;
+  Timer? _checkingReread;
+
+  Future<void> _readTripleTapStatus() => _loadTripleTapStatus(reread: 0);
+
+  Future<void> _loadTripleTapStatus({required int reread}) async {
+    _checkingReread?.cancel();
+    if (reread == 0) setState(() => _tripleTapStatus = null);
     final status =
         await ref.read(appControllerProvider.notifier).readTripleTapStatus();
     if (!mounted) return;
     setState(() => _tripleTapStatus = status);
+    if (status == TripleTapStatus.checking && reread < _checkingRereads) {
+      _checkingReread = Timer(_checkingRereadDelay, () {
+        unawaited(_loadTripleTapStatus(reread: reread + 1));
+      });
+    }
   }
 
   @override
   void dispose() {
+    _checkingReread?.cancel();
     _pattern.dispose();
     _window.dispose();
     _debounce.dispose();

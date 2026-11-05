@@ -329,8 +329,10 @@ class MediaKeyCaptureTest {
     }
 
     @Test
-    fun `a slot nobody has probed yet is not reported as taken`() {
-        assertEquals(TripleTapStatus.ACTIVE, status(slotOwned = null))
+    fun `a slot still being probed reads as checking, neither taken nor active`() {
+        assertEquals(TripleTapStatus.CHECKING, status(slotOwned = null))
+        assertEquals(TripleTapStatus.CHECKING, status(slotOwned = null, bluetoothOutput = false))
+        assertEquals(TripleTapStatus.LISTENER_OFF, status(listenerRunning = false, slotOwned = null))
     }
 
     @Test
@@ -344,6 +346,7 @@ class MediaKeyCaptureTest {
                 TripleTapStatus.NEEDS_NOTIFICATION_ACCESS to "needs_notification_access",
                 TripleTapStatus.LISTENER_OFF to "listener_off",
                 TripleTapStatus.SLOT_TAKEN to "slot_taken",
+                TripleTapStatus.CHECKING to "checking",
                 TripleTapStatus.NO_BLUETOOTH_OUTPUT to "no_bluetooth_output",
                 TripleTapStatus.ACTIVE to "active",
             ),

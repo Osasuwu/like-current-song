@@ -149,6 +149,61 @@ void main() {
   });
 
   testWidgets(
+    'a status still being checked is read again until it settles',
+    (tester) async {
+      harness.tripleTapStatus = TripleTapStatus.checking;
+      await open(tester);
+      final checking = find.text(TripleTapStatus.checking.label);
+      await scrollTo(tester, checking);
+      expect(checking, findsOneWidget);
+
+      // The probe ends on the native side; nobody presses Check again.
+      harness.tripleTapStatus = TripleTapStatus.slotTaken;
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+
+      expect(find.text(TripleTapStatus.slotTaken.label), findsOneWidget);
+      expect(checking, findsNothing);
+    },
+  );
+
+  testWidgets('a settled status is read once, not polled', (tester) async {
+    harness.tripleTapStatus = TripleTapStatus.active;
+    await open(tester);
+    await tester.pump(const Duration(seconds: 10));
+
+    verify(() => harness.platform.tripleTapStatus()).called(1);
+  });
+
+  testWidgets(
+    'a check that never settles stops reading after a few tries',
+    (tester) async {
+      harness.tripleTapStatus = TripleTapStatus.checking;
+      await open(tester);
+      await tester.pump(const Duration(seconds: 30));
+      clearInteractions(harness.platform);
+      await tester.pump(const Duration(seconds: 30));
+
+      verifyNever(() => harness.platform.tripleTapStatus());
+      final checking = find.text(TripleTapStatus.checking.label);
+      await scrollTo(tester, checking);
+      expect(checking, findsOneWidget);
+    },
+  );
+
+  testWidgets('leaving the screen mid-check stops the reads', (tester) async {
+    harness.tripleTapStatus = TripleTapStatus.checking;
+    await open(tester);
+    Navigator.of(tester.element(find.byType(TriggerConfigScreen))).pop();
+    await tester.pumpAndSettle();
+    clearInteractions(harness.platform);
+
+    await tester.pump(const Duration(seconds: 10));
+
+    verifyNever(() => harness.platform.tripleTapStatus());
+  });
+
+  testWidgets(
     'saving reads the status again, since the mode may have changed',
     (tester) async {
       await open(tester);

@@ -140,6 +140,7 @@ enum class TripleTapStatus(val wire: String) {
     NEEDS_NOTIFICATION_ACCESS("needs_notification_access"),
     LISTENER_OFF("listener_off"),
     SLOT_TAKEN("slot_taken"),
+    CHECKING("checking"),
     NO_BLUETOOTH_OUTPUT("no_bluetooth_output"),
     ACTIVE("active"),
     ;
@@ -152,7 +153,8 @@ enum class TripleTapStatus(val wire: String) {
          * [listenerRunning]: the foreground service that holds the listener
          * is up; without it nothing listens, whatever else is in place.
          * [slotOwned] null is a slot not probed yet (the probe in flight):
-         * not reported as taken.
+         * [CHECKING], neither taken nor active, since a registration while
+         * another app holds the slot looks the same until the probe ends.
          */
         fun of(
             enabled: Boolean,
@@ -169,6 +171,7 @@ enum class TripleTapStatus(val wire: String) {
             !notificationAccess -> NEEDS_NOTIFICATION_ACCESS
             !listenerRunning -> LISTENER_OFF
             slotOwned == false -> SLOT_TAKEN
+            slotOwned == null -> CHECKING
             !bluetoothOutput -> NO_BLUETOOTH_OUTPUT
             else -> ACTIVE
         }

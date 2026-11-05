@@ -60,6 +60,7 @@ void main() {
       'needs_notification_access': TripleTapStatus.needsNotificationAccess,
       'listener_off': TripleTapStatus.listenerOff,
       'slot_taken': TripleTapStatus.slotTaken,
+      'checking': TripleTapStatus.checking,
       'no_bluetooth_output': TripleTapStatus.noBluetoothOutput,
       'active': TripleTapStatus.active,
     };
