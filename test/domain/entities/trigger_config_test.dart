@@ -117,24 +117,24 @@ void main() {
         expect(config.validate(), hasLength(1));
       });
 
-      test('caps the window at 1500 ms, saying so (#248)', () {
-        // Past 1.5 s an automatic pause and the resume after it read as the
+      test('caps the window at 2000 ms, saying so (#248, #299)', () {
+        // Past 2 s an automatic pause and the resume after it read as the
         // user's `pause, play`. The limit and its message are the contract.
         const atCap = TriggerConfig(
           pattern: 'pause,play',
-          windowMs: 1500,
+          windowMs: 2000,
           debounceMs: 500,
         );
         const pastCap = TriggerConfig(
           pattern: 'pause,play',
-          windowMs: 1501,
+          windowMs: 2001,
           debounceMs: 500,
         );
 
         expect(atCap.validate(), isEmpty);
         expect(
           pastCap.validate(),
-          equals(<String>['Trigger window can be at most 1500 ms.']),
+          equals(<String>['Trigger window can be at most 2000 ms.']),
         );
       });
     });

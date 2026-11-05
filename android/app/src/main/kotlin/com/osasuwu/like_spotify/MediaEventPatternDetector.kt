@@ -52,9 +52,11 @@ class MediaEventPatternDetector(
         /**
          * The longest window honoured, whatever is stored (#248). Past it, an
          * automatic pause and the resume that follows it seconds later read
-         * as the user's `pause, play`. Mirrors `AppConstants.maxWindowMs`.
+         * as the user's `pause, play`. 2000 ms, not 1500 (#299): over Bluetooth
+         * the headset and the player add enough delay that a quick pause and
+         * play landed about 1.6 s apart. Mirrors `AppConstants.maxWindowMs`.
          */
-        const val MAX_WINDOW_MS = 1_500L
+        const val MAX_WINDOW_MS = 2_000L
     }
 
     private fun matches(pattern: List<String>): Boolean {
