@@ -30,7 +30,7 @@ needed. Standard agent practices apply.
 - **Framework**: Flutter (Dart) — Android-only, other platforms are stubs
 - **State management**: Riverpod (`StateNotifier<AppState>`)
 - **Architecture**: Clean Architecture — domain / data / presentation layers
-- **Native**: Kotlin — foreground service, MediaSession, broadcast receivers
+- **Native**: Kotlin — foreground service, notification listener, broadcast receivers
 - **Auth**: Spotify OAuth 2.0 (PKCE flow)
 - **Storage**: SharedPreferences + FlutterSecureStorage (tokens)
 
@@ -83,7 +83,6 @@ android/app/src/main/kotlin/.../
 ├── MediaEventPatternDetector.kt     # Pattern matching — the live one
 ├── SpotifyLikeWorker.kt             # WorkManager job
 ├── PlaybackNotificationListenerService.kt
-├── MediaButtonReceiver.kt
 ├── BootCompletedReceiver.kt
 ├── MainActivity.kt
 └── AppConstants.kt

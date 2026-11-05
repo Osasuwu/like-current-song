@@ -640,7 +640,7 @@ package-data; see CONTRIBUTING).
 stage. Nothing in `core/` or the pipeline knows the names above.
 
 - `lib/` — Flutter app (Dart): UI, state management (Riverpod), OAuth
-- `android/.../kotlin/` — native Android: foreground service, MediaSession,
+- `android/.../kotlin/` — native Android: foreground service, notification listener,
   background worker
 - `like_spotify/` — Python desktop package: `core/` (the five ABCs and the
   pipeline), `hosts/` (tray runtime, setup wizard, settings window),
