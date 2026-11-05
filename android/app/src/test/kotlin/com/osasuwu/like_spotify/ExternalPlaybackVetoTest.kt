@@ -15,7 +15,7 @@ import org.junit.Test
  * pause and rejoins it under the same identity.
  *
  * Timestamps follow the detector's: wall-clock milliseconds, the match at
- * [now]. The lookback is the default, 2000 ms (the 1500 ms window cap plus
+ * [now]. The lookback is the default, 2500 ms (the 2000 ms window cap plus
  * 500 ms for a player that started just before the pause).
  */
 class ExternalPlaybackVetoTest {
@@ -56,12 +56,13 @@ class ExternalPlaybackVetoTest {
     @Test
     fun `a player that starts just before the pause vetoes it`() {
         // Focus is requested before the pause lands, so the other player can
-        // be first — here before the 1500 ms window even opens. It is new
-        // against what was playing 2000 ms ago.
+        // be first — here before the 2000 ms window even opens, with the pause
+        // at its far edge. It is new against what was playing 2500 ms ago, so
+        // this goes red if the lookback stops following the window cap.
         val veto = veto(
             now - 30_000 to listOf(music),
-            now - 1_700 to listOf(music, other),
-            now - 1_500 to listOf(other),
+            now - 2_200 to listOf(music, other),
+            now - 2_000 to listOf(other),
             now - 100 to emptyList(),
             now to listOf(music),
         )

@@ -13,6 +13,22 @@ you sign in from its Settings window.
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-11-06
+
+The Android trigger window can go up to 2000 ms again, for Bluetooth
+headsets whose pause and play land further apart than 1.5 s.
+
+### Changed
+
+- **Android: the trigger window's cap is 2000 ms, up from 1500 (#299).**
+  Over Bluetooth, the headset and the player add enough delay that a quick
+  pause and play can land about 1.6 s apart, past the 1500 ms cap that came
+  with #248, so the pair never matched. *Window (ms)* under *Trigger
+  configuration* now accepts up to 2000 ms. The default stays 1000 ms, and the
+  check that drops a match when another app's player started around the pause
+  now looks back across the wider window too. If you had raised the window
+  before 1.4.0, the stored value is honoured again up to 2000 ms.
+
 ## [1.5.0] - 2026-11-05
 
 A second way to like on Android: an opt-in triple tap on the earbuds (the
@@ -1169,7 +1185,8 @@ First tagged release.
   via `trigger.feedback_volume` in `~/.like_spotify/config.json`.
 - Matching Android feedback-volume setting in the Trigger configuration screen.
 
-[Unreleased]: https://github.com/Osasuwu/like-current-song/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/Osasuwu/like-current-song/compare/v1.5.1...HEAD
+[1.5.1]: https://github.com/Osasuwu/like-current-song/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/Osasuwu/like-current-song/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/Osasuwu/like-current-song/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/Osasuwu/like-current-song/compare/v1.3.0...v1.3.1

@@ -63,11 +63,11 @@ void main() {
     expect(find.text('Trigger configuration saved'), findsNothing);
   });
 
-  testWidgets('refuses a window above 1500 ms and names the limit (#248)',
+  testWidgets('refuses a window above 2000 ms and names the limit (#248, #299)',
       (tester) async {
-    await saveWithPattern(tester, 'pause,play', window: '1501');
+    await saveWithPattern(tester, 'pause,play', window: '2001');
 
-    expect(find.text('Trigger window can be at most 1500 ms.'), findsOneWidget);
+    expect(find.text('Trigger window can be at most 2000 ms.'), findsOneWidget);
     expect(find.text('Trigger configuration saved'), findsNothing);
   });
 }
