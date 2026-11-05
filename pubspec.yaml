@@ -1,7 +1,7 @@
 name: like_spotify_mobile_app
 description: "Like the currently playing track with headset button patterns, on Spotify or YouTube Music. Cross-device like counters, archive playlist management, best promotion."
 publish_to: 'none'
-version: 1.4.0+5
+version: 1.5.0+6
 
 environment:
   sdk: ^3.10.7
