@@ -3,6 +3,7 @@ import '../entities/music_provider.dart';
 import '../entities/music_routing.dart';
 import '../entities/rule_config.dart';
 import '../entities/trigger_config.dart';
+import '../entities/triple_tap_status.dart';
 import '../entities/undo_window.dart';
 
 abstract class PlatformServiceRepository {
@@ -55,6 +56,11 @@ abstract class PlatformServiceRepository {
   /// when nothing can be undone (#268). Later changes arrive as
   /// `undo_window` events on [events].
   Future<UndoWindow?> undoWindow();
+
+  /// What stands in the way of the triple-tap like (#158), as the native
+  /// service sees it now; [TripleTapStatus.active] when nothing does. A
+  /// native half that cannot answer reads as [TripleTapStatus.unavailable].
+  Future<TripleTapStatus> tripleTapStatus();
 
   /// Undoes the like [pressId] names, exactly as the trigger gesture would:
   /// the native side reverts it and plays the undo tone, or the error tone

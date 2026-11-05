@@ -6,11 +6,16 @@ class TriggerConfig {
   final int debounceMs;
   final int feedbackVolume;
 
+  /// The earbuds' triple tap (`PREVIOUS`) likes too (#158). Opt-in: it takes
+  /// a key away from the player, and it needs a one-time adb grant.
+  final bool tripleTapEnabled;
+
   const TriggerConfig({
     required this.pattern,
     required this.windowMs,
     required this.debounceMs,
     this.feedbackVolume = 100,
+    this.tripleTapEnabled = false,
   });
 
   List<String> get events =>
@@ -43,12 +48,14 @@ class TriggerConfig {
     int? windowMs,
     int? debounceMs,
     int? feedbackVolume,
+    bool? tripleTapEnabled,
   }) {
     return TriggerConfig(
       pattern: pattern ?? this.pattern,
       windowMs: windowMs ?? this.windowMs,
       debounceMs: debounceMs ?? this.debounceMs,
       feedbackVolume: feedbackVolume ?? this.feedbackVolume,
+      tripleTapEnabled: tripleTapEnabled ?? this.tripleTapEnabled,
     );
   }
 }

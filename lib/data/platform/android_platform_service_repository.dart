@@ -8,6 +8,7 @@ import '../../domain/entities/music_provider.dart';
 import '../../domain/entities/music_routing.dart';
 import '../../domain/entities/rule_config.dart';
 import '../../domain/entities/trigger_config.dart';
+import '../../domain/entities/triple_tap_status.dart';
 import '../../domain/entities/undo_window.dart';
 import '../../domain/repositories/platform_service_repository.dart';
 
@@ -40,6 +41,7 @@ class AndroidPlatformServiceRepository implements PlatformServiceRepository {
       'windowMs': config.windowMs,
       'debounceMs': config.debounceMs,
       'feedbackVolume': config.feedbackVolume,
+      'tripleTapEnabled': config.tripleTapEnabled,
     });
   }
 
@@ -189,6 +191,19 @@ class AndroidPlatformServiceRepository implements PlatformServiceRepository {
       return null;
     } on MissingPluginException {
       return null;
+    }
+  }
+
+  @override
+  Future<TripleTapStatus> tripleTapStatus() async {
+    try {
+      return TripleTapStatus.fromWire(
+        await _methodChannel.invokeMethod<Object?>('getTripleTapStatus'),
+      );
+    } on PlatformException {
+      return TripleTapStatus.unavailable;
+    } on MissingPluginException {
+      return TripleTapStatus.unavailable;
     }
   }
 

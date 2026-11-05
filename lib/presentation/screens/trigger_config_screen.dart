@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -5,10 +7,12 @@ import '../../core/app_constants.dart';
 import '../../domain/entities/like_destination.dart';
 import '../../domain/entities/rule_config.dart';
 import '../../domain/entities/trigger_config.dart';
+import '../../domain/entities/triple_tap_status.dart';
 import '../state/app_providers.dart';
 import '../widgets/extra_actions_section.dart';
 import '../widgets/like_destination_section.dart';
 import '../widgets/screen_padding.dart';
+import '../widgets/triple_tap_section.dart';
 
 /// Text for a threshold field: empty while it holds the default, so the field
 /// shows the default as its hint instead of looking pre-filled.
@@ -43,6 +47,8 @@ class _TriggerConfigScreenState extends ConsumerState<TriggerConfigScreen> {
   late bool _followArtistEnabled;
   late bool _likeCooldownEnabled;
   late int _feedbackVolume;
+  late bool _tripleTapEnabled;
+  TripleTapStatus? _tripleTapStatus;
 
   @override
   void initState() {
@@ -54,6 +60,7 @@ class _TriggerConfigScreenState extends ConsumerState<TriggerConfigScreen> {
     _window = TextEditingController(text: config.windowMs.toString());
     _debounce = TextEditingController(text: config.debounceMs.toString());
     _feedbackVolume = config.feedbackVolume;
+    _tripleTapEnabled = config.tripleTapEnabled;
     _archivePlaylistName = TextEditingController(text: ruleConfig.archivePlaylistName);
     _bestPlaylistName = TextEditingController(text: ruleConfig.bestPlaylistName);
     _bestThreshold = TextEditingController(
@@ -72,6 +79,15 @@ class _TriggerConfigScreenState extends ConsumerState<TriggerConfigScreen> {
     _bestEnabled = ruleConfig.bestEnabled;
     _followArtistEnabled = ruleConfig.followArtistEnabled;
     _likeCooldownEnabled = ruleConfig.likeCooldownEnabled;
+    _readTripleTapStatus();
+  }
+
+  Future<void> _readTripleTapStatus() async {
+    setState(() => _tripleTapStatus = null);
+    final status =
+        await ref.read(appControllerProvider.notifier).readTripleTapStatus();
+    if (!mounted) return;
+    setState(() => _tripleTapStatus = status);
   }
 
   @override
@@ -132,6 +148,14 @@ class _TriggerConfigScreenState extends ConsumerState<TriggerConfigScreen> {
             label: '$_feedbackVolume%',
             onChanged: (value) => setState(() => _feedbackVolume = value.round()),
           ),
+          const SizedBox(height: 12),
+          TripleTapSection(
+            enabled: _tripleTapEnabled,
+            onEnabledChanged: (value) =>
+                setState(() => _tripleTapEnabled = value),
+            status: _tripleTapStatus,
+            onRecheck: _readTripleTapStatus,
+          ),
           const SizedBox(height: 20),
           const Divider(),
           LikeDestinationSection(
@@ -178,6 +202,7 @@ class _TriggerConfigScreenState extends ConsumerState<TriggerConfigScreen> {
                 windowMs: int.tryParse(_window.text.trim()) ?? 1000,
                 debounceMs: int.tryParse(_debounce.text.trim()) ?? 650,
                 feedbackVolume: _feedbackVolume,
+                tripleTapEnabled: _tripleTapEnabled,
               );
               final ruleConfig = RuleConfig(
                 archiveRemoveEnabled: _archiveRemoveEnabled,
@@ -212,6 +237,8 @@ class _TriggerConfigScreenState extends ConsumerState<TriggerConfigScreen> {
                 );
                 return;
               }
+              // The switch may have just turned the mode on or off.
+              unawaited(_readTripleTapStatus());
               await controller.saveRuleConfig(ruleConfig);
               if (!context.mounted) return;
               final error = ref.read(appControllerProvider).lastError;

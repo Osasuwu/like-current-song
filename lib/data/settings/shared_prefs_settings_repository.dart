@@ -16,6 +16,7 @@ class SharedPrefsSettingsRepository implements SettingsRepository {
   static const _keyWindow = 'trigger_window_ms';
   static const _keyDebounce = 'trigger_debounce_ms';
   static const _keyFeedbackVolume = 'trigger_feedback_volume';
+  static const _keyTripleTapEnabled = 'trigger_triple_tap_enabled';
   // Legacy keys — read once for migration into _keyRuleConfig, never written again.
   static const _legacyKeyArchivePlaylistName = 'archive_playlist_name';
   static const _legacyKeyBestPlaylistName = 'best_of_playlist_name';
@@ -41,6 +42,7 @@ class SharedPrefsSettingsRepository implements SettingsRepository {
       debounceMs: prefs.getInt(_keyDebounce) ?? AppConstants.defaultDebounceMs,
       feedbackVolume:
           prefs.getInt(_keyFeedbackVolume) ?? AppConstants.defaultFeedbackVolume,
+      tripleTapEnabled: prefs.getBool(_keyTripleTapEnabled) ?? false,
     );
   }
 
@@ -51,6 +53,7 @@ class SharedPrefsSettingsRepository implements SettingsRepository {
     await prefs.setInt(_keyWindow, config.windowMs);
     await prefs.setInt(_keyDebounce, config.debounceMs);
     await prefs.setInt(_keyFeedbackVolume, config.feedbackVolume);
+    await prefs.setBool(_keyTripleTapEnabled, config.tripleTapEnabled);
   }
 
   @override

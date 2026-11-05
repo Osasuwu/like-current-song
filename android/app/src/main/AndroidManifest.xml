@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -7,6 +8,11 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- The triple-tap mode (#158). Not grantable by the app itself: the user
+         runs adb shell pm grant (protectionLevel signature|privileged|development). -->
+    <uses-permission
+        android:name="android.permission.SET_MEDIA_KEY_LISTENER"
+        tools:ignore="ProtectedPermissions" />
 
     <application
         android:label="Like Current Song"
