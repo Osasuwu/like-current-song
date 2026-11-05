@@ -41,9 +41,10 @@
             </intent-filter>
         </activity>
 
-        <!-- specialUse, not mediaPlayback: this service never plays media. It holds
-             a MediaSession to *receive* headset button events; Spotify and YouTube
-             Music do the playing. Two things follow from getting this right.
+        <!-- specialUse, not mediaPlayback: this service never plays media. It
+             watches the player's playback state through the notification
+             listener and holds no MediaSession of its own (#300); Spotify and
+             YouTube Music do the playing. Two things follow from getting this right.
              Android 15+ forbids starting a mediaPlayback service from a
              BOOT_COMPLETED receiver (ForegroundServiceStartNotAllowedException),
              which is exactly what BootCompletedReceiver does, and Play's approved
@@ -58,7 +59,7 @@
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Listens for a headset media-button pattern (e.g. pause-play) while the screen is off, and likes the track currently playing in another app. The session must stay resident to receive the buttons; the app plays no media of its own." />
+                android:value="Listens for a headset media-button pattern (e.g. pause-play) while the screen is off, and likes the track currently playing in another app. The service must stay resident to watch the player's playback state; the app plays no media of its own." />
         </service>
 
         <service
@@ -71,15 +72,6 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
-
-        <receiver
-            android:name=".MediaButtonReceiver"
-            android:enabled="true"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MEDIA_BUTTON" />
-            </intent-filter>
-        </receiver>
 
         <receiver
             android:name=".BootCompletedReceiver"
@@ -108,9 +100,6 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.MEDIA_BUTTON" />
         </intent>
     </queries>
 </manifest>

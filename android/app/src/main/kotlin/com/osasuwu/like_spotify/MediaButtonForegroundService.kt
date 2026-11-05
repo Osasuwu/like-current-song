@@ -20,14 +20,11 @@ import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
-import android.support.v4.media.session.MediaSessionCompat
 import androidx.core.app.NotificationCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 
 class MediaButtonForegroundService : Service() {
-    private lateinit var mediaSession: MediaSessionCompat
     private lateinit var detector: MediaEventPatternDetector
-    private var nextToggleIsPause = true
     private var stoppedByUser = false
 
     /**
@@ -109,39 +106,18 @@ class MediaButtonForegroundService : Service() {
         )
         watchActivePlayers()
 
-        // NOT the path a headset press takes — see MediaButtonReceiver. Android
-        // hands the media button to the session it considers the current
-        // player, which is the music app, never this one; and if we did win it,
-        // the pause-play would never reach the player it is meant to pause.
-        // Kept because a remote with no player of its own (some BT remotes, a
-        // head unit with nothing playing) can still land here. The working
-        // path is PlaybackNotificationListenerService.
-        mediaSession = MediaSessionCompat(this, "LikeSpotifySession").apply {
-            setFlags(
-                MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or
-                    MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS
-            )
-            val mediaButtonIntent = Intent(Intent.ACTION_MEDIA_BUTTON).apply {
-                setClass(this@MediaButtonForegroundService, MediaButtonReceiver::class.java)
-            }
-            val mediaButtonPendingIntent = PendingIntent.getBroadcast(
-                this@MediaButtonForegroundService,
-                4,
-                mediaButtonIntent,
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-            )
-            setMediaButtonReceiver(mediaButtonPendingIntent)
-            setCallback(object : MediaSessionCompat.Callback() {
-                override fun onPlay() {
-                    onMediaEvent("play")
-                }
-
-                override fun onPause() {
-                    onMediaEvent("pause")
-                }
-            })
-            isActive = true
-        }
+        // This service owns no MediaSession, on purpose (#300). The headset
+        // press reaches us through PlaybackNotificationListenerService, as the
+        // player's state change. A session of our own never received a press
+        // in normal use, but it was not harmless: Android gives the media
+        // button to the most recently *started* playback whose owner has a
+        // session, and the feedback tone (FeedbackPlayer) is such a playback.
+        // So for ~450 ms after every like, undo or error tone our empty session
+        // held the button, swallowed any press that landed in that window, and
+        // the Bluetooth stack re-addressed the headset to it (state=null) and
+        // back. With no session at all Android skips this UID and the button
+        // stays with the player, tone or no tone. NoOwnMediaSessionTest keeps
+        // it that way.
 
         startForeground(AppConstants.NOTIFICATION_ID, buildNotification(active = true))
         sendServiceState(true)
@@ -213,8 +189,6 @@ class MediaButtonForegroundService : Service() {
                 }
             }
         }
-        mediaSession.isActive = false
-        mediaSession.release()
         if (stoppedByUser) {
             sendServiceState(false)
         } else {
@@ -386,11 +360,6 @@ class MediaButtonForegroundService : Service() {
         return when (event) {
             "play" -> "play"
             "pause" -> "pause"
-            "toggle" -> {
-                val mapped = if (nextToggleIsPause) "pause" else "play"
-                nextToggleIsPause = !nextToggleIsPause
-                mapped
-            }
             else -> null
         }
     }

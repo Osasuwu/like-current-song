@@ -13,6 +13,18 @@ you sign in from its Settings window.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Android: a headset press right after a feedback tone no longer vanishes
+  (#300).** The service held a MediaSession of its own, and Android hands the
+  media button to the most recently started playback whose owner has a session —
+  for about half a second after every like, undo or error tone that was this
+  app, not the player. A press in that window went to the app's empty session
+  and reached nobody, and over Bluetooth the headset was re-addressed to that
+  session and back on every tone. The app now owns no MediaSession, so the
+  button stays with the player; `MediaButtonReceiver` and the `androidx.media`
+  dependency, dead without the session, are gone.
+
 ## [1.4.0] - 2026-10-29
 
 Undo, on the phone and on the desktop: within 10 seconds of a like, repeat the
