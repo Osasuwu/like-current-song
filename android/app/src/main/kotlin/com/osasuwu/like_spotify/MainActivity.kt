@@ -68,7 +68,14 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 						.putLong(AppConstants.KEY_WINDOW_MS, window)
 						.putLong(AppConstants.KEY_DEBOUNCE_MS, debounce)
 						.putInt(AppConstants.KEY_FEEDBACK_VOLUME, volume)
+						.putBoolean(
+							AppConstants.KEY_TRIPLE_TAP_ENABLED,
+							call.argument<Boolean>("tripleTapEnabled") ?: false
+						)
 						.apply()
+					// A running service takes or lets go of the media keys now (#158).
+					LocalBroadcastManager.getInstance(this)
+						.sendBroadcastSync(Intent(AppConstants.ACTION_TRIPLE_TAP_CHANGED))
 					result.success(true)
 				}
 
@@ -170,6 +177,17 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler {
 					// does not always reach onListenerDisconnected.
 					MediaButtonForegroundService.notifyListenerStateChanged(this)
 					result.success(enabled)
+				}
+
+				"getTripleTapStatus" -> {
+					// The screen reads this when it opens, after a Save and on Check
+					// again, any of which may follow the adb grant: let a running
+					// service retry its registration first, so the line reflects the
+					// retry. A fresh registration answers CHECKING until its slot
+					// probe ends; the screen reads again for that (#158).
+					LocalBroadcastManager.getInstance(this)
+						.sendBroadcastSync(Intent(AppConstants.ACTION_TRIPLE_TAP_CHANGED))
+					result.success(TripleTapListener.status(this).wire)
 				}
 
 				"openNotificationListenerSettings" -> {

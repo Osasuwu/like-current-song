@@ -13,6 +13,26 @@ you sign in from its Settings window.
 
 ## [Unreleased]
 
+### Added
+
+- **Android: like on the earbuds' triple tap (#158).** Opt-in, under
+  *Trigger configuration*: with it on, the "previous" your earbuds send on a triple
+  tap likes the current track instead of skipping back, and a second triple tap
+  within 10 seconds undoes the like, as a repeated trigger does. The press never
+  reaches the player. It needs a permission no app can grant itself, so there is
+  a one-time setup step: with the phone connected to a computer over USB
+  debugging, run
+  `adb shell pm grant com.osasuwu.like_spotify android.permission.SET_MEDIA_KEY_LISTENER`
+  (any Shizuku-based shell app on the phone can run the same command). The
+  grant survives app updates. It also needs notification access, which the app
+  already asks for. The settings line says what is still missing, including when
+  another app already holds the media-key listener. Caveats: it works only if
+  your earbuds send "previous" on a triple tap (some give that gesture to the
+  voice assistant); a "previous" from any Bluetooth audio device, such as a car
+  or a speaker, counts too; and a "previous" while something other than the
+  music app plays (a podcast, a video) or with no Bluetooth output connected
+  still skips back.
+
 ### Fixed
 
 - **Android: a headset press right after a feedback tone no longer vanishes

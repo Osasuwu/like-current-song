@@ -11,6 +11,9 @@ object AppConstants {
     const val KEY_FEEDBACK_VOLUME = "trigger_feedback_volume"
     const val DEFAULT_FEEDBACK_VOLUME = 100
 
+    /** The triple-tap mode is on (#158); see [TripleTapListener]. Off by default. */
+    const val KEY_TRIPLE_TAP_ENABLED = "triple_tap_enabled"
+
     /** Selected music service id ("spotify" | "ytmusic"); see [MusicProvider]. */
     const val KEY_MUSIC_PROVIDER = "music_provider"
 
@@ -149,6 +152,13 @@ object AppConstants {
      */
     const val ACTION_LISTENER_STATE_CHANGED =
         "com.osasuwu.like_spotify.LISTENER_STATE_CHANGED"
+
+    /**
+     * The triple-tap mode was switched, or its grant may have changed. In-process
+     * only; a running service re-syncs its media-key listener on it (#158).
+     */
+    const val ACTION_TRIPLE_TAP_CHANGED =
+        "com.osasuwu.like_spotify.TRIPLE_TAP_CHANGED"
 
     const val EXTRA_EVENT = "event"
     const val EXTRA_LOG = "log"

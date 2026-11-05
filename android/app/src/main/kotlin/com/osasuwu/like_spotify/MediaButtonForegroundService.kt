@@ -65,6 +65,19 @@ class MediaButtonForegroundService : Service() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    /**
+     * The triple-tap mode's media-key listener (#158), for this start. It
+     * registers only while the mode is on and the grant is there.
+     */
+    private var tripleTap: TripleTapListener? = null
+
+    /** The mode was switched, or the screen re-read its status: re-sync. */
+    private val tripleTapReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            syncTripleTap()
+        }
+    }
+
     /** Takes the action down once the window it was offered in has passed. */
     private val undoWindowCheck = Runnable { syncUndoAction() }
 
@@ -134,6 +147,17 @@ class MediaButtonForegroundService : Service() {
                 result = "failure",
             )
         }
+        tripleTap = TripleTapListener(
+            this,
+            mainHandler,
+            onPress = ::onTripleTap,
+            log = { message, result -> log(message, actionType = "triple_tap", result = result) },
+        )
+        LocalBroadcastManager.getInstance(this).registerReceiver(
+            tripleTapReceiver,
+            IntentFilter(AppConstants.ACTION_TRIPLE_TAP_CHANGED)
+        )
+        syncTripleTap()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -182,6 +206,12 @@ class MediaButtonForegroundService : Service() {
         runCatching {
             LocalBroadcastManager.getInstance(this).unregisterReceiver(listenerStateReceiver)
         }
+        runCatching {
+            LocalBroadcastManager.getInstance(this).unregisterReceiver(tripleTapReceiver)
+        }
+        // Frees the media keys; an app kill frees them too (the system watches the binder).
+        tripleTap?.close()
+        tripleTap = null
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             (playbackCallback as? AudioManager.AudioPlaybackCallback)?.let { callback ->
                 runCatching {
@@ -219,18 +249,43 @@ class MediaButtonForegroundService : Service() {
                 return
             }
             // Asked after the veto: a vetoed repeat neither likes nor undoes.
-            val press = UndoJournal.onPress(prefs(), now)
-            when (press) {
-                is UndoJournal.Press.Undo -> {
-                    log("Trigger repeated within ${UndoJournal.WINDOW_MS / 1000} s of a like: undoing it", actionType = "undo")
-                    undo(press.pressId)
-                }
-                UndoJournal.Press.QueueUndo ->
-                    log("Trigger repeated while the like is still running: it undoes itself when done", actionType = "undo")
-                UndoJournal.Press.Ignore ->
-                    log("Trigger repeated again: the undo is already under way", actionType = "undo")
-                is UndoJournal.Press.Like -> like(press.afterUndo)
+            handlePress(now)
+        }
+    }
+
+    /**
+     * A press the triple-tap listener kept (#158). Already answered, so the
+     * player never saw it; from here it is the same press as a matched
+     * pattern. The #248 veto does not apply: no pause, no other app's audio.
+     */
+    private fun onTripleTap() {
+        if (destroyed) return
+        log("Triple tap on the earbuds", actionType = "triple_tap")
+        handlePress(System.currentTimeMillis())
+    }
+
+    /** Re-reads the mode and lets the listener register or let go. */
+    private fun syncTripleTap() {
+        if (destroyed) return
+        tripleTap?.sync(prefs().getBoolean(AppConstants.KEY_TRIPLE_TAP_ENABLED, false))
+    }
+
+    /**
+     * One press of the trigger, whatever produced it: a like, or the undo of
+     * the last one when it repeats inside [UndoJournal.WINDOW_MS].
+     */
+    private fun handlePress(now: Long) {
+        val press = UndoJournal.onPress(prefs(), now)
+        when (press) {
+            is UndoJournal.Press.Undo -> {
+                log("Trigger repeated within ${UndoJournal.WINDOW_MS / 1000} s of a like: undoing it", actionType = "undo")
+                undo(press.pressId)
             }
+            UndoJournal.Press.QueueUndo ->
+                log("Trigger repeated while the like is still running: it undoes itself when done", actionType = "undo")
+            UndoJournal.Press.Ignore ->
+                log("Trigger repeated again: the undo is already under way", actionType = "undo")
+            is UndoJournal.Press.Like -> like(press.afterUndo)
         }
     }
 

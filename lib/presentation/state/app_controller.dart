@@ -21,6 +21,7 @@ import '../../domain/entities/spotify_auth_state.dart';
 import '../../domain/entities/like_counter_config.dart';
 import '../../domain/entities/track_info.dart';
 import '../../domain/entities/trigger_config.dart';
+import '../../domain/entities/triple_tap_status.dart';
 import '../../domain/entities/undo_window.dart';
 import '../../domain/repositories/music_routing_repository.dart';
 import '../../domain/repositories/music_service_repository.dart';
@@ -409,6 +410,12 @@ class AppController extends StateNotifier<AppState> {
       message: 'Trigger config updated to ${config.pattern} (${config.windowMs}ms)',
     );
   }
+
+  /// What the native listener says stands in the way of the triple-tap like
+  /// (#158). Read on demand rather than kept in [AppState]: the answer moves
+  /// with things the app never hears about (an adb grant, earbuds pairing).
+  Future<TripleTapStatus> readTripleTapStatus() =>
+      _platformServiceRepository.tripleTapStatus();
 
   Future<void> saveRuleConfig(RuleConfig config) async {
     final normalized = config.copyWith(

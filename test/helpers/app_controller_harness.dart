@@ -15,6 +15,7 @@ import 'package:like_spotify_mobile_app/domain/entities/pending_like.dart';
 import 'package:like_spotify_mobile_app/domain/entities/rule_config.dart';
 import 'package:like_spotify_mobile_app/domain/entities/spotify_auth_state.dart';
 import 'package:like_spotify_mobile_app/domain/entities/trigger_config.dart';
+import 'package:like_spotify_mobile_app/domain/entities/triple_tap_status.dart';
 import 'package:like_spotify_mobile_app/domain/entities/undo_window.dart';
 import 'package:like_spotify_mobile_app/domain/repositories/device_sign_in_repository.dart';
 import 'package:like_spotify_mobile_app/presentation/state/app_controller.dart';
@@ -109,6 +110,11 @@ class AppControllerHarness {
   /// Set it before [build].
   UndoWindow? undoWindow;
 
+  /// What `getTripleTapStatus` answers (#158), read again on every call, so a
+  /// test can change it between two reads. Off by default, which is what an
+  /// install that never opted in looks like.
+  TripleTapStatus tripleTapStatus = TripleTapStatus.off;
+
   /// What the native side sends on its event channel; nothing unless a test
   /// adds to it.
   final StreamController<Map<String, dynamic>> nativeEvents =
@@ -146,6 +152,8 @@ class AppControllerHarness {
     when(() => settings.loadPendingLikes())
         .thenAnswer((_) async => pendingLikes);
     when(() => settings.appendLog(any())).thenAnswer((_) async {});
+    when(() => settings.saveTriggerConfig(any())).thenAnswer((_) async {});
+    when(() => settings.saveRuleConfig(any())).thenAnswer((_) async {});
 
     when(() => platform.isServiceEnabled())
         .thenAnswer((_) async => serviceEnabled);
@@ -177,6 +185,8 @@ class AppControllerHarness {
         .thenAnswer((_) async => backgroundLogs);
     when(() => platform.events()).thenAnswer((_) => nativeEvents.stream);
     when(() => platform.undoWindow()).thenAnswer((_) async => undoWindow);
+    when(() => platform.tripleTapStatus())
+        .thenAnswer((_) async => tripleTapStatus);
 
     for (final repository in <MockMusicServiceRepository>[spotify, ytmusic]) {
       when(() => repository.getAuthState())

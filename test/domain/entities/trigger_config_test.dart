@@ -213,6 +213,21 @@ void main() {
         expect(copy.windowMs, equals(original.windowMs));
         expect(copy.debounceMs, equals(original.debounceMs));
       });
+
+      test('the triple-tap switch is off unless set, and survives other edits',
+          () {
+        const original = TriggerConfig(
+          pattern: 'pause,play',
+          windowMs: 5000,
+          debounceMs: 500,
+        );
+        expect(original.tripleTapEnabled, isFalse);
+
+        final on = original.copyWith(tripleTapEnabled: true);
+        expect(on.tripleTapEnabled, isTrue);
+        expect(on.copyWith(pattern: 'play').tripleTapEnabled, isTrue);
+        expect(on.copyWith(tripleTapEnabled: false).tripleTapEnabled, isFalse);
+      });
     });
   });
 }

@@ -113,6 +113,31 @@ void main() {
     }
   });
 
+  group('triple-tap mode', () {
+    test('is off on a fresh install', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+
+      expect((await repo.loadTriggerConfig()).tripleTapEnabled, isFalse);
+    });
+
+    test('a saved choice is read back by a later instance', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final config = await repo.loadTriggerConfig();
+
+      await repo.saveTriggerConfig(config.copyWith(tripleTapEnabled: true));
+      expect(
+        (await SharedPrefsSettingsRepository().loadTriggerConfig()).tripleTapEnabled,
+        isTrue,
+      );
+
+      await repo.saveTriggerConfig(config.copyWith(tripleTapEnabled: false));
+      expect(
+        (await SharedPrefsSettingsRepository().loadTriggerConfig()).tripleTapEnabled,
+        isFalse,
+      );
+    });
+  });
+
   group('promoted tracks', () {
     test('a fresh install has promoted nothing', () async {
       SharedPreferences.setMockInitialValues(<String, Object>{});
