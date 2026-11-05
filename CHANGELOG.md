@@ -13,6 +13,13 @@ you sign in from its Settings window.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-05
+
+A second way to like on Android: an opt-in triple tap on the earbuds (the
+"previous track" gesture) likes the current track, with a one-time setup
+step. Also fixed: a headset press right after a feedback tone no longer
+vanishes.
+
 ### Added
 
 - **Android: like on the earbuds' triple tap (#158).** Opt-in, under
@@ -1162,7 +1169,8 @@ First tagged release.
   via `trigger.feedback_volume` in `~/.like_spotify/config.json`.
 - Matching Android feedback-volume setting in the Trigger configuration screen.
 
-[Unreleased]: https://github.com/Osasuwu/like-current-song/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/Osasuwu/like-current-song/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/Osasuwu/like-current-song/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/Osasuwu/like-current-song/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/Osasuwu/like-current-song/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/Osasuwu/like-current-song/compare/v1.2.0...v1.3.0
