@@ -158,7 +158,11 @@ class MediaButtonForegroundService : Service() {
             IntentFilter(AppConstants.ACTION_TRIPLE_TAP_CHANGED)
         )
         syncTripleTap()
+        aaProbe = AaPreviousProbe(this).also { it.start() }
     }
+
+    /** SPIKE: Android Auto "previous" recorder. */
+    private var aaProbe: AaPreviousProbe? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -212,6 +216,8 @@ class MediaButtonForegroundService : Service() {
         // Frees the media keys; an app kill frees them too (the system watches the binder).
         tripleTap?.close()
         tripleTap = null
+        aaProbe?.close()
+        aaProbe = null
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             (playbackCallback as? AudioManager.AudioPlaybackCallback)?.let { callback ->
                 runCatching {
